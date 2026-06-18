@@ -3,8 +3,21 @@ import { LLMClient, Config, HeaderUtils } from 'coze-coding-dev-sdk';
 import { divinationPrompts } from '@/lib/knowledge';
 import { paiPan, formatPaiPanFull } from '@/lib/bazi';
 import { paiPan as ziweiPaiPan, formatPaiPan as ziweiFormatPaiPan, getMingGongLunDuan } from '@/lib/ziwei';
+import { matchKnowledge } from '@/lib/classic-knowledge';
 
 export const dynamic = 'force-dynamic';
+
+/** divination type 到经典知识点类别的关键词（用于 matchKnowledge） */
+const typeToKeywords: Record<string, string> = {
+  bazi: '八字命理 四柱排盘',
+  ziwei: '紫微斗数 命盘',
+  liuyao: '六爻 火珠林',
+  meihua: '梅花易数',
+  qimen: '奇门遁甲',
+  liuren: '大六壬',
+  fengshui: '风水地理',
+  xingming: '姓名学',
+};
 
 export async function POST(request: NextRequest) {
   try {
@@ -21,13 +34,18 @@ export async function POST(request: NextRequest) {
       xingming: divinationPrompts.xingming,
     };
 
-    const systemPrompt = promptMap[type];
-    if (!systemPrompt) {
+    const baseSystemPrompt = promptMap[type];
+    if (!baseSystemPrompt) {
       return new Response(JSON.stringify({ error: '不支持的测算类型' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' },
       });
     }
+
+    // 注入该术数对应的经典知识点
+    const keywords = typeToKeywords[type] || '';
+    const classicKnowledgeStr = keywords ? matchKnowledge(keywords) : '';
+    const systemPrompt = baseSystemPrompt + (classicKnowledgeStr ? '\n\n' + classicKnowledgeStr : '');
 
     const modeInstruction = mode === 'professional'
       ? '请用专业术语和经典引文进行解读，标注出处。'

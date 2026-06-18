@@ -3,6 +3,7 @@ import { LLMClient, Config, HeaderUtils } from 'coze-coding-dev-sdk';
 import { buildSystemPromptProfessional, buildSystemPromptCasual } from '@/lib/knowledge';
 import { paiPan, formatPaiPanFull } from '@/lib/bazi';
 import { paiPan as ziweiPaiPan, formatPaiPan as ziweiFormatPaiPan, getMingGongLunDuan } from '@/lib/ziwei';
+import { matchKnowledge, getAllKnowledge } from '@/lib/classic-knowledge';
 
 export const dynamic = 'force-dynamic';
 
@@ -88,9 +89,14 @@ export async function POST(request: NextRequest) {
 
     // 默认同时计算八字和紫微排盘（双盘互参）
   const birthInfoStr = birthInfo ? formatBirthInfoWithPaiPan(birthInfo as BirthInfo) : undefined;
-    const systemPrompt = mode === 'professional'
+  
+    // 根据用户消息智能匹配经典知识点，无匹配则用摘要
+    const classicKnowledgeStr = matchKnowledge(message) || getAllKnowledge();
+
+    const basePrompt = mode === 'professional'
       ? buildSystemPromptProfessional(birthInfoStr)
       : buildSystemPromptCasual(birthInfoStr);
+    const systemPrompt = basePrompt + '\n\n' + classicKnowledgeStr;
 
     const messages = [
       { role: 'system' as const, content: systemPrompt },
