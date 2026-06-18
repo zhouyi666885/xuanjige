@@ -1,10 +1,9 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Switch } from '@/components/ui/switch';
-import { Label } from '@/components/ui/label';
+import { BirthInfoForm, BirthInfo } from '@/components/birth-info-form';
 import Link from 'next/link';
 
 interface DivinationPageProps {
@@ -15,17 +14,50 @@ interface DivinationPageProps {
   placeholder: string;
   systemInfo: string;
   classics: string[];
+  showBirthForm?: boolean;
 }
 
-export function DivinationPage({ type, icon, title, subtitle, placeholder, systemInfo, classics }: DivinationPageProps) {
+export function DivinationPage({ type, icon, title, subtitle, placeholder, systemInfo, classics, showBirthForm = false }: DivinationPageProps) {
   const [input, setInput] = useState('');
   const [mode, setMode] = useState<'casual' | 'professional'>('casual');
   const [result, setResult] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [birthInfo, setBirthInfo] = useState<BirthInfo>({
+    year: '', month: '', day: '', hour: '', minute: '', gender: '',
+    province: '', city: '', district: '',
+  });
+  const [showForm, setShowForm] = useState(false);
+
+  const buildInputText = useCallback(() => {
+    let text = '';
+    if (showBirthForm) {
+      const parts: string[] = [];
+      if (birthInfo.gender) parts.push(`性别：${birthInfo.gender === 'male' ? '男' : '女'}`);
+      if (birthInfo.year && birthInfo.month && birthInfo.day) {
+        let dateStr = `出生日期：${birthInfo.year}年${birthInfo.month}月${birthInfo.day}日`;
+        if (birthInfo.hour) dateStr += ` ${birthInfo.hour}:00`;
+        parts.push(dateStr);
+      }
+      if (birthInfo.province) {
+        let locStr = `出生地：${birthInfo.province}`;
+        if (birthInfo.city) locStr += ` ${birthInfo.city}`;
+        if (birthInfo.district) locStr += ` ${birthInfo.district}`;
+        parts.push(locStr);
+      }
+      text = parts.join('，');
+      if (input.trim()) {
+        text += (text ? '。' : '') + input.trim();
+      }
+    } else {
+      text = input.trim();
+    }
+    return text;
+  }, [showBirthForm, birthInfo, input]);
 
   const handleSubmit = useCallback(async () => {
-    if (!input.trim() || loading) return;
+    const text = buildInputText();
+    if (!text || loading) return;
     setLoading(true);
     setResult('');
     setError('');
@@ -34,7 +66,22 @@ export function DivinationPage({ type, icon, title, subtitle, placeholder, syste
       const response = await fetch('/api/divination', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type, input: input.trim(), mode }),
+        body: JSON.stringify({
+          type,
+          input: input.trim(),
+          mode,
+          birthInfo: showBirthForm ? {
+            gender: birthInfo.gender === 'male' ? '男' : birthInfo.gender === 'female' ? '女' : undefined,
+            birthYear: birthInfo.year ? parseInt(birthInfo.year) : undefined,
+            birthMonth: birthInfo.month ? parseInt(birthInfo.month) : undefined,
+            birthDay: birthInfo.day ? parseInt(birthInfo.day) : undefined,
+            birthHour: birthInfo.hour ? parseInt(birthInfo.hour) : undefined,
+            birthMinute: birthInfo.minute ? parseInt(birthInfo.minute) : undefined,
+            province: birthInfo.province || undefined,
+            city: birthInfo.city || undefined,
+            district: birthInfo.district || undefined,
+          } : undefined,
+        }),
       });
 
       if (!response.ok) throw new Error('请求失败');
@@ -77,7 +124,11 @@ export function DivinationPage({ type, icon, title, subtitle, placeholder, syste
     } finally {
       setLoading(false);
     }
-  }, [input, loading, type, mode]);
+  }, [buildInputText, loading, type, mode]);
+
+  const canSubmit = showBirthForm
+    ? (birthInfo.year && birthInfo.month && birthInfo.day && birthInfo.gender) || input.trim()
+    : input.trim();
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -112,6 +163,30 @@ export function DivinationPage({ type, icon, title, subtitle, placeholder, syste
           </span>
         </div>
 
+        {/* Birth Info Form (collapsible) */}
+        {showBirthForm && (
+          <div className="bg-card border border-gold/10 rounded-xl overflow-hidden">
+            <button
+              onClick={() => setShowForm(!showForm)}
+              className="w-full flex items-center justify-between p-4 text-left"
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-gold">📋</span>
+                <span className="text-gold font-serif text-sm font-bold">出生信息</span>
+                {birthInfo.year && birthInfo.month && birthInfo.day && (
+                  <span className="text-xs text-gold/50">（已填写）</span>
+                )}
+              </div>
+              <span className={`text-gold/50 transition-transform ${showForm ? 'rotate-180' : ''}`}>▼</span>
+            </button>
+            {showForm && (
+              <div className="px-4 pb-4">
+                <BirthInfoForm value={birthInfo} onChange={setBirthInfo} />
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Input */}
         <div className="space-y-3">
           <Textarea
@@ -123,7 +198,7 @@ export function DivinationPage({ type, icon, title, subtitle, placeholder, syste
           />
           <Button
             onClick={handleSubmit}
-            disabled={loading || !input.trim()}
+            disabled={loading || !canSubmit}
             className="w-full bg-gold text-ink hover:bg-gold/90 font-semibold"
             size="lg"
           >

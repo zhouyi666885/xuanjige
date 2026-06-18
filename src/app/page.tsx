@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
+import Link from 'next/link';
 import { CameraCapture } from '@/components/camera-capture';
 import { ChatInterface } from '@/components/chat-interface';
 import { ReadingResult } from '@/components/reading-result';
@@ -126,7 +127,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Divination Tools */}
+      {/* Divination Tools - NOW WITH LINK */}
       <section className="px-4 py-6">
         <div className="max-w-lg mx-auto">
           <h2 className="font-serif text-gold text-lg font-bold mb-4 flex items-center gap-2">
@@ -135,14 +136,15 @@ export default function Home() {
           </h2>
           <div className="grid grid-cols-4 gap-3">
             {divinationTools.map((tool) => (
-              <button
+              <Link
                 key={tool.name}
+                href={tool.href}
                 className="flex flex-col items-center gap-1.5 p-3 rounded-xl bg-card border border-gold/10 hover:border-gold/30 hover:bg-gold/5 transition-all duration-300 group"
               >
                 <span className="text-2xl group-hover:scale-110 transition-transform">{tool.icon}</span>
                 <span className="text-foreground text-xs font-medium">{tool.name}</span>
                 <span className="text-muted-foreground text-[10px]">{tool.desc}</span>
-              </button>
+              </Link>
             ))}
           </div>
         </div>
@@ -158,7 +160,7 @@ export default function Home() {
           <div className="bg-card border border-gold/10 rounded-xl p-4">
             <div className="flex items-center justify-between mb-3">
               <span className="text-gold font-serif font-bold">吉日良辰</span>
-              <span className="text-muted-foreground text-xs" id="today-date" suppressHydrationWarning>
+              <span className="text-muted-foreground text-xs" suppressHydrationWarning>
                 {new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' })}
               </span>
             </div>
@@ -183,7 +185,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Classics Library */}
+      {/* Classics Library - NOW WITH LINK */}
       <section className="px-4 py-6 pb-20">
         <div className="max-w-lg mx-auto">
           <h2 className="font-serif text-gold text-lg font-bold mb-4 flex items-center gap-2">
@@ -192,8 +194,9 @@ export default function Home() {
           </h2>
           <div className="space-y-2">
             {classicCategories.map((cat) => (
-              <button
+              <Link
                 key={cat.name}
+                href={cat.href}
                 className="w-full flex items-center gap-4 p-3 bg-card border border-gold/10 rounded-xl hover:border-gold/30 hover:bg-gold/5 transition-all duration-300 group"
               >
                 <span className="text-2xl group-hover:scale-110 transition-transform">{cat.icon}</span>
@@ -202,7 +205,7 @@ export default function Home() {
                   <span className="text-muted-foreground text-xs ml-2">{cat.count}</span>
                 </div>
                 <span className="text-gold/30 text-sm">›</span>
-              </button>
+              </Link>
             ))}
             <div className="text-center pt-2">
               <p className="text-muted-foreground text-xs">
@@ -213,13 +216,13 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Bottom Navigation */}
+      {/* Bottom Navigation - NOW WITH LINK */}
       <nav className="fixed bottom-0 left-0 right-0 bg-ink/95 backdrop-blur-md border-t border-gold/10 z-40">
         <div className="max-w-lg mx-auto flex items-center justify-around py-2">
-          <button className="flex flex-col items-center gap-0.5 text-gold py-1 px-4">
+          <Link href="/" className="flex flex-col items-center gap-0.5 text-gold py-1 px-4">
             <span className="text-xl">🏠</span>
             <span className="text-[10px] font-medium">首页</span>
-          </button>
+          </Link>
           <button
             onClick={() => setChatOpen(true)}
             className="flex flex-col items-center gap-0.5 text-muted-foreground hover:text-gold py-1 px-4 transition-colors"
@@ -234,10 +237,10 @@ export default function Home() {
             <span className="text-xl">📷</span>
             <span className="text-[10px]">拍照</span>
           </button>
-          <button className="flex flex-col items-center gap-0.5 text-muted-foreground hover:text-gold py-1 px-4 transition-colors">
+          <Link href="/classics" className="flex flex-col items-center gap-0.5 text-muted-foreground hover:text-gold py-1 px-4 transition-colors">
             <span className="text-xl">📚</span>
             <span className="text-[10px]">书房</span>
-          </button>
+          </Link>
         </div>
       </nav>
 

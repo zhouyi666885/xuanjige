@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
   try {
-    const { type, input, mode = 'casual' } = await request.json();
+    const { type, input, mode = 'casual', birthInfo } = await request.json();
 
     const promptMap: Record<string, string> = {
       bazi: divinationPrompts.bazi,
@@ -35,9 +35,31 @@ export async function POST(request: NextRequest) {
     const config = new Config();
     const client = new LLMClient(config, customHeaders);
 
+    let userInput = input;
+    if (birthInfo) {
+      const { gender, birthYear, birthMonth, birthDay, birthHour, birthMinute, province, city, district } = birthInfo;
+      const parts: string[] = [];
+      if (gender) parts.push(`性别：${gender}`);
+      if (birthYear && birthMonth && birthDay) {
+        parts.push(`出生日期：${birthYear}年${birthMonth}月${birthDay}日`);
+      }
+      if (birthHour !== undefined && birthMinute !== undefined) {
+        parts.push(`出生时间：${birthHour}时${birthMinute}分`);
+      }
+      if (province) {
+        let loc = `出生地：${province}`;
+        if (city) loc += ` ${city}`;
+        if (district) loc += ` ${district}`;
+        parts.push(loc);
+      }
+      if (parts.length > 0) {
+        userInput = parts.join('\n') + '\n\n' + input;
+      }
+    }
+
     const messages = [
       { role: 'system' as const, content: systemPrompt + '\n\n' + modeInstruction },
-      { role: 'user' as const, content: input },
+      { role: 'user' as const, content: userInput },
     ];
 
     const stream = client.stream(messages, {
