@@ -54,19 +54,11 @@ const theologyCategories: ClassicCategory[] = [
   },
   {
     icon: '✡️',
-    name: '犹太教神学',
-    count: '~400部',
-    desc: '塔纳赫、塔木德、卡巴拉',
-    highlights: ['《创世记》', '《塔木德》', '《迷途指津》', '《生命之树》'],
-    href: '/classics/jewish-theology',
-  },
-  {
-    icon: '🏛️',
-    name: '希腊哲学神学',
-    count: '~150部',
-    desc: '柏拉图、亚里士多德、新柏拉图主义',
-    highlights: ['《蒂迈欧篇》', '《形而上学》', '《九章集》'],
-    href: '/classics/greek-theology',
+    name: '犹太·希腊哲学神学',
+    count: '~550部',
+    desc: '塔木德、卡巴拉、柏拉图、新柏拉图主义',
+    highlights: ['《塔木德》', '《生命之树》', '《蒂迈欧篇》', '《九章集》'],
+    href: '/classics/jewish-greek-theology',
   },
   {
     icon: '💭',
@@ -74,7 +66,7 @@ const theologyCategories: ClassicCategory[] = [
     count: '~150部',
     desc: '斯宾诺莎、康德、黑格尔',
     highlights: ['《神正论》', '《纯粹理性批判》', '《思想录》'],
-    href: '/classics/modern-theology',
+    href: '/classics/jewish-greek-theology',
   },
 ];
 
@@ -85,7 +77,7 @@ const divinationCategories: ClassicCategory[] = [
     count: '~1180部',
     desc: '子平法、格局论、调候论、病药说',
     highlights: ['《渊海子平》', '《三命通会》', '《滴天髓》', '《子平真诠》', '《穷通宝鉴》'],
-    href: '/classics/bazi',
+    href: '/classics/bazi-classics',
   },
   {
     icon: '🎯',
@@ -93,7 +85,7 @@ const divinationCategories: ClassicCategory[] = [
     count: '~425部',
     desc: '铜钱起卦、用神断事、口诀总汇',
     highlights: ['《火珠林》', '《增删卜易》', '《卜筮正宗》', '《黄金策》'],
-    href: '/classics/liuyao',
+    href: '/classics/liuyao-classics',
   },
   {
     icon: '🌀',
@@ -101,7 +93,7 @@ const divinationCategories: ClassicCategory[] = [
     count: '~530部',
     desc: '九宫八门、转盘飞盘、太乙神数',
     highlights: ['《烟波钓叟赋》', '《奇门遁甲大全》', '《太乙神数》'],
-    href: '/classics/qimen',
+    href: '/classics/qimen-classics',
   },
   {
     icon: '🐉',
@@ -109,7 +101,7 @@ const divinationCategories: ClassicCategory[] = [
     count: '~430部',
     desc: '四课三传、金口诀、射覆',
     highlights: ['《六壬心镜》', '《六壬断案》', '《六壬指南》', '《六壬毕法赋》'],
-    href: '/classics/liuren',
+    href: '/classics/liuren-classics',
   },
   {
     icon: '🔢',
@@ -117,7 +109,7 @@ const divinationCategories: ClassicCategory[] = [
     count: '~500部',
     desc: '铁板批命、梅花心易、皇极经世',
     highlights: ['《铁板神数》', '《梅花易数》', '《皇极经世书》'],
-    href: '/classics/tieban-meihua',
+    href: '/classics/meihua-classics',
   },
   {
     icon: '⭐',
@@ -125,7 +117,7 @@ const divinationCategories: ClassicCategory[] = [
     count: '~1150部',
     desc: '中州派、飞星派、三合派',
     highlights: ['《紫微斗数全书》', '中州派全集', '飞星派全集'],
-    href: '/classics/ziwei',
+    href: '/classics/ziwei-classics',
   },
   {
     icon: '🏔️',
@@ -133,7 +125,7 @@ const divinationCategories: ClassicCategory[] = [
     count: '~1130部',
     desc: '形势派、理气派、阳宅',
     highlights: ['《葬经》', '《撼龙经》', '《阳宅三要》', '《天玉经》'],
-    href: '/classics/fengshui',
+    href: '/classics/fengshui-classics',
   },
   {
     icon: '🧘',
@@ -141,7 +133,7 @@ const divinationCategories: ClassicCategory[] = [
     count: '~830部',
     desc: '内丹、外丹、导引气功',
     highlights: ['《周易参同契》', '《悟真篇》', '《伍柳仙宗》', '《抱朴子内篇》'],
-    href: '/classics/dandao',
+    href: '/classics/dandao-classics',
   },
   {
     icon: '📜',
@@ -149,7 +141,7 @@ const divinationCategories: ClassicCategory[] = [
     count: '~2270部',
     desc: '三易、历代注本、易图学',
     highlights: ['《周易》', '《周易正义》', '《周易本义》', '《伊川易传》'],
-    href: '/classics/yixue',
+    href: '/classics/yixue-classics',
   },
   {
     icon: '👤',
