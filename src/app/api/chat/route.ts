@@ -1,7 +1,8 @@
 import { NextRequest } from 'next/server';
 import { LLMClient, Config, HeaderUtils } from 'coze-coding-dev-sdk';
 import { buildSystemPromptProfessional, buildSystemPromptCasual } from '@/lib/knowledge';
-import { paiPan, formatPaiPan } from '@/lib/bazi';
+import { paiPan, formatPaiPanFull } from '@/lib/bazi';
+import { paiPan as ziweiPaiPan, formatPaiPan as ziweiFormatPaiPan, getMingGongLunDuan } from '@/lib/ziwei';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,13 +18,17 @@ interface BirthInfo {
   district: string;
 }
 
-function formatBirthInfoWithPaiPan(birthInfo: BirthInfo): string {
+function formatBirthInfoWithPaiPan(birthInfo: BirthInfo, _type?: string): string {
   const gender = birthInfo.gender === '男' ? 'male' : 'female';
   const genderText = birthInfo.gender === '男' ? '乾造（男命）' : '坤造（女命）';
 
   let paiPanResult = '';
+  let baziYearGan = '';
+  let baziYearZhi = '';
+
+  // 先计算八字排盘（含调候用神）
   try {
-    const result = paiPan(
+    const baziResult = paiPan(
       gender,
       birthInfo.birthYear,
       birthInfo.birthMonth,
@@ -32,16 +37,38 @@ function formatBirthInfoWithPaiPan(birthInfo: BirthInfo): string {
       birthInfo.birthMinute,
       birthInfo.province
     );
-    paiPanResult = `\n\n【精确排盘结果（代码计算，非AI脑补）】\n${formatPaiPan(result)}`;
+    const baziText = formatPaiPanFull(baziResult);
+    baziYearGan = baziResult.yearPillar.gan;
+    baziYearZhi = baziResult.yearPillar.zhi;
+    paiPanResult = `\n\n【八字精确排盘结果（代码计算，非AI脑补）】\n${baziText}`;
   } catch (e) {
-    paiPanResult = '\n\n[排盘计算出错，请AI自行推算]';
+    paiPanResult = '\n\n[八字排盘计算出错]';
+  }
+
+  // 始终同时计算紫微斗数排盘（双盘互参）
+  if (baziYearGan) {
+    try {
+      const result = ziweiPaiPan({
+        year: birthInfo.birthYear,
+        month: birthInfo.birthMonth,
+        day: birthInfo.birthDay,
+        hour: birthInfo.birthHour,
+        minute: birthInfo.birthMinute,
+        gender: birthInfo.gender === '男' ? '男' : '女',
+        yearGan: baziYearGan,
+        yearZhi: baziYearZhi,
+      });
+      paiPanResult += `\n\n【紫微斗数精确排盘结果（代码计算，非AI脑补）】\n${ziweiFormatPaiPan(result)}\n\n${getMingGongLunDuan(result)}`;
+    } catch (e) {
+      paiPanResult += '\n\n[紫微斗数排盘计算出错]';
+    }
   }
 
   return `${genderText}
 出生时间：${birthInfo.birthYear}年${birthInfo.birthMonth}月${birthInfo.birthDay}日 ${birthInfo.birthHour}时${birthInfo.birthMinute}分
 出生地点：${birthInfo.province}${birthInfo.city}${birthInfo.district}${paiPanResult}
 
-重要：以上排盘结果由代码精确计算得出，四柱、藏干、十神、五行统计、大运等均为真实数据，请直接基于此排盘结果进行分析解读，不要再自行推算四柱。分析时必须引经据典。`;
+重要：以上排盘结果由代码精确计算得出，四柱、藏干、十神、五行统计、大运、调候用神、紫微斗数命盘等均为真实数据，请直接基于此排盘结果进行分析解读，不要再自行推算。八字与紫微斗数双盘互参。分析时必须引经据典，尤其参考《渊海子平》《穷通宝鉴》《子平真诠》《滴天髓》《紫微斗数全书》等经典。`;
 }
 
 export async function POST(request: NextRequest) {
@@ -59,7 +86,8 @@ export async function POST(request: NextRequest) {
     const config = new Config();
     const client = new LLMClient(config, customHeaders);
 
-    const birthInfoStr = birthInfo ? formatBirthInfoWithPaiPan(birthInfo as BirthInfo) : undefined;
+    // 默认同时计算八字和紫微排盘（双盘互参）
+  const birthInfoStr = birthInfo ? formatBirthInfoWithPaiPan(birthInfo as BirthInfo) : undefined;
     const systemPrompt = mode === 'professional'
       ? buildSystemPromptProfessional(birthInfoStr)
       : buildSystemPromptCasual(birthInfoStr);

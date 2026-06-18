@@ -1,7 +1,8 @@
 import { NextRequest } from 'next/server';
 import { LLMClient, Config, HeaderUtils } from 'coze-coding-dev-sdk';
 import { divinationPrompts } from '@/lib/knowledge';
-import { paiPan, formatPaiPan } from '@/lib/bazi';
+import { paiPan, formatPaiPanFull } from '@/lib/bazi';
+import { paiPan as ziweiPaiPan, formatPaiPan as ziweiFormatPaiPan, getMingGongLunDuan } from '@/lib/ziwei';
 
 export const dynamic = 'force-dynamic';
 
@@ -60,14 +61,40 @@ export async function POST(request: NextRequest) {
         userInput = parts.join('\n') + '\n\n' + input;
       }
 
-      // 计算真实排盘
+      // 计算八字排盘（含调候用神）
+      let baziYearGan = '';
+      let baziYearZhi = '';
       try {
         const g = gender === '男' ? 'male' : 'female';
-        const result = paiPan(g, birthYear, birthMonth, birthDay, birthHour, birthMinute, province || '');
-        paiPanAppend = `\n\n【精确排盘结果（代码计算，非AI脑补）】\n${formatPaiPan(result)}\n\n重要：以上排盘结果由代码精确计算得出，四柱、藏干、十神、五行统计、大运等均为真实数据，请直接基于此排盘结果进行分析解读，不要再自行推算四柱。分析时必须引经据典。`;
+        const baziResult = paiPan(g, birthYear, birthMonth, birthDay, birthHour, birthMinute, province || '');
+        const baziText = formatPaiPanFull(baziResult);
+        paiPanAppend = `\n\n【八字精确排盘结果（代码计算，非AI脑补）】\n${baziText}`;
+        baziYearGan = baziResult.yearPillar.gan;
+        baziYearZhi = baziResult.yearPillar.zhi;
       } catch (e) {
-        paiPanAppend = '\n\n[排盘计算出错，请AI自行推算]';
+        paiPanAppend = '\n\n[八字排盘计算出错]';
       }
+
+      // 如果是紫微斗数，额外计算紫微排盘
+      if (type === 'ziwei') {
+        try {
+          const ziweiResult = ziweiPaiPan({
+            year: birthYear,
+            month: birthMonth,
+            day: birthDay,
+            hour: birthHour,
+            minute: birthMinute,
+            gender: gender === '男' ? '男' : '女',
+            yearGan: baziYearGan || '甲',
+            yearZhi: baziYearZhi || '子',
+          });
+          paiPanAppend += `\n\n【紫微斗数精确排盘结果（代码计算，非AI脑补）】\n${ziweiFormatPaiPan(ziweiResult)}\n\n${getMingGongLunDuan(ziweiResult)}`;
+        } catch (e) {
+          paiPanAppend += '\n\n[紫微斗数排盘计算出错]';
+        }
+      }
+
+      paiPanAppend += '\n\n重要：以上排盘结果由代码精确计算得出，四柱、藏干、十神、五行统计、大运、调候用神、紫微斗数命盘等均为真实数据，请直接基于此排盘结果进行分析解读，不要再自行推算。分析时必须引经据典，尤其参考《渊海子平》《穷通宝鉴》《子平真诠》《滴天髓》《紫微斗数全书》等经典。';
     } else if (birthInfo) {
       // 其他术数类型，仅拼接出生信息
       const { gender, birthYear, birthMonth, birthDay, birthHour, birthMinute, province, city, district } = birthInfo;

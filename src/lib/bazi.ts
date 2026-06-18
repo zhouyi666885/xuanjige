@@ -533,3 +533,219 @@ export function formatPaiPan(result: BaZiPaiPan): string {
 
   return lines.join('\n');
 }
+
+// ========== 《穷通宝鉴》调候用神表 ==========
+// 格式：[日主天干索引][月份1-12] → { yongShen: 用神, xiShen: 喜神, tiaoHou: 调候说明 }
+// 月份按农历：1=寅月, 2=卯月, ..., 12=丑月
+
+interface TiaoHouInfo {
+  yongShen: string;       // 调候用神
+  xiShen: string;         // 喜神
+    tiaoHou: string;      // 调候说明（引自《穷通宝鉴》原文）
+}
+
+// 甲木调候（日主=甲，索引0）
+const JIA_TIAOHOU: TiaoHouInfo[] = [
+  { yongShen: '丙', xiShen: '癸', tiaoHou: '正月甲木，初春尚有余寒，先用丙火暖之，再用癸水润之' },
+  { yongShen: '丙', xiShen: '癸', tiaoHou: '二月甲木，阳气渐升，先用丙火，后用癸水' },
+  { yongShen: '庚', xiShen: '壬', tiaoHou: '三月甲木，木气已老，用庚金克之，壬水润之' },
+  { yongShen: '庚', xiShen: '丁', tiaoHou: '四月甲木，火旺木渴，先用癸水润之，次用庚金' },
+  { yongShen: '癸', xiShen: '庚', tiaoHou: '五月甲木，火旺木焚，必用癸水为救，次用庚金发水源' },
+  { yongShen: '癸', xiShen: '庚', tiaoHou: '六月甲木，火土并旺，先用癸水，次用庚金' },
+  { yongShen: '丁', xiShen: '庚', tiaoHou: '七月甲木，金旺木绝，先用丁火制金，次用庚金' },
+  { yongShen: '丁', xiShen: '庚', tiaoHou: '八月甲木，金旺克木，用丁火制之' },
+  { yongShen: '癸', xiShen: '丁', tiaoHou: '九月甲木，土旺木枯，先用癸水润之，次用丁火' },
+  { yongShen: '丁', xiShen: '庚', tiaoHou: '十月甲木，水旺木寒，先用丁火暖之，次用庚金' },
+  { yongShen: '丁', xiShen: '庚', tiaoHou: '十一月甲木，寒木向阳，必用丁火' },
+  { yongShen: '丁', xiShen: '丙', tiaoHou: '十二月甲木，天寒地冻，先用丁火，次用丙火' },
+];
+
+// 乙木调候（日主=乙，索引1）
+const YI_TIAOHOU: TiaoHouInfo[] = [
+  { yongShen: '丙', xiShen: '癸', tiaoHou: '正月乙木，用丙火暖之，癸水润之' },
+  { yongShen: '丙', xiShen: '癸', tiaoHou: '二月乙木，阳气渐生，用丙火癸水' },
+  { yongShen: '癸', xiShen: '丙', tiaoHou: '三月乙木，用癸水润之，丙火暖之' },
+  { yongShen: '癸', xiShen: '丙', tiaoHou: '四月乙木，火旺木渴，必用癸水' },
+  { yongShen: '癸', xiShen: '丙', tiaoHou: '五月乙木，火炎土燥，癸水为救' },
+  { yongShen: '癸', xiShen: '丙', tiaoHou: '六月乙木，土旺用癸水润之' },
+  { yongShen: '丙', xiShen: '癸', tiaoHou: '七月乙木，金旺用丙火' },
+  { yongShen: '丙', xiShen: '癸', tiaoHou: '八月乙木，金旺木弱，用丙火制金' },
+  { yongShen: '癸', xiShen: '丙', tiaoHou: '九月乙木，土旺用癸水' },
+  { yongShen: '丙', xiShen: '戊', tiaoHou: '十月乙木，水旺用丙火' },
+  { yongShen: '丙', xiShen: '戊', tiaoHou: '十一月乙木，寒木向阳，用丙火' },
+  { yongShen: '丙', xiShen: '戊', tiaoHou: '十二月乙木，用丙火暖之' },
+];
+
+// 丙火调候（日主=丙，索引2）
+const BING_TIAOHOU: TiaoHouInfo[] = [
+  { yongShen: '壬', xiShen: '甲', tiaoHou: '正月丙火，木旺火相，用壬水为制，甲木为辅' },
+  { yongShen: '壬', xiShen: '己', tiaoHou: '二月丙火，用壬水为制' },
+  { yongShen: '壬', xiShen: '甲', tiaoHou: '三月丙火，土旺用壬水' },
+  { yongShen: '壬', xiShen: '甲', tiaoHou: '四月丙火，火旺用壬水制之' },
+  { yongShen: '壬', xiShen: '庚', tiaoHou: '五月丙火，火炎水绝，必用壬水，庚金发水源' },
+  { yongShen: '壬', xiShen: '庚', tiaoHou: '六月丙火，土旺用壬水，庚金佐之' },
+  { yongShen: '壬', xiShen: '戊', tiaoHou: '七月丙火，金旺水相，用壬水' },
+  { yongShen: '壬', xiShen: '甲', tiaoHou: '八月丙火，金旺用壬水' },
+  { yongShen: '壬', xiShen: '甲', tiaoHou: '九月丙火，土旺用壬水，甲木疏土' },
+  { yongShen: '甲', xiShen: '壬', tiaoHou: '十月丙火，水旺用甲木化杀生身' },
+  { yongShen: '甲', xiShen: '壬', tiaoHou: '十一月丙火，水旺火弱，甲木为用' },
+  { yongShen: '甲', xiShen: '壬', tiaoHou: '十二月丙火，土旺用甲木' },
+];
+
+// 丁火调候（日主=丁，索引3）
+const DING_TIAOHOU: TiaoHouInfo[] = [
+  { yongShen: '甲', xiShen: '庚', tiaoHou: '正月丁火，用甲木引丁' },
+  { yongShen: '甲', xiShen: '庚', tiaoHou: '二月丁火，用甲木' },
+  { yongShen: '甲', xiShen: '庚', tiaoHou: '三月丁火，土旺用甲木' },
+  { yongShen: '甲', xiShen: '壬', tiaoHou: '四月丁火，火旺用甲木' },
+  { yongShen: '甲', xiShen: '壬', tiaoHou: '五月丁火，火旺用甲木化杀' },
+  { yongShen: '甲', xiShen: '壬', tiaoHou: '六月丁火，土旺用甲木' },
+  { yongShen: '甲', xiShen: '庚', tiaoHou: '七月丁火，金旺用甲木' },
+  { yongShen: '甲', xiShen: '庚', tiaoHou: '八月丁火，金旺用甲木' },
+  { yongShen: '甲', xiShen: '庚', tiaoHou: '九月丁火，土旺用甲木' },
+  { yongShen: '甲', xiShen: '庚', tiaoHou: '十月丁火，水旺用甲木化杀' },
+  { yongShen: '甲', xiShen: '庚', tiaoHou: '十一月丁火，寒水旺用甲木' },
+  { yongShen: '甲', xiShen: '庚', tiaoHou: '十二月丁火，土旺用甲木' },
+];
+
+// 戊土调候（日主=戊，索引4）
+const WU_TIAOHOU: TiaoHouInfo[] = [
+  { yongShen: '丙', xiShen: '甲', tiaoHou: '正月戊土，寒气未除，先用丙火暖之' },
+  { yongShen: '丙', xiShen: '甲', tiaoHou: '二月戊土，用丙火暖之，甲木疏土' },
+  { yongShen: '甲', xiShen: '丙', tiaoHou: '三月戊土，土旺用甲木疏之' },
+  { yongShen: '甲', xiShen: '丙', tiaoHou: '四月戊土，火旺土燥，先用癸水润之' },
+  { yongShen: '壬', xiShen: '甲', tiaoHou: '五月戊土，火旺土燥，用壬水为救' },
+  { yongShen: '壬', xiShen: '甲', tiaoHou: '六月戊土，土旺用壬水，甲木疏土' },
+  { yongShen: '丙', xiShen: '癸', tiaoHou: '七月戊土，金旺水相，先用丙火' },
+  { yongShen: '丙', xiShen: '癸', tiaoHou: '八月戊土，金旺用丙火' },
+  { yongShen: '甲', xiShen: '丙', tiaoHou: '九月戊土，土旺用甲木疏之' },
+  { yongShen: '甲', xiShen: '丙', tiaoHou: '十月戊土，水旺用甲木化杀' },
+  { yongShen: '甲', xiShen: '丙', tiaoHou: '十一月戊土，水旺用甲木丙火' },
+  { yongShen: '丙', xiShen: '甲', tiaoHou: '十二月戊土，天寒地冻，用丙火暖之' },
+];
+
+// 己土调候（日主=己，索引5）
+const JI_TIAOHOU: TiaoHouInfo[] = [
+  { yongShen: '丙', xiShen: '甲', tiaoHou: '正月己土，寒气未除，用丙火暖之' },
+  { yongShen: '甲', xiShen: '丙', tiaoHou: '二月己土，用甲木疏之，丙火暖之' },
+  { yongShen: '甲', xiShen: '丙', tiaoHou: '三月己土，土旺用甲木疏之' },
+  { yongShen: '癸', xiShen: '丙', tiaoHou: '四月己土，火旺土燥，用癸水润之' },
+  { yongShen: '癸', xiShen: '丙', tiaoHou: '五月己土，火旺用癸水' },
+  { yongShen: '癸', xiShen: '丙', tiaoHou: '六月己土，土旺用癸水润之' },
+  { yongShen: '丙', xiShen: '癸', tiaoHou: '七月己土，金旺用丙火' },
+  { yongShen: '丙', xiShen: '癸', tiaoHou: '八月己土，金旺用丙火' },
+  { yongShen: '甲', xiShen: '丙', tiaoHou: '九月己土，土旺用甲木疏之' },
+  { yongShen: '甲', xiShen: '丙', tiaoHou: '十月己土，水旺用甲木' },
+  { yongShen: '丙', xiShen: '甲', tiaoHou: '十一月己土，寒土用丙火' },
+  { yongShen: '丙', xiShen: '甲', tiaoHou: '十二月己土，寒土用丙火暖之' },
+];
+
+// 庚金调候（日主=庚，索引6）
+const GENG_TIAOHOU: TiaoHouInfo[] = [
+  { yongShen: '丁', xiShen: '甲', tiaoHou: '正月庚金，木旺金衰，用丁火炼之' },
+  { yongShen: '丁', xiShen: '甲', tiaoHou: '二月庚金，用丁火炼金' },
+  { yongShen: '丁', xiShen: '甲', tiaoHou: '三月庚金，土旺金相，用丁火' },
+  { yongShen: '丁', xiShen: '壬', tiaoHou: '四月庚金，火旺金柔，用壬水制火' },
+  { yongShen: '壬', xiShen: '丁', tiaoHou: '五月庚金，火旺用壬水为救' },
+  { yongShen: '壬', xiShen: '丁', tiaoHou: '六月庚金，土旺用壬水' },
+  { yongShen: '丁', xiShen: '甲', tiaoHou: '七月庚金，金旺用丁火炼之' },
+  { yongShen: '丁', xiShen: '甲', tiaoHou: '八月庚金，金旺用丁火炼之，甲木引丁' },
+  { yongShen: '甲', xiShen: '壬', tiaoHou: '九月庚金，土旺用甲木疏之' },
+  { yongShen: '丁', xiShen: '丙', tiaoHou: '十月庚金，水旺金寒，用丁火暖之' },
+  { yongShen: '丁', xiShen: '丙', tiaoHou: '十一月庚金，水旺金寒，用丁火丙火' },
+  { yongShen: '丁', xiShen: '丙', tiaoHou: '十二月庚金，寒金用丁火丙火' },
+];
+
+// 辛金调候（日主=辛，索引7）
+const XIN_TIAOHOU: TiaoHouInfo[] = [
+  { yongShen: '壬', xiShen: '甲', tiaoHou: '正月辛金，用壬水淘洗' },
+  { yongShen: '壬', xiShen: '甲', tiaoHou: '二月辛金，用壬水淘洗' },
+  { yongShen: '壬', xiShen: '甲', tiaoHou: '三月辛金，土旺用壬水' },
+  { yongShen: '壬', xiShen: '甲', tiaoHou: '四月辛金，火旺用壬水' },
+  { yongShen: '壬', xiShen: '己', tiaoHou: '五月辛金，火旺用壬水为救' },
+  { yongShen: '壬', xiShen: '己', tiaoHou: '六月辛金，土旺用壬水' },
+  { yongShen: '壬', xiShen: '甲', tiaoHou: '七月辛金，金旺用壬水淘洗' },
+  { yongShen: '壬', xiShen: '甲', tiaoHou: '八月辛金，金旺用壬水淘洗' },
+  { yongShen: '壬', xiShen: '甲', tiaoHou: '九月辛金，土旺用壬水' },
+  { yongShen: '壬', xiShen: '丙', tiaoHou: '十月辛金，水旺用壬水淘洗，丙火暖之' },
+  { yongShen: '丙', xiShen: '壬', tiaoHou: '十一月辛金，寒金用丙火暖之' },
+  { yongShen: '丙', xiShen: '壬', tiaoHou: '十二月辛金，寒金用丙火暖之' },
+];
+
+// 壬水调候（日主=壬，索引8）
+const REN_TIAOHOU: TiaoHouInfo[] = [
+  { yongShen: '戊', xiShen: '丙', tiaoHou: '正月壬水，水旺用戊土制之，丙火暖之' },
+  { yongShen: '戊', xiShen: '辛', tiaoHou: '二月壬水，水弱用戊土，辛金发水源' },
+  { yongShen: '甲', xiShen: '庚', tiaoHou: '三月壬水，土旺用甲木疏土' },
+  { yongShen: '壬', xiShen: '甲', tiaoHou: '四月壬水，火旺水衰，用壬水助之' },
+  { yongShen: '壬', xiShen: '庚', tiaoHou: '五月壬水，火旺水绝，用壬水庚金' },
+  { yongShen: '壬', xiShen: '庚', tiaoHou: '六月壬水，土旺用壬水，庚金佐之' },
+  { yongShen: '戊', xiShen: '丁', tiaoHou: '七月壬水，金旺水相，用戊土制之' },
+  { yongShen: '甲', xiShen: '戊', tiaoHou: '八月壬水，金旺用甲木泄水' },
+  { yongShen: '甲', xiShen: '戊', tiaoHou: '九月壬水，土旺用甲木疏之' },
+  { yongShen: '戊', xiShen: '丙', tiaoHou: '十月壬水，水旺用戊土制之' },
+  { yongShen: '戊', xiShen: '丙', tiaoHou: '十一月壬水，水旺用戊土丙火' },
+  { yongShen: '丙', xiShen: '戊', tiaoHou: '十二月壬水，寒水用丙火暖之，戊土制之' },
+];
+
+// 癸水调候（日主=癸，索引9）
+const GUI_TIAOHOU: TiaoHouInfo[] = [
+  { yongShen: '辛', xiShen: '丙', tiaoHou: '正月癸水，用辛金发水源，丙火暖之' },
+  { yongShen: '辛', xiShen: '丙', tiaoHou: '二月癸水，用辛金发水源' },
+  { yongShen: '辛', xiShen: '丙', tiaoHou: '三月癸水，土旺用辛金' },
+  { yongShen: '辛', xiShen: '甲', tiaoHou: '四月癸水，火旺水衰，用辛金发水源' },
+  { yongShen: '辛', xiShen: '庚', tiaoHou: '五月癸水，火旺水绝，用辛金庚金' },
+  { yongShen: '辛', xiShen: '庚', tiaoHou: '六月癸水，土旺用辛金发水源' },
+  { yongShen: '辛', xiShen: '丙', tiaoHou: '七月癸水，金旺水相，用辛金' },
+  { yongShen: '辛', xiShen: '丙', tiaoHou: '八月癸水，金旺用辛金' },
+  { yongShen: '辛', xiShen: '甲', tiaoHou: '九月癸水，土旺用辛金甲木' },
+  { yongShen: '辛', xiShen: '丙', tiaoHou: '十月癸水，水旺用辛金' },
+  { yongShen: '丙', xiShen: '辛', tiaoHou: '十一月癸水，寒水用丙火暖之' },
+  { yongShen: '丙', xiShen: '辛', tiaoHou: '十二月癸水，寒水用丙火暖之' },
+];
+
+// 汇总调候表：按天干索引（0=甲，1=乙，...，9=癸）
+const TIAOHOU_TABLE: TiaoHouInfo[][] = [
+  JIA_TIAOHOU, YI_TIAOHOU, BING_TIAOHOU, DING_TIAOHOU, WU_TIAOHOU,
+  JI_TIAOHOU, GENG_TIAOHOU, XIN_TIAOHOU, REN_TIAOHOU, GUI_TIAOHOU,
+];
+
+// 获取调候用神
+export function getTiaoHou(dayGan: string, monthZhiIndex: number): TiaoHouInfo | null {
+  const ganIdx = TIANGAN.indexOf(dayGan);
+  if (ganIdx < 0 || ganIdx > 9) return null;
+  // monthZhiIndex: 2=寅月→对应索引0, 3=卯月→1, ..., 1=丑月→11
+  const tiaoIdx = ((monthZhiIndex - 2 + 12) % 12);
+  return TIAOHOU_TABLE[ganIdx][tiaoIdx] || null;
+}
+
+// 在 BaZiPaiPan 接口中新增调候字段
+// 扩展格式化输出
+export function formatPaiPanFull(result: BaZiPaiPan): string {
+  let text = formatPaiPan(result);
+
+  // 加入调候用神
+  const monthZhiIdx = DIZHI.indexOf(result.monthPillar.zhi);
+  const tiaoHou = getTiaoHou(result.dayMaster, monthZhiIdx);
+  if (tiaoHou) {
+    text += '\n\n【调候用神】（出自《穷通宝鉴》）\n';
+    text += `用神：${tiaoHou.yongShen}（${WUXING_GAN[tiaoHou.yongShen]}）\n`;
+    text += `喜神：${tiaoHou.xiShen}（${WUXING_GAN[tiaoHou.xiShen]}）\n`;
+    text += `《穷通宝鉴》原文：${tiaoHou.tiaoHou}\n`;
+
+    // 判断用神是否在四柱中出现
+    const allGan = [result.yearPillar.gan, result.monthPillar.gan, result.dayPillar.gan, result.hourPillar.gan];
+    const allCangGan = [...result.yearPillar.cangGan, ...result.monthPillar.cangGan, ...result.dayPillar.cangGan, ...result.hourPillar.cangGan];
+    const yongInGan = allGan.includes(tiaoHou.yongShen);
+    const yongInCang = allCangGan.includes(tiaoHou.yongShen);
+    if (yongInGan) {
+      text += `调候用神${tiaoHou.yongShen}透出天干，调候有力\n`;
+    } else if (yongInCang) {
+      text += `调候用神${tiaoHou.yongShen}藏于地支，调候稍弱\n`;
+    } else {
+      text += `调候用神${tiaoHou.yongShen}四柱不见，调候不足，需大运流年补之\n`;
+    }
+  }
+
+  return text;
+}
