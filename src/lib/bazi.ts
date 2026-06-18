@@ -534,6 +534,526 @@ export function formatPaiPan(result: BaZiPaiPan): string {
   return lines.join('\n');
 }
 
+// ========== 《渊海子平》十神论断 ==========
+// 根据《渊海子平》卷三"论十神"编码，每种十神有正面（吉）和负面（凶）两面的论断
+interface ShiShenLunDuan {
+  name: string;
+  yinYang: string;       // 阴阳属性
+  shengKe: string;       // 生克关系
+  benXing: string;       // 本性
+  jiLun: string;         // 吉论（出自《渊海子平》原文精要）
+  xiongLun: string;      // 凶论（出自《渊海子平》原文精要）
+  yongShenTiao: string;  // 用神提要（出自《子平真诠》）
+}
+
+const SHISHEN_LUNDUAN: Record<string, ShiShenLunDuan> = {
+  '正官': {
+    name: '正官',
+    yinYang: '阴见阳、阳见阴',
+    shengKe: '克我者',
+    benXing: '守规矩、重法纪、有责任感',
+    jiLun: '《渊海子平》云：正官者，乃克我之辰。阳见阴、阴见阳为正官。如甲见辛、乙见庚是也。正官喜纯不喜杂，喜一位不宜多见。官星纯粹，主人品端凝、有威仪、好礼义、重法度。行财乡则官得生，行印乡则官得护，此为官星配印、财生官旺之大格局。官来就我，其性和平，主文章振发、登科及第。',
+    xiongLun: '《渊海子平》云：官多不贵，伤官则凶。官星太多反为不美，如一甲见三辛，官多为杀，主为人过于拘泥、优柔寡断、畏首畏尾。官星被伤（伤官见官），为祸百端，主是非纷扰、官灾口舌。官星混杀（正偏官并见），主人反复无常、进退失据。官星无根，虚名薄利。',
+    yongShenTiao: '《子平真诠》云：正官格，官星要纯粹，一位为佳。取月令正官为格，最忌伤官破格。有财生官为上格，有印护官为中格，官杀混杂为下格。正官佩印，贵而有权。'
+  },
+  '七杀': {
+    name: '七杀/偏官',
+    yinYang: '阳见阳、阴见阴',
+    shengKe: '克我者',
+    benXing: '果断、刚毅、有魄力、好胜',
+    jiLun: '《渊海子平》云：偏官者，阳见阳、阴见阴为七杀。如甲见庚、乙见辛是也。七杀喜制伏，食神制杀为第一贵格，杀制太过反为不美。杀印相生，主人有威权、有谋略、文武双全。食神制杀，主人刚毅果决、能掌大权。杀在年柱，出身武贵；杀在月令，自身威权；杀在时柱，晚岁有权。身杀两停，英雄豪杰之命。',
+    xiongLun: '《渊海子平》云：七杀无制，则为祸端。身弱杀重，主性情暴戾、好勇斗狠、灾祸频仍。杀多无制，如虎无栏，主横死、牢狱、血光。杀旺身衰，终身辛苦。官杀混杂，去留不净，主小人暗害、是非不断。杀逢冲破，主凶灾。杀无食制，又无印化，为最凶之命。',
+    yongShenTiao: '《子平真诠》云：七杀格，要身旺方能担当。食神制杀为上格，印化杀为中格，杀重身轻为下格。身杀两停，极品之贵。杀无制伏，灾祸不免。'
+  },
+  '正印': {
+    name: '正印',
+    yinYang: '阴见阳、阳见阴',
+    shengKe: '生我者',
+    benXing: '仁慈、聪慧、好学、有依靠',
+    jiLun: '《渊海子平》云：正印者，乃生我之辰。阳见阴、阴见阳为正印。如甲见癸、乙见壬是也。正印主人聪明睿智、好学不倦、为人厚道。印绶逢官，为官印相生，主文章出众、科甲有分。印逢长生，学问渊博。印临天乙，有贵人扶持。印居月令，父母双全、家学渊源。印得一位，最为清贵。',
+    xiongLun: '《渊海子平》云：印多反为不美，主人依赖心重、优柔寡断、缺乏主见。印太旺身太强，为人固执、不通情理。印被财破（贪财坏印），主破败祖业、学业不成、为人忘恩。印逢空亡，虚名无实。印多行财运，则印被财克，主灾咎。',
+    yongShenTiao: '《子平真诠》云：正印格，喜官星生印，忌财星破印。官印相生为上格，杀印相生为中格，财破印为下格。印绶喜七杀，杀印相生功名显赫。'
+  },
+  '偏印': {
+    name: '偏印/枭神',
+    yinYang: '阳见阳、阴见阴',
+    shengKe: '生我者',
+    benXing: '机敏、偏才、多疑、孤僻',
+    jiLun: '《渊海子平》云：偏印者，阳见阳、阴见阴为偏印。如甲见壬、乙见癸是也。偏印主人机敏灵巧、心思缜密、善于钻研。偏印配杀，为杀印相生，主有权威。偏印在月令，精于技艺。偏印得制，可化枭为印，主人聪明多才。行财运制枭，反为吉兆。',
+    xiongLun: '《渊海子平》云：枭神夺食，最忌见食神。偏印见食神，为枭神夺食，主灾祸、失业、饥馑、子息难养。枭多无制，主人孤僻、多疑、反复无常。枭居日支，配偶多疑。枭临空亡，出家之命。身旺枭多，为人刻薄寡恩。',
+    yongShenTiao: '《子平真诠》云：偏印格，要制化得宜。偏印有财制为上格，杀印相生为中格，枭神夺食为最凶。偏印最忌食神，见之则凶。'
+  },
+  '正财': {
+    name: '正财',
+    yinYang: '阴见阳、阳见阴',
+    shengKe: '我克者',
+    benXing: '勤恳、务实、守本分、重信义',
+    jiLun: '《渊海子平》云：正财者，乃我克之辰。阳见阴、阴见阳为正财。如甲见己、乙见戊是也。正财主人勤俭持家、为人诚实、不尚虚华。财星生官，财官双美，主富贵双全。财居月令，家业丰厚。财逢长生，财源广进。财藏不露，主守得住财。身旺财旺，富甲一方。财来就我，事半功倍。',
+    xiongLun: '《渊海子平》云：财多身弱，富屋贫人。身弱不胜财，纵有财亦难守，反为财累。财被比劫分夺，主破财、耗散。财星太旺无官，贪财好色。财逢冲破，主财来财去。身弱财多行财运，因财致祸。财星坏印，贪财忘义。',
+    yongShenTiao: '《子平真诠》云：正财格，身旺财旺为上格，财生官旺为中格，比劫争财为下格。财喜食神生之，喜官星护之，忌比劫夺之。身财两停，巨富之命。'
+  },
+  '偏财': {
+    name: '偏财',
+    yinYang: '阳见阳、阴见阴',
+    shengKe: '我克者',
+    benXing: '豪爽、慷慨、社交广、不吝啬',
+    jiLun: '《渊海子平》云：偏财者，阳见阳、阴见阴为偏财。如甲见戊、乙见己是也。偏财主人慷慨大方、善于交际、财运通达。偏财出于众，轻财好义。偏财为众人之财，流通生息。偏财得地，经营有道、生意兴隆。偏财在年柱，祖业丰厚；在月令，自身发达；在日支，妻家有力。偏财旺相，多外财、横财。',
+    xiongLun: '《渊海子平》云：偏财太过，主人浮华、好逸恶劳、贪花恋酒。偏财被劫，破财无疑。身弱偏财多，为人轻浮、散财。偏财逢冲，财来财去不聚。偏财多而无正财，好奢不好实。',
+    yongShenTiao: '《子平真诠》云：偏财格，与正财同论。喜身旺能胜财，忌比劫争夺。偏财最忌比肩、劫财。偏财格见官星，富贵双全。'
+  },
+  '食神': {
+    name: '食神',
+    yinYang: '阳见阳、阴见阴',
+    shengKe: '我生者',
+    benXing: '温厚、和善、才艺、享福',
+    jiLun: '《渊海子平》云：食神者，乃我生之辰。阳见阳、阴见阴为食神。如甲见丙、乙见丁是也。食神主人温和厚道、有口福、善饮食、好文艺。食神制杀，威权出众。食神生财，富贵自来。食神一位，胜似财官。食神得令，为人宽和有德、子孙昌盛。食神带合，主有文学之才。',
+    xiongLun: '《渊海子平》云：食神太多，则泄身太过，主人身体虚弱、精神不振。食神逢枭，枭神夺食，主灾祸、失业、饥馑。食神被合，才艺难伸。食多无财，空有才华不遇时。食神逢冲，不安于位。',
+    yongShenTiao: '《子平真诠》云：食神格，食神生财为上格，食神制杀为中格，枭神夺食为最凶。食神最忌偏印。食神一位胜财官。'
+  },
+  '伤官': {
+    name: '伤官',
+    yinYang: '阴见阳、阳见阴',
+    shengKe: '我生者',
+    benXing: '聪明、傲慢、叛逆、才华',
+    jiLun: '《渊海子平》云：伤官者，乃我生之辰。阳见阴、阴见阳为伤官。如甲见丁、乙见丙是也。伤官主人聪明绝顶、才华出众、善于表现。伤官佩印，为伤官用印格，主文章盖世、科甲及第。伤官生财，为伤官生财格，主人善于经营、财运亨通。金水伤官，文章清秀。木火伤官，聪明多艺。伤官在月令，才华出众。',
+    xiongLun: '《渊海子平》云：伤官见官，为祸百端。伤官克正官，犯之主是非、官灾、口舌。伤官无制，为人傲慢、目中无人、恃才傲物。伤官太旺，泄身太过，身体有伤。火土伤官，宜暗不宜明。水木伤官，其性放荡。伤官行官运，大凶。',
+    yongShenTiao: '《子平真诠》云：伤官格，伤官佩印为上格，伤官生财为中格，伤官见官为最凶。伤官喜印星制之，喜财星泄之。金水伤官喜见官，木火伤官忌见官。'
+  },
+  '比肩': {
+    name: '比肩',
+    yinYang: '阳见阳、阴见阴',
+    shengKe: '同我者',
+    benXing: '独立、自主、争竞、不服输',
+    jiLun: '《渊海子平》云：比肩者，乃同类之辰。阳见阳、阴见阴为比肩。如甲见甲、乙见乙是也。比肩主人自立自强、不依赖人、兄弟朋友多。身弱得比肩扶助，弱极逢生。比肩帮身，可胜财官。比肩居年柱，兄弟有靠。建禄格，身旺有根，可担大任。',
+    xiongLun: '《渊海子平》云：比肩太多，主争夺、分财、竞争。身旺比多，克妻克父。比肩争财，财来不聚。比肩夺官，仕途受阻。比多无制，为人固执、独断专行。',
+    yongShenTiao: '《子平真诠》云：比肩格，身弱喜比扶，身旺忌比助。比肩多则争财，用官则忌比肩。建禄生月，要财官食伤为用。'
+  },
+  '劫财': {
+    name: '劫财/阳刃',
+    yinYang: '阴见阳、阳见阴',
+    shengKe: '同我者',
+    benXing: '争斗、劫夺、冒险、刚烈',
+    jiLun: '《渊海子平》云：劫财者，乃异类之辰。阳见阴、阴见阳为劫财。如甲见乙、乙见甲是也。劫财主人胆大心细、勇于冒险、善于竞争。身弱劫财帮身，可以夺财抗杀。劫财配食伤，善于创业。劫财合杀，主武贵。刃旺身强，可掌兵权。',
+    xiongLun: '《渊海子平》云：劫财太多，主破财、争斗、灾祸。阳刃无制，如刀无鞘，主血光、横祸。劫财夺财，财来财去。劫财见财，贪财致祸。刃逢冲合，勃然祸至。阳刃倒戈，凶灾难免。身旺劫多，克父克妻。',
+    yongShenTiao: '《子平真诠》云：劫财格，身弱喜劫帮，身旺忌劫争。阳刃最喜官杀制之，食伤泄之。刃旺无制，灾祸难逃。阳刃用官，极品之贵。'
+  },
+};
+
+// 获取十神论断
+export function getShiShenLunDuan(shiShen: string): ShiShenLunDuan | undefined {
+  return SHISHEN_LUNDUAN[shiShen];
+}
+
+// ========== 《子平真诠》格局判定（完整版） ==========
+// 依据《子平真诠》卷二"论格局"编码，以月令藏干透出定格局
+
+interface GeJuLunDuan {
+  name: string;
+  chengFa: string;     // 成格条件（出自《子平真诠》）
+  baiFa: string;       // 败格条件
+  yongShen: string;    // 用神取法
+  xiShen: string;      // 喜神
+   jiShen: string;      // 忌神
+  lunDuan: string;     // 格局论断（综合《渊海子平》《子平真诠》《三命通会》）
+}
+
+const GEJU_LUNDUAN: Record<string, GeJuLunDuan> = {
+  '正官格': {
+    name: '正官格',
+    chengFa: '《子平真诠》云：正官格，月令正官透出天干，或本气正官当令。官星要纯粹，一位为佳。官星得财印相辅，方为成格。',
+    baiFa: '《子平真诠》云：正官格忌伤官破格、官杀混杂、刑冲破害。伤官破官则格败，官杀混杂则不清，刑冲破害则不安。',
+    yongShen: '正官为用，财星生官，印星护官',
+    xiShen: '财星（生官）、印星（护官）、食神（助官制杀）',
+    jiShen: '伤官（破官）、七杀（混官）、刑冲（破格）',
+    lunDuan: '正官格为八格之首。《渊海子平》云：官星纯粹，定主清高。财官双美，富贵自来。官印相生，文华显贵。《三命通会》云：正官一位，聪明有智，品行端方。官逢财生，贵而且富。官逢印护，贵而有名。官居月令，最为有力。'
+  },
+  '七杀格': {
+    name: '七杀格/偏官格',
+    chengFa: '《子平真诠》云：七杀格，月令七杀透出，身旺能担。食神制杀为上格，杀印相生为中格。身杀两停，英雄豪杰。',
+    baiFa: '《子平真诠》云：七杀格忌身弱杀重、杀无制伏、官杀混杂。身弱杀重则灾祸频仍，杀无制伏则横暴无礼，官杀混杂则去留不定。',
+    yongShen: '食神制杀为上，印星化杀为中',
+    xiShen: '食神（制杀）、印星（化杀）、比劫（帮身担杀）',
+    jiShen: '财星（生杀加重）、无制之杀',
+    lunDuan: '《渊海子平》云：七杀有制，化为权柄。食神制杀，威权出众。杀印相生，文武兼备。《滴天髓》云：杀为权柄，制化得宜则为权为贵，制化不力则为灾为祸。身杀两停，将相之才。杀重身轻，终身困苦。'
+  },
+  '正印格': {
+    name: '正印格',
+    chengFa: '《子平真诠》云：正印格，月令印绶透出。官星生印为上，杀印相生为中。印逢长生，学问过人。',
+    baiFa: '《子平真诠》云：正印格忌财星坏印、印多身旺无泄。财坏印则学业有亏、名誉受损。印太多则为人依赖、缺乏主见。',
+    yongShen: '官星生印、杀印相生',
+    xiShen: '官星（生印）、七杀（杀印相生）、比劫（帮身）',
+    jiShen: '财星（坏印）、食伤泄身太过',
+    lunDuan: '《渊海子平》云：印绶格主人聪明、好学、有靠山。官印相生，科甲有名。印居月令，父母有靠。《三命通会》云：印绶遇官，十有九贵。印绶遭财，十有九败。'
+  },
+  '偏印格': {
+    name: '偏印格/枭神格',
+    chengFa: '《子平真诠》云：偏印格，月令偏印透出。偏印有财制化枭为上格，杀印相生为中格。偏印在月令，精于技艺。',
+    baiFa: '《子平真诠》云：偏印格忌枭神夺食、偏印太多无制。枭神夺食则灾祸立至，印多无制则孤僻多疑。',
+    yongShen: '财星制枭、杀印相生',
+    xiShen: '财星（制枭）、七杀（杀印相生）、偏财（制偏印）',
+    jiShen: '食神（枭神夺食）、比劫（帮身太过）',
+    lunDuan: '《渊海子平》云：偏印主人机敏多疑、善钻研。枭神夺食，最凶之格，主失业、灾祸、子息不利。偏印有制，亦为有用之才。《三命通会》云：枭逢财制，化凶为吉。'
+  },
+  '正财格': {
+    name: '正财格',
+    chengFa: '《子平真诠》云：正财格，月令正财透出。身旺财旺为上格，财生官旺为中格。财藏不露，守得住财。',
+    baiFa: '《子平真诠》云：正财格忌比劫分财、财多身弱。比劫分财则财来财去，财多身弱则富屋贫人。',
+    yongShen: '食伤生财、官星护财',
+    xiShen: '食神（生财）、官星（护财）、印星（帮身）',
+    jiShen: '比肩（分财）、劫财（夺财）、身弱不胜财',
+    lunDuan: '《渊海子平》云：正财格主人勤恳务实、持家有方。身旺财旺，富甲一方。财官双美，富贵双全。《三命通会》云：财星得位，妻贤家富。财逢食生，财源滚滚。'
+  },
+  '偏财格': {
+    name: '偏财格',
+    chengFa: '《子平真诠》云：偏财格，月令偏财透出。身旺能胜偏财为上格，偏财生官为中格。偏财流通，财运通达。',
+    baiFa: '《子平真诠》云：偏财格忌比劫争夺、身弱不胜财。比劫争夺则横财化水，身弱不胜财则因财致祸。',
+    yongShen: '食伤生财、官星护财',
+    xiShen: '食神（生财）、官星（护财）',
+    jiShen: '比肩（分财）、劫财（夺财）',
+    lunDuan: '《渊海子平》云：偏财格主人慷慨大方、善于交际。偏财旺相，多外财横财。偏财得地，经营有道。《三命通会》云：偏财出于众，轻财好义。偏财逢官，富贵双全。'
+  },
+  '食神格': {
+    name: '食神格',
+    chengFa: '《子平真诠》云：食神格，月令食神透出。食神生财为上格，食神制杀为中格。食神一位胜财官。',
+    baiFa: '《子平真诠》云：食神格忌枭神夺食、食神太多泄身。枭神夺食则灾祸、失业。食多泄身太过则体弱。',
+    yongShen: '财星泄食、印星护身',
+    xiShen: '财星（食生财）、印星（制食护身）',
+    jiShen: '偏印（枭神夺食）、食多无财',
+    lunDuan: '《渊海子平》云：食神格主人温厚和善、有口福才艺。食神生财，富贵自来。食神制杀，威权出众。食神一位，胜似财官。《滴天髓》云：食神最忌枭来夺。'
+  },
+  '伤官格': {
+    name: '伤官格',
+    chengFa: '《子平真诠》云：伤官格，月令伤官透出。伤官佩印为上格，伤官生财为中格。金水伤官喜见官，木火伤官忌见官。',
+    baiFa: '《子平真诠》云：伤官格忌伤官见官（木火伤官尤忌）、伤官无制。伤官见官为祸百端，伤官无制则傲慢无礼。',
+    yongShen: '印星制伤（佩印）、财星泄伤（生财）',
+    xiShen: '印星（制伤）、财星（泄伤）',
+    jiShen: '正官（伤官见官）、无制之伤官',
+    lunDuan: '《渊海子平》云：伤官主人聪明绝顶，但恃才傲物。伤官佩印，文章盖世。伤官生财，经营有方。伤官见官，灾祸难免。《三命通会》云：金水伤官最清秀，木火伤官多聪明，火土伤官宜暗藏，水木伤官性放荡。'
+  },
+  '建禄格': {
+    name: '建禄格/月劫格',
+    chengFa: '《子平真诠》云：建禄格，月令为日主之禄。身旺有力，要用财官食伤为用。禄逢财官，格取清贵。',
+    baiFa: '《子平真诠》云：建禄格忌身旺无依、禄逢冲破。身旺无财官食伤可用，则格不高。禄逢冲破，根基不稳。',
+    yongShen: '财官食伤为用',
+    xiShen: '财星（耗身）、官星（制身）、食伤（泄身）',
+    jiShen: '比劫（身已旺不宜再助）、印星（帮身太过）',
+    lunDuan: '《渊海子平》云：建禄格身旺有力，必要财官食伤为用方好。无财官可用则平常之命。禄马交驰，富贵双全。建禄生财，白手兴家。《三命通会》云：禄最怕冲，冲则禄倒。'
+  },
+};
+
+// 获取格局论断
+export function getGeJuLunDuan(geJu: string): GeJuLunDuan | undefined {
+  // 匹配格局名称（可能含"木旺""火旺"等前缀）
+  for (const key of Object.keys(GEJU_LUNDUAN)) {
+    if (geJu.includes(key.replace('格', '')) || geJu === key) {
+      return GEJU_LUNDUAN[key];
+    }
+  }
+  return undefined;
+}
+
+// ========== 《滴天髓》旺衰判断 ==========
+// 根据《滴天髓》"论旺衰"编码
+
+interface WangShuaiResult {
+  riZhuQiangRuo: string;     // 日主强弱
+  yongShen: string;           // 用神
+   jiShen: string;            // 忌神
+  xiShen: string;             // 喜神
+  tiaoHouYongShen: string;   // 调候用神
+  lunDuan: string;            // 论断
+}
+
+export function judgeWangShuai(result: BaZiPaiPan): WangShuaiResult {
+  const dayElement = result.dayMasterElement;
+  const wuXing = result.wuXingCount;
+  const total = Object.values(wuXing).reduce((a, b) => a + b, 0);
+
+  // 生我者（印星）+ 同我者（比劫）= 帮身力量
+  const shengWo = getShengElement(dayElement); // 生我之五行
+  const tongWo = dayElement; // 同我之五行
+  const bangShen = (wuXing[shengWo as keyof WuXingCount] || 0) + (wuXing[tongWo as keyof WuXingCount] || 0);
+
+  // 克我者（官杀）+ 我克者（财星）+ 我生者（食伤）= 耗身力量
+  const keWo = getKeElement(dayElement);
+  const woKe = getWoKeElement(dayElement);
+  const woSheng = getWoShengElement(dayElement);
+  const haoShen = (wuXing[keWo as keyof WuXingCount] || 0) + (wuXing[woKe as keyof WuXingCount] || 0) + (wuXing[woSheng as keyof WuXingCount] || 0);
+
+  const isStrong = bangShen > haoShen;
+  const ratio = bangShen / (bangShen + haoShen);
+
+  let riZhuQiangRuo: string;
+  let yongShen: string;
+  let jiShen: string;
+  let xiShen: string;
+  let lunDuan: string;
+
+  if (ratio > 0.65) {
+    riZhuQiangRuo = '日主过旺';
+    yongShen = `克我之${keWo}（官杀）、我克之${woKe}（财星）、我生之${woSheng}（食伤）`;
+    jiShen = `生我之${shengWo}（印星）、同我之${tongWo}（比劫）`;
+    xiShen = `${keWo}、${woKe}、${woSheng}`;
+    lunDuan = '《滴天髓》云：旺极宜泄不宜帮，身旺须用财官食伤耗泄。日主过旺，如水满则溢，须以官杀制之、财星耗之、食伤泄之。不宜再用印比帮身，帮之则过。身旺无依，纵有才能亦难施展。';
+  } else if (ratio > 0.5) {
+    riZhuQiangRuo = '日主偏旺';
+    yongShen = `克我之${keWo}（官杀）、我克之${woKe}（财星）`;
+    jiShen = `同我之${tongWo}（比劫）`;
+    xiShen = `${keWo}、${woKe}`;
+    lunDuan = '《滴天髓》云：身旺宜泄，取财官为用。日主偏旺，尚可担财官，以官制身、以财耗身为上。行财官运则发达，行比劫运则争财。';
+  } else if (ratio > 0.35) {
+    riZhuQiangRuo = '日主中和';
+    yongShen = '随运而取，财官印食皆可为用';
+    jiShen = '视大运流年而定';
+    xiShen = '格局配合取用';
+    lunDuan = '《滴天髓》云：中和为贵。日主中和，最为上品，行财官食伤运皆可，唯怕太过不及。命局中和之人，一生平稳，少有大起大落。';
+  } else if (ratio > 0.2) {
+    riZhuQiangRuo = '日主偏弱';
+    yongShen = `生我之${shengWo}（印星）、同我之${tongWo}（比劫）`;
+    jiShen = `克我之${keWo}（官杀）、我克之${woKe}（财星）`;
+    xiShen = `${shengWo}、${tongWo}`;
+    lunDuan = '《滴天髓》云：身弱宜帮，取印比为用。日主偏弱，须印星生之、比劫扶之。行印比运则顺遂，行财官运则辛苦。身弱得印比帮身，亦可发福。';
+  } else {
+    riZhuQiangRuo = '日主过弱';
+    yongShen = `生我之${shengWo}（印星）为救命用神`;
+    jiShen = `克我之${keWo}（官杀）、我克之${woKe}（财星）、我生之${woSheng}（食伤泄身）`;
+    xiShen = `${shengWo}、${tongWo}`;
+    lunDuan = '《滴天髓》云：弱极须扶，如枯木逢春。日主过弱，犹如风中残烛，急需印比帮身。财官食伤皆为耗泄，见之则凶。最喜印比相扶，如旱苗得雨。若行印比运，可转危为安。';
+  }
+
+  // 调候用神（来自《穷通宝鉴》）
+  const tiaoHouYongShen = getTiaoHou(result.dayMaster, result.birthInfo.trueSolarTime.month)?.yongShen || '无特殊调候需求';
+
+  return { riZhuQiangRuo, yongShen, jiShen, xiShen, tiaoHouYongShen, lunDuan };
+}
+
+// 辅助：五行生克关系
+function getShengElement(element: string): string {
+  const map: Record<string, string> = { '木': '水', '火': '木', '土': '火', '金': '土', '水': '金' };
+  return map[element] || '';
+}
+function getKeElement(element: string): string {
+  const map: Record<string, string> = { '木': '金', '火': '水', '土': '木', '金': '火', '水': '土' };
+  return map[element] || '';
+}
+function getWoKeElement(element: string): string {
+  const map: Record<string, string> = { '木': '土', '火': '金', '土': '水', '金': '木', '水': '火' };
+  return map[element] || '';
+}
+function getWoShengElement(element: string): string {
+  const map: Record<string, string> = { '木': '火', '火': '土', '土': '金', '金': '水', '水': '木' };
+  return map[element] || '';
+}
+
+// ========== 《三命通会》神煞论 ==========
+// 根据《三命通会》卷六编码常用神煞
+
+interface ShenShaInfo {
+  name: string;
+  find: string;         // 查法
+  jiLun: string;        // 吉论
+  xiongLun: string;     // 凶论
+}
+
+const SHENSHA_TABLE: Record<string, ShenShaInfo> = {
+  '天乙贵人': {
+    name: '天乙贵人',
+    find: '甲戊庚牛羊，乙己鼠猴乡，丙丁猪鸡位，壬癸兔蛇藏，庚辛逢马虎',
+    jiLun: '《三命通会》云：天乙贵人，乃天上之神，在紫微垣阖门外，与太乙并列，事天皇大帝，下游三辰。贵人所在，凶煞隐藏。命中带天乙贵人，主聪明智慧、近贵利名、逢凶化吉、遇难呈祥。女人带之，主嫁贵夫。',
+    xiongLun: '贵人逢冲破，减力。贵人落空亡，虚名无实。贵人逢刑害，助力减半。'
+  },
+  '文昌贵人': {
+    name: '文昌贵人',
+    find: '甲乙巳午报，丙戊申宫找，丁己鸡同窝，庚辛亥鼠叫，壬癸寅卯照',
+    jiLun: '《三命通会》云：文昌主人聪明过人、好学新知、文采斐然、科举有成。命中带文昌，利读书考试，文思泉涌。',
+    xiongLun: '文昌逢冲，学业有阻。文昌落空，才难施展。'
+  },
+  '太极贵人': {
+    name: '太极贵人',
+    find: '甲乙生人子午中，丙丁鸡兔定亨通，戊己两干临四季，庚辛寅亥禄盈丰，壬癸巳申偏喜美',
+    jiLun: '《三命通会》云：太极贵人主聪明好学、有钻牛角尖的精神、对神秘事物有兴趣。命带太极，主人喜欢哲学、宗教、玄学等深奥学问。',
+    xiongLun: '太极逢空，虚学无成。'
+  },
+  '驿马': {
+    name: '驿马',
+    find: '申子辰马在寅，寅午戌马在申，巳酉丑马在亥，亥卯未马在巳',
+    jiLun: '《三命通会》云：驿马主奔波走动、出行、变动。驿马逢财官，因变动而获利。驿马逢合，动中有成。升迁、调职、出国皆看驿马。命带驿马，一生多走动。',
+    xiongLun: '驿马逢冲，奔波劳碌。驿马无合，东奔西走一场空。马多无归，一生漂泊。'
+  },
+  '华盖': {
+    name: '华盖',
+    find: '寅午戌见戌，申子辰见辰，亥卯未见未，巳酉丑见丑',
+    jiLun: '《三命通会》云：华盖主人聪明好学、清高孤傲、喜独处、对宗教哲学有兴趣。华盖逢印，才华出众。华盖为僧道之星，主人清闲自在。命带华盖，文章艺术有成就。',
+    xiongLun: '华盖逢空亡，出家之命。华盖太重，孤僻清高、不合群。华盖无冲，终身埋没。华盖太多，六亲缘薄。'
+  },
+  '将星': {
+    name: '将星',
+    find: '寅午戌见午，申子辰见子，亥卯未见卯，巳酉丑见酉',
+    jiLun: '《三命通会》云：将星主权威、领导力。将星逢官杀，掌权有威。将星在年柱，出身将门。将星在月令，自身有权。命带将星，有领导才能。',
+    xiongLun: '将星逢冲破，权位不保。将星无制，刚愎自用。'
+  },
+  '羊刃': {
+    name: '羊刃/阳刃',
+    find: '甲见卯、乙见辰、丙见午、丁见未、戊见午、己见未、庚见酉、辛见戌、壬见子、癸见丑',
+    jiLun: '《三命通会》云：羊刃主刚毅果决、胆大心细。刃旺身强，可掌大权。阳刃用官，极品之贵。刃配食伤，善创业开拓。武职之人多带刃。',
+    xiongLun: '《三命通会》云：刃旺无制，如刀无鞘，主血光、灾祸、横死。羊刃逢冲，勃然祸至。身旺刃多，克妻克父。刃逢财，贪财致祸。阳刃倒戈，最凶之象。'
+  },
+  '桃花': {
+    name: '桃花/咸池',
+    find: '寅午戌见卯，申子辰见酉，亥卯未见子，巳酉丑见午',
+    jiLun: '《三命通会》云：桃花主风流才情、人缘好、异性缘佳。桃花逢正官，因异性而得贵。桃花逢正财，因异性而得财。命带桃花，容貌俊美、善于社交。',
+    xiongLun: '桃花太多，好色贪淫、不务正业。桃花逢冲，因色惹祸。桃花带杀，因色致灾。墙外桃花，婚后出轨。'
+  },
+  '亡神': {
+    name: '亡神',
+    find: '寅午戌见巳，申子辰见亥，亥卯未见寅，巳酉丑见申',
+    jiLun: '亡神在生旺之位，主人城府深、善谋略。',
+    xiongLun: '《三命通会》云：亡神在死绝之位，主灾祸、是非、牢狱。亡神逢冲，灾祸加速。亡神并劫煞，凶不可当。'
+  },
+  '劫煞': {
+    name: '劫煞',
+    find: '寅午戌见亥，申子辰见巳，亥卯未见申，巳酉丑见寅',
+    jiLun: '劫煞逢贵人在位，反主有权。劫煞在生旺之地，刚毅有为。',
+    xiongLun: '《三命通会》云：劫煞逢死绝，主灾祸、伤灾、破财。劫煞并亡神，灾祸连连。劫煞逢冲，血光之灾。'
+  },
+};
+
+// 计算四柱神煞
+export function calculateShenSha(result: BaZiPaiPan): string[] {
+  const shenShaList: string[] = [];
+  const yearZhi = result.yearPillar.zhi;
+  const dayGan = result.dayPillar.gan;
+  const dayZhi = result.dayPillar.zhi;
+  const allZhi = [result.yearPillar.zhi, result.monthPillar.zhi, result.dayPillar.zhi, result.hourPillar.zhi];
+
+  // 天乙贵人
+  const tianYiMap: Record<string, string[]> = {
+    '甲': ['丑', '未'], '戊': ['丑', '未'], '庚': ['丑', '未'],
+    '乙': ['子', '申'], '己': ['子', '申'],
+    '丙': ['亥', '酉'], '丁': ['亥', '酉'],
+    '壬': ['卯', '巳'], '癸': ['卯', '巳'],
+    '辛': ['午', '寅'],
+  };
+  const tianYiZhi = tianYiMap[dayGan] || [];
+  if (allZhi.some(z => tianYiZhi.includes(z))) {
+    shenShaList.push('天乙贵人');
+  }
+
+  // 驿马
+  const yiMaMap: Record<string, string> = {
+    '申': '寅', '子': '寅', '辰': '寅',
+    '寅': '申', '午': '申', '戌': '申',
+    '巳': '亥', '酉': '亥', '丑': '亥',
+    '亥': '巳', '卯': '巳', '未': '巳',
+  };
+  const yiMaZhi = yiMaMap[yearZhi] || '';
+  if (allZhi.some(z => z === yiMaZhi)) {
+    shenShaList.push('驿马');
+  }
+
+  // 华盖
+  const huaGaiMap: Record<string, string> = {
+    '寅': '戌', '午': '戌', '戌': '戌',
+    '申': '辰', '子': '辰', '辰': '辰',
+    '亥': '未', '卯': '未', '未': '未',
+    '巳': '丑', '酉': '丑', '丑': '丑',
+  };
+  const huaGaiZhi = huaGaiMap[yearZhi] || '';
+  if (allZhi.some(z => z === huaGaiZhi)) {
+    shenShaList.push('华盖');
+  }
+
+  // 将星
+  const jiangXingMap: Record<string, string> = {
+    '寅': '午', '午': '午', '戌': '午',
+    '申': '子', '子': '子', '辰': '子',
+    '亥': '卯', '卯': '卯', '未': '卯',
+    '巳': '酉', '酉': '酉', '丑': '酉',
+  };
+  const jiangXingZhi = jiangXingMap[yearZhi] || '';
+  if (allZhi.some(z => z === jiangXingZhi)) {
+    shenShaList.push('将星');
+  }
+
+  // 羊刃
+  const yangRenMap: Record<string, string> = {
+    '甲': '卯', '乙': '辰', '丙': '午', '丁': '未',
+    '戊': '午', '己': '未', '庚': '酉', '辛': '戌',
+    '壬': '子', '癸': '丑',
+  };
+  const yangRenZhi = yangRenMap[dayGan] || '';
+  if (allZhi.some(z => z === yangRenZhi)) {
+    shenShaList.push('羊刃');
+  }
+
+  // 桃花
+  const taoHuaMap: Record<string, string> = {
+    '寅': '卯', '午': '卯', '戌': '卯',
+    '申': '酉', '子': '酉', '辰': '酉',
+    '亥': '子', '卯': '子', '未': '子',
+    '巳': '午', '酉': '午', '丑': '午',
+  };
+  const taoHuaZhi = taoHuaMap[yearZhi] || '';
+  if (allZhi.some(z => z === taoHuaZhi)) {
+    shenShaList.push('桃花');
+  }
+
+  // 文昌
+  const wenChangMap: Record<string, string> = {
+    '甲': '巳', '乙': '午', '丙': '申', '丁': '酉',
+    '戊': '申', '己': '酉', '庚': '亥', '辛': '子',
+    '壬': '寅', '癸': '卯',
+  };
+  const wenChangZhi = wenChangMap[dayGan] || '';
+  if (allZhi.some(z => z === wenChangZhi)) {
+    shenShaList.push('文昌贵人');
+  }
+
+  // 亡神
+  const wangShenMap: Record<string, string> = {
+    '寅': '巳', '午': '巳', '戌': '巳',
+    '申': '亥', '子': '亥', '辰': '亥',
+    '亥': '寅', '卯': '寅', '未': '寅',
+    '巳': '申', '酉': '申', '丑': '申',
+  };
+  const wangShenZhi = wangShenMap[yearZhi] || '';
+  if (allZhi.some(z => z === wangShenZhi)) {
+    shenShaList.push('亡神');
+  }
+
+  // 劫煞
+  const jieShaMap: Record<string, string> = {
+    '寅': '亥', '午': '亥', '戌': '亥',
+    '申': '巳', '子': '巳', '辰': '巳',
+    '亥': '申', '卯': '申', '未': '申',
+    '巳': '寅', '酉': '寅', '丑': '寅',
+  };
+  const jieShaZhi = jieShaMap[yearZhi] || '';
+  if (allZhi.some(z => z === jieShaZhi)) {
+    shenShaList.push('劫煞');
+  }
+
+  // 太极贵人
+  const taiJiMap: Record<string, string[]> = {
+    '甲': ['子', '午'], '乙': ['子', '午'],
+    '丙': ['卯', '酉'], '丁': ['卯', '酉'],
+    '戊': ['辰', '戌', '丑', '未'], '己': ['辰', '戌', '丑', '未'],
+    '庚': ['寅', '亥'], '辛': ['寅', '亥'],
+    '壬': ['巳', '申'], '癸': ['巳', '申'],
+  };
+  const taiJiZhi = taiJiMap[dayGan] || [];
+  if (allZhi.some(z => taiJiZhi.includes(z))) {
+    shenShaList.push('太极贵人');
+  }
+
+  return shenShaList;
+}
+
+// 获取神煞论断
+export function getShenShaLunDuan(name: string): ShenShaInfo | undefined {
+  return SHENSHA_TABLE[name];
+}
+
 // ========== 《穷通宝鉴》调候用神表 ==========
 // 格式：[日主天干索引][月份1-12] → { yongShen: 用神, xiShen: 喜神, tiaoHou: 调候说明 }
 // 月份按农历：1=寅月, 2=卯月, ..., 12=丑月
@@ -724,7 +1244,16 @@ export function getTiaoHou(dayGan: string, monthZhiIndex: number): TiaoHouInfo |
 export function formatPaiPanFull(result: BaZiPaiPan): string {
   let text = formatPaiPan(result);
 
-  // 加入调候用神
+  // ========== 1. 《滴天髓》旺衰判断 ==========
+  const wangShuai = judgeWangShuai(result);
+  text += '\n\n【旺衰判断】（出自《滴天髓》）\n';
+  text += `${wangShuai.riZhuQiangRuo}\n`;
+  text += `用神：${wangShuai.yongShen}\n`;
+  text += `喜神：${wangShuai.xiShen}\n`;
+  text += `忌神：${wangShuai.jiShen}\n`;
+  text += `${wangShuai.lunDuan}\n`;
+
+  // ========== 2. 《穷通宝鉴》调候用神 ==========
   const monthZhiIdx = DIZHI.indexOf(result.monthPillar.zhi);
   const tiaoHou = getTiaoHou(result.dayMaster, monthZhiIdx);
   if (tiaoHou) {
@@ -733,7 +1262,6 @@ export function formatPaiPanFull(result: BaZiPaiPan): string {
     text += `喜神：${tiaoHou.xiShen}（${WUXING_GAN[tiaoHou.xiShen]}）\n`;
     text += `《穷通宝鉴》原文：${tiaoHou.tiaoHou}\n`;
 
-    // 判断用神是否在四柱中出现
     const allGan = [result.yearPillar.gan, result.monthPillar.gan, result.dayPillar.gan, result.hourPillar.gan];
     const allCangGan = [...result.yearPillar.cangGan, ...result.monthPillar.cangGan, ...result.dayPillar.cangGan, ...result.hourPillar.cangGan];
     const yongInGan = allGan.includes(tiaoHou.yongShen);
@@ -745,6 +1273,61 @@ export function formatPaiPanFull(result: BaZiPaiPan): string {
     } else {
       text += `调候用神${tiaoHou.yongShen}四柱不见，调候不足，需大运流年补之\n`;
     }
+    text += `调候总评：${wangShuai.tiaoHouYongShen}\n`;
+  }
+
+  // ========== 3. 《渊海子平》十神论断 ==========
+  text += '\n\n【十神论断】（出自《渊海子平》）\n';
+  const shiShenList = [
+    { pos: '年柱', name: result.yearPillar.shiShen },
+    { pos: '月柱', name: result.monthPillar.shiShen },
+    { pos: '时柱', name: result.hourPillar.shiShen },
+  ];
+  const processedShiShen = new Set<string>();
+  for (const ss of shiShenList) {
+    if (ss.name && !processedShiShen.has(ss.name)) {
+      processedShiShen.add(ss.name);
+      const lunDuan = getShiShenLunDuan(ss.name);
+      if (lunDuan) {
+        text += `\n【${ss.name}】（${ss.pos}透出）\n`;
+        text += `阴阳：${lunDuan.yinYang}，生克：${lunDuan.shengKe}，本性：${lunDuan.benXing}\n`;
+        text += `吉论：${lunDuan.jiLun}\n`;
+        text += `凶论：${lunDuan.xiongLun}\n`;
+        text += `用神提要：${lunDuan.yongShenTiao}\n`;
+      }
+    }
+  }
+
+  // ========== 4. 《子平真诠》格局论断 ==========
+  text += '\n\n【格局论断】（出自《子平真诠》）\n';
+  const geJuLunDuan = getGeJuLunDuan(result.geJu);
+  if (geJuLunDuan) {
+    text += `格局：${geJuLunDuan.name}\n`;
+    text += `成格条件：${geJuLunDuan.chengFa}\n`;
+    text += `败格条件：${geJuLunDuan.baiFa}\n`;
+    text += `用神：${geJuLunDuan.yongShen}\n`;
+    text += `喜神：${geJuLunDuan.xiShen}\n`;
+    text += `忌神：${geJuLunDuan.jiShen}\n`;
+    text += `综合论断：${geJuLunDuan.lunDuan}\n`;
+  } else {
+    text += `格局：${result.geJu}（特殊格局，需综合分析）\n`;
+  }
+
+  // ========== 5. 《三命通会》神煞论 ==========
+  text += '\n\n【神煞论断】（出自《三命通会》）\n';
+  const shenSha = calculateShenSha(result);
+  if (shenSha.length > 0) {
+    for (const ss of shenSha) {
+      const info = getShenShaLunDuan(ss);
+      if (info) {
+        text += `\n【${info.name}】\n`;
+        text += `查法：${info.find}\n`;
+        text += `吉论：${info.jiLun}\n`;
+        text += `凶论：${info.xiongLun}\n`;
+      }
+    }
+  } else {
+    text += '四柱未见明显神煞\n';
   }
 
   return text;
