@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { LLMClient, Config, HeaderUtils } from 'coze-coding-dev-sdk';
 import { buildSystemPromptProfessional, buildSystemPromptCasual } from '@/lib/knowledge';
+import { paiPan, formatPaiPan } from '@/lib/bazi';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,13 +17,31 @@ interface BirthInfo {
   district: string;
 }
 
-function formatBirthInfo(birthInfo: BirthInfo): string {
+function formatBirthInfoWithPaiPan(birthInfo: BirthInfo): string {
+  const gender = birthInfo.gender === '男' ? 'male' : 'female';
   const genderText = birthInfo.gender === '男' ? '乾造（男命）' : '坤造（女命）';
-  const timeStr = `${birthInfo.birthHour}时${birthInfo.birthMinute}分`;
+
+  let paiPanResult = '';
+  try {
+    const result = paiPan(
+      gender,
+      birthInfo.birthYear,
+      birthInfo.birthMonth,
+      birthInfo.birthDay,
+      birthInfo.birthHour,
+      birthInfo.birthMinute,
+      birthInfo.province
+    );
+    paiPanResult = `\n\n【精确排盘结果（代码计算，非AI脑补）】\n${formatPaiPan(result)}`;
+  } catch (e) {
+    paiPanResult = '\n\n[排盘计算出错，请AI自行推算]';
+  }
+
   return `${genderText}
-出生时间：${birthInfo.birthYear}年${birthInfo.birthMonth}月${birthInfo.birthDay}日 ${timeStr}
-出生地点：${birthInfo.province}${birthInfo.city}${birthInfo.district}
-请据此排八字四柱并推算紫微斗数命盘。`;
+出生时间：${birthInfo.birthYear}年${birthInfo.birthMonth}月${birthInfo.birthDay}日 ${birthInfo.birthHour}时${birthInfo.birthMinute}分
+出生地点：${birthInfo.province}${birthInfo.city}${birthInfo.district}${paiPanResult}
+
+重要：以上排盘结果由代码精确计算得出，四柱、藏干、十神、五行统计、大运等均为真实数据，请直接基于此排盘结果进行分析解读，不要再自行推算四柱。分析时必须引经据典。`;
 }
 
 export async function POST(request: NextRequest) {
@@ -40,7 +59,7 @@ export async function POST(request: NextRequest) {
     const config = new Config();
     const client = new LLMClient(config, customHeaders);
 
-    const birthInfoStr = birthInfo ? formatBirthInfo(birthInfo as BirthInfo) : undefined;
+    const birthInfoStr = birthInfo ? formatBirthInfoWithPaiPan(birthInfo as BirthInfo) : undefined;
     const systemPrompt = mode === 'professional'
       ? buildSystemPromptProfessional(birthInfoStr)
       : buildSystemPromptCasual(birthInfoStr);
@@ -83,7 +102,7 @@ export async function POST(request: NextRequest) {
       headers: {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
+        'Connection': 'keep-alive',
       },
     });
   } catch (error) {

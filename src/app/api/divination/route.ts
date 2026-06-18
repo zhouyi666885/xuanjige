@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { LLMClient, Config, HeaderUtils } from 'coze-coding-dev-sdk';
 import { divinationPrompts } from '@/lib/knowledge';
+import { paiPan, formatPaiPan } from '@/lib/bazi';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,7 +37,39 @@ export async function POST(request: NextRequest) {
     const client = new LLMClient(config, customHeaders);
 
     let userInput = input;
-    if (birthInfo) {
+    let paiPanAppend = '';
+
+    // 对于八字和紫微，使用真实排盘数据
+    if (birthInfo && (type === 'bazi' || type === 'ziwei')) {
+      const { gender, birthYear, birthMonth, birthDay, birthHour, birthMinute, province, city, district } = birthInfo;
+      const parts: string[] = [];
+      if (gender) parts.push(`性别：${gender}`);
+      if (birthYear && birthMonth && birthDay) {
+        parts.push(`出生日期：${birthYear}年${birthMonth}月${birthDay}日`);
+      }
+      if (birthHour !== undefined && birthMinute !== undefined) {
+        parts.push(`出生时间：${birthHour}时${birthMinute}分`);
+      }
+      if (province) {
+        let loc = `出生地：${province}`;
+        if (city) loc += ` ${city}`;
+        if (district) loc += ` ${district}`;
+        parts.push(loc);
+      }
+      if (parts.length > 0) {
+        userInput = parts.join('\n') + '\n\n' + input;
+      }
+
+      // 计算真实排盘
+      try {
+        const g = gender === '男' ? 'male' : 'female';
+        const result = paiPan(g, birthYear, birthMonth, birthDay, birthHour, birthMinute, province || '');
+        paiPanAppend = `\n\n【精确排盘结果（代码计算，非AI脑补）】\n${formatPaiPan(result)}\n\n重要：以上排盘结果由代码精确计算得出，四柱、藏干、十神、五行统计、大运等均为真实数据，请直接基于此排盘结果进行分析解读，不要再自行推算四柱。分析时必须引经据典。`;
+      } catch (e) {
+        paiPanAppend = '\n\n[排盘计算出错，请AI自行推算]';
+      }
+    } else if (birthInfo) {
+      // 其他术数类型，仅拼接出生信息
       const { gender, birthYear, birthMonth, birthDay, birthHour, birthMinute, province, city, district } = birthInfo;
       const parts: string[] = [];
       if (gender) parts.push(`性别：${gender}`);
@@ -58,7 +91,7 @@ export async function POST(request: NextRequest) {
     }
 
     const messages = [
-      { role: 'system' as const, content: systemPrompt + '\n\n' + modeInstruction },
+      { role: 'system' as const, content: systemPrompt + paiPanAppend + '\n\n' + modeInstruction },
       { role: 'user' as const, content: userInput },
     ];
 
@@ -80,8 +113,8 @@ export async function POST(request: NextRequest) {
           controller.enqueue(encoder.encode('data: [DONE]\n\n'));
           controller.close();
         } catch (err) {
-          console.error('Divination stream error:', err);
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: '测算出错' })}\n\n`));
+          console.error('Stream error:', err);
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: '生成内容时出错' })}\n\n`));
           controller.close();
         }
       },
@@ -91,7 +124,7 @@ export async function POST(request: NextRequest) {
       headers: {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
+        'Connection': 'keep-alive',
       },
     });
   } catch (error) {
