@@ -7,6 +7,7 @@ export default function LiurenPage() {
       icon="🌊"
       title="大六壬"
       subtitle="四课三传·金口诀"
+      formType="qimen"
       placeholder="请输入您要占问的事情，如：这笔投资能成吗？行人何时归？"
       systemInfo="大六壬为三式之一，最擅日常人事占断。以日辰起四课，推三传，配合天将神煞断吉凶。《六壬心镜》为唐代奠基，《六壬断案》为案例经典，《六壬指南》为明代扛鼎。金口诀为六壬简化版，适合快速断事。"
       classics={[
