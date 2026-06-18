@@ -1,12 +1,33 @@
 import { NextRequest } from 'next/server';
 import { LLMClient, Config, HeaderUtils } from 'coze-coding-dev-sdk';
-import { systemPromptProfessional, systemPromptCasual } from '@/lib/knowledge';
+import { buildSystemPromptProfessional, buildSystemPromptCasual } from '@/lib/knowledge';
 
 export const dynamic = 'force-dynamic';
 
+interface BirthInfo {
+  gender: string;
+  birthYear: number;
+  birthMonth: number;
+  birthDay: number;
+  birthHour: number;
+  birthMinute: number;
+  province: string;
+  city: string;
+  district: string;
+}
+
+function formatBirthInfo(birthInfo: BirthInfo): string {
+  const genderText = birthInfo.gender === '男' ? '乾造（男命）' : '坤造（女命）';
+  const timeStr = `${birthInfo.birthHour}时${birthInfo.birthMinute}分`;
+  return `${genderText}
+出生时间：${birthInfo.birthYear}年${birthInfo.birthMonth}月${birthInfo.birthDay}日 ${timeStr}
+出生地点：${birthInfo.province}${birthInfo.city}${birthInfo.district}
+请据此排八字四柱并推算紫微斗数命盘。`;
+}
+
 export async function POST(request: NextRequest) {
   try {
-    const { message, mode = 'casual', history = [] } = await request.json();
+    const { message, mode = 'casual', history = [], birthInfo } = await request.json();
 
     if (!message || typeof message !== 'string') {
       return new Response(JSON.stringify({ error: '请提供消息内容' }), {
@@ -19,7 +40,10 @@ export async function POST(request: NextRequest) {
     const config = new Config();
     const client = new LLMClient(config, customHeaders);
 
-    const systemPrompt = mode === 'professional' ? systemPromptProfessional : systemPromptCasual;
+    const birthInfoStr = birthInfo ? formatBirthInfo(birthInfo as BirthInfo) : undefined;
+    const systemPrompt = mode === 'professional'
+      ? buildSystemPromptProfessional(birthInfoStr)
+      : buildSystemPromptCasual(birthInfoStr);
 
     const messages = [
       { role: 'system' as const, content: systemPrompt },

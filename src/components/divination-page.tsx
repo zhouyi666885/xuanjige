@@ -181,7 +181,7 @@ export function DivinationPage({ type, icon, title, subtitle, placeholder, syste
             </button>
             {showForm && (
               <div className="px-4 pb-4">
-                <BirthInfoForm value={birthInfo} onChange={setBirthInfo} />
+                <BirthInfoForm value={birthInfo} onChange={(info) => setBirthInfo(info ?? birthInfo)} />
               </div>
             )}
           </div>

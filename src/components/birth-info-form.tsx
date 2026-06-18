@@ -455,11 +455,14 @@ interface BirthInfo {
 }
 
 interface BirthInfoFormProps {
-  value: BirthInfo;
-  onChange: (info: BirthInfo) => void;
+  value: BirthInfo | null;
+  onChange: (info: BirthInfo | null) => void;
+  compact?: boolean;
 }
 
-export function BirthInfoForm({ value, onChange }: BirthInfoFormProps) {
+export function BirthInfoForm({ value: valueProp, onChange, compact }: BirthInfoFormProps) {
+  const defaultValue: BirthInfo = { year: '', month: '', day: '', hour: '', minute: '', gender: '', province: '', city: '', district: '' };
+  const value = valueProp ?? defaultValue;
   const provinces = useMemo(() => Object.keys(regionData), []);
   const cities = useMemo(() => {
     if (!value.province || !regionData[value.province]) return [];

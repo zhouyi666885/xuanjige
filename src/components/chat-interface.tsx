@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
+import { BirthInfoForm, type BirthInfo } from '@/components/birth-info-form';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -21,6 +22,8 @@ export function ChatInterface({ open, onClose }: ChatInterfaceProps) {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<'casual' | 'professional'>('casual');
+  const [birthInfo, setBirthInfo] = useState<BirthInfo | null>(null);
+  const [showBirthForm, setShowBirthForm] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
 
@@ -45,7 +48,6 @@ export function ChatInterface({ open, onClose }: ChatInterfaceProps) {
     setInput('');
     setLoading(true);
 
-    // Add empty assistant message for streaming
     const assistantMessage: Message = { role: 'assistant', content: '' };
     setMessages([...newMessages, assistantMessage]);
 
@@ -57,6 +59,17 @@ export function ChatInterface({ open, onClose }: ChatInterfaceProps) {
           message: input.trim(),
           mode,
           history: messages.slice(-10),
+          birthInfo: birthInfo ? {
+            gender: birthInfo.gender === 'male' ? '男' : birthInfo.gender === 'female' ? '女' : '',
+            birthYear: parseInt(birthInfo.year) || 0,
+            birthMonth: parseInt(birthInfo.month) || 0,
+            birthDay: parseInt(birthInfo.day) || 0,
+            birthHour: parseInt(birthInfo.hour) || 0,
+            birthMinute: parseInt(birthInfo.minute) || 0,
+            province: birthInfo.province,
+            city: birthInfo.city,
+            district: birthInfo.district,
+          } : null,
         }),
       });
 
@@ -105,29 +118,29 @@ export function ChatInterface({ open, onClose }: ChatInterfaceProps) {
     } finally {
       setLoading(false);
     }
-  }, [input, loading, messages, mode]);
+  }, [input, loading, messages, mode, birthInfo]);
 
   if (!sheetOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm flex flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-gold/10">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-gold/20 flex items-center justify-center text-gold text-xl">
+      <div className="flex items-center justify-between p-3 border-b border-gold/10">
+        <div className="flex items-center gap-2">
+          <div className="w-9 h-9 rounded-full bg-gold/20 flex items-center justify-center text-gold text-lg">
             ☯
           </div>
           <div>
-            <h2 className="text-gold font-serif font-bold">
-              {mode === 'professional' ? '玄学大师' : '小玄'}
+            <h2 className="text-gold font-serif font-bold text-sm">
+              {mode === 'professional' ? '八字紫微大师' : '小玄'}
             </h2>
             <p className="text-muted-foreground text-xs">
-              {mode === 'professional' ? '专业引经据典' : '白话轻松解读'}
+              {mode === 'professional' ? '八字命理·紫微斗数·引经据典' : '白话聊八字和紫微'}
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1">
             <Switch
               id="mode-switch"
               checked={mode === 'professional'}
@@ -141,35 +154,75 @@ export function ChatInterface({ open, onClose }: ChatInterfaceProps) {
             variant="ghost"
             size="sm"
             onClick={() => { setSheetOpen(false); onClose(); }}
-            className="text-muted-foreground hover:text-gold"
+            className="text-muted-foreground hover:text-gold h-8 w-8 p-0"
           >
             ✕
           </Button>
         </div>
       </div>
 
+      {/* Birth Info Bar */}
+      <div className="px-3 py-2 border-b border-gold/5 bg-card/30">
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="border-gold/20 text-gold/70 hover:text-gold hover:border-gold/40 text-xs h-7"
+            onClick={() => setShowBirthForm(!showBirthForm)}
+          >
+            {birthInfo ? '📝 已填生辰' : '✍️ 填写生辰'}
+          </Button>
+          {birthInfo && (
+            <span className="text-xs text-muted-foreground truncate">
+              {birthInfo.gender === 'male' ? '男' : birthInfo.gender === 'female' ? '女' : ''} · {birthInfo.year}年{birthInfo.month}月{birthInfo.day}日{birthInfo.hour}时{birthInfo.minute}分 · {birthInfo.province}{birthInfo.city}{birthInfo.district}
+            </span>
+          )}
+          {!birthInfo && (
+            <span className="text-xs text-muted-foreground">
+              填写生辰后可结合八字紫微命盘分析
+            </span>
+          )}
+        </div>
+        {showBirthForm && (
+          <div className="mt-2">
+            <BirthInfoForm
+              value={birthInfo}
+              onChange={(info: BirthInfo | null) => {
+                setBirthInfo(info);
+                if (info) setShowBirthForm(false);
+              }}
+              compact
+            />
+          </div>
+        )}
+      </div>
+
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-center">
-            <div className="text-6xl mb-4">☯</div>
-            <h3 className="text-gold font-serif text-lg mb-2">欢迎咨询</h3>
-            <p className="text-muted-foreground text-sm max-w-md">
-              我是{mode === 'professional' ? '玄学大师，精通19000部典籍，为你引经据典' : '小玄，读过好多玄学的书，用大白话给你讲明白'}。
-              <br />你可以问我任何关于命理、风水、相学、易学的问题。
+            <div className="text-5xl mb-3">☯</div>
+            <h3 className="text-gold font-serif text-lg mb-2">八字紫微问答</h3>
+            <p className="text-muted-foreground text-sm max-w-md mb-1">
+              {mode === 'professional'
+                ? '精通八字命理与紫微斗数，依据《渊海子平》《滴天髓》《紫微斗数全书》等经典，引经据典为你详解命盘。'
+                : '我用大白话给你讲八字和紫微斗数，先填生辰信息，我就能结合你的命盘来分析啦！'}
             </p>
-            <div className="mt-6 grid grid-cols-2 gap-2 max-w-sm">
+            <p className="text-gold/50 text-xs">
+              填写生辰后，我将结合你的八字四柱与紫微命盘进行个性化分析
+            </p>
+            <div className="mt-4 grid grid-cols-1 gap-2 max-w-sm w-full">
               {[
-                '八字怎么看用神？',
-                '今天适合搬家吗？',
-                '面相怎么看财运？',
-                '紫微斗数是什么？',
+                '帮我分析一下我的八字格局',
+                '我的紫微命盘夫妻宫怎么看？',
+                '八字用神是什么？怎么找？',
+                '紫微斗数和八字有什么区别？',
               ].map((q) => (
                 <Button
                   key={q}
                   variant="outline"
                   size="sm"
-                  className="border-gold/20 text-gold/70 hover:text-gold hover:border-gold/40 text-xs"
+                  className="border-gold/20 text-gold/70 hover:text-gold hover:border-gold/40 text-xs justify-start"
                   onClick={() => setInput(q)}
                 >
                   {q}
@@ -200,7 +253,7 @@ export function ChatInterface({ open, onClose }: ChatInterfaceProps) {
       </div>
 
       {/* Input */}
-      <div className="p-4 border-t border-gold/10">
+      <div className="p-3 border-t border-gold/10">
         <div className="flex gap-2">
           <Textarea
             value={input}
@@ -211,7 +264,7 @@ export function ChatInterface({ open, onClose }: ChatInterfaceProps) {
                 sendMessage();
               }
             }}
-            placeholder="输入你的问题..."
+            placeholder={birthInfo ? '结合你的命盘来问吧...' : '输入你的八字紫微问题...'}
             className="min-h-[44px] max-h-[120px] bg-ink border-gold/20 text-foreground placeholder:text-muted-foreground resize-none"
             rows={1}
           />
