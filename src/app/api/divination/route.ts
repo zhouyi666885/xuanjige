@@ -4,6 +4,7 @@ import { divinationPrompts } from '@/lib/knowledge';
 import { paiPan, formatPaiPanFull, formatShiZhanPrediction } from '@/lib/bazi';
 import { paiPan as ziweiPaiPan, formatPaiPan as ziweiFormatPaiPan, getMingGongLunDuan } from '@/lib/ziwei';
 import { matchKnowledge } from '@/lib/classic-knowledge';
+import { searchKnowledge, formatKnowledgeResults } from '@/lib/knowledge-search';
 import { generateSanHeCanDuanPrompt, getSanHeCanDuanByTopic, SAN_HE_CAN_DUAN_GUIDE } from '@/lib/sanhe-canduan';
 import { generateMianXiangFramework, getMianXiangPredictionGuide } from '@/lib/xiangxue';
 import { generateShouXiangFramework, getShouXiangPredictionGuide } from '@/lib/shouxiang';
@@ -51,8 +52,13 @@ export async function POST(request: NextRequest) {
     }
 
     const keywords = typeToKeywords[type] || '';
+    // 知识库语义搜索（向量化检索，精准度更高）
+    const knowledgeResults = await searchKnowledge(input || keywords, 5, 0.3);
+    const knowledgeSearchStr = formatKnowledgeResults(knowledgeResults);
+    // 关键词匹配兜底
     const classicKnowledgeStr = keywords ? matchKnowledge(keywords) : '';
-    const systemPrompt = baseSystemPrompt + (classicKnowledgeStr ? '\n\n' + classicKnowledgeStr : '');
+    const finalKnowledgeStr = knowledgeSearchStr || (classicKnowledgeStr ? '\n\n' + classicKnowledgeStr : '');
+    const systemPrompt = baseSystemPrompt + finalKnowledgeStr;
 
     const modeInstruction = mode === 'professional'
       ? '请用专业术语和经典引文进行解读，标注出处。'

@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { LLMClient, Config, HeaderUtils } from 'coze-coding-dev-sdk';
 import { faceReadingPrompt } from '@/lib/knowledge';
+import { searchKnowledge, formatKnowledgeResults } from '@/lib/knowledge-search';
 import { generateMianXiangFramework, getMianXiangPredictionGuide } from '@/lib/xiangxue';
 import { paiPan, formatPaiPanFull, formatShiZhanPrediction } from '@/lib/bazi';
 import { paiPan as ziweiPaiPan, formatPaiPan as ziweiFormatPaiPan } from '@/lib/ziwei';
@@ -71,11 +72,16 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // 知识库语义搜索面相相关经典
+    const knowledgeResults = await searchKnowledge('面相手相五官三停十二宫', 3, 0.3);
+    const knowledgeSearchStr = formatKnowledgeResults(knowledgeResults);
+
     const systemPrompt = faceReadingPrompt
       + '\n\n' + modeInstruction
       + (mianXiangFramework ? '\n\n' + mianXiangFramework : '')
       + '\n\n' + mianXiangGuide
-      + (sanHeCanDuanPrompt ? '\n\n' + sanHeCanDuanPrompt : '');
+      + (sanHeCanDuanPrompt ? '\n\n' + sanHeCanDuanPrompt : '')
+      + knowledgeSearchStr;
 
     const userMessage = hasBirthInfo
       ? `请分析我的面相，详细解读五官十二宫、三停六府、流年气色，并结合命盘进行三合参断。必须给出具体的贵人方位/属相/时间、财运年份、姻缘时机等预测。出生信息：${birthInfo.gender}，${birthInfo.birthYear}年${birthInfo.birthMonth}月${birthInfo.birthDay}日${birthInfo.birthHour || ''}时${birthInfo.province ? '，' + birthInfo.province + birthInfo.city + birthInfo.district : ''}。`

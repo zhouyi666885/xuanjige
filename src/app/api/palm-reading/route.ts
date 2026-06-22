@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { LLMClient, Config, HeaderUtils } from 'coze-coding-dev-sdk';
 import { palmReadingPrompt } from '@/lib/knowledge';
+import { searchKnowledge, formatKnowledgeResults } from '@/lib/knowledge-search';
 import { generateShouXiangFramework, getShouXiangPredictionGuide } from '@/lib/shouxiang';
 import { paiPan, formatPaiPanFull, formatShiZhanPrediction } from '@/lib/bazi';
 import { paiPan as ziweiPaiPan } from '@/lib/ziwei';
@@ -70,11 +71,16 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // 知识库语义搜索手相相关经典
+    const knowledgeResults = await searchKnowledge('手相掌纹生命线感情线智慧线九大丘位', 3, 0.3);
+    const knowledgeSearchStr = formatKnowledgeResults(knowledgeResults);
+
     const systemPrompt = palmReadingPrompt
       + '\n\n' + modeInstruction
       + (shouXiangFramework ? '\n\n' + shouXiangFramework : '')
       + '\n\n' + shouXiangGuide
-      + (sanHeCanDuanPrompt ? '\n\n' + sanHeCanDuanPrompt : '');
+      + (sanHeCanDuanPrompt ? '\n\n' + sanHeCanDuanPrompt : '')
+      + knowledgeSearchStr;
 
     const userMessage = hasBirthInfo
       ? `请分析我的手相，详细解读五大主线、九大丘位、特殊纹路、流年应期，并结合命盘进行三合参断。必须给出具体的结婚年龄、事业高峰期、财运年份、健康注意年份等预测。出生信息：${birthInfo.gender}，${birthInfo.birthYear}年${birthInfo.birthMonth}月${birthInfo.birthDay}日${birthInfo.birthHour || ''}时${birthInfo.province ? '，' + birthInfo.province + birthInfo.city + birthInfo.district : ''}。`

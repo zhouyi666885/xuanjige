@@ -4,6 +4,7 @@ import { buildSystemPromptProfessional, buildSystemPromptCasual } from '@/lib/kn
 import { paiPan, formatPaiPanFull, formatShiZhanPrediction } from '@/lib/bazi';
 import { paiPan as ziweiPaiPan, formatPaiPan as ziweiFormatPaiPan, getMingGongLunDuan } from '@/lib/ziwei';
 import { matchKnowledge, getAllKnowledge } from '@/lib/classic-knowledge';
+import { searchKnowledge, formatKnowledgeResults } from '@/lib/knowledge-search';
 import { generateSanHeCanDuanPrompt, getSanHeCanDuanByTopic, SAN_HE_CAN_DUAN_GUIDE } from '@/lib/sanhe-canduan';
 import { generateMianXiangFramework, getMianXiangPredictionGuide } from '@/lib/xiangxue';
 import { generateShouXiangFramework, getShouXiangPredictionGuide } from '@/lib/shouxiang';
@@ -181,8 +182,15 @@ export async function POST(request: NextRequest) {
 
     const birthInfoStr = birthInfo ? formatBirthInfoWithPaiPan(birthInfo as BirthInfo) : undefined;
   
-    // 根据用户消息智能匹配经典知识点
-    const classicKnowledgeStr = matchKnowledge(message) || getAllKnowledge();
+    // 根据用户消息智能匹配经典知识点（关键词匹配兜底）
+    const classicKnowledgeStr = matchKnowledge(message) || '';
+
+    // 知识库语义搜索（向量化检索，精准度更高）
+    const knowledgeResults = await searchKnowledge(message, 5, 0.3);
+    const knowledgeSearchStr = formatKnowledgeResults(knowledgeResults);
+
+    // 如果语义搜索无结果且关键词匹配也为空，则使用全量知识兜底
+    const finalKnowledgeStr = knowledgeSearchStr || classicKnowledgeStr || getAllKnowledge();
 
     const basePrompt = mode === 'professional'
       ? buildSystemPromptProfessional(birthInfoStr)
@@ -193,7 +201,7 @@ export async function POST(request: NextRequest) {
     // 加入自动起卦/排盘
     const autoQiGuaResult = autoQiGua(message, birthInfo ? (birthInfo as BirthInfo) : null);
     const contextStr = context ? `\n\n【前置分析结果】\n${context}\n请在以上分析结果基础上，继续深入回答用户的问题。` : '';
-    const systemPrompt = basePrompt + '\n\n' + classicKnowledgeStr + '\n\n' + topicGuide + autoQiGuaResult + contextStr;
+    const systemPrompt = basePrompt + '\n\n' + finalKnowledgeStr + '\n\n' + topicGuide + autoQiGuaResult + contextStr;
 
     const messages = [
       { role: 'system' as const, content: systemPrompt },
