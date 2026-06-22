@@ -32,11 +32,13 @@
 │   │       ├── chat/route.ts     # AI 问答（流式 SSE）
 │   │       ├── face-reading/route.ts  # 面相分析（流式 SSE）
 │   │       ├── palm-reading/route.ts  # 手相分析（流式 SSE）
-│   │       └── divination/route.ts    # 通用测算（流式 SSE）
+│   │       ├── divination/route.ts    # 通用测算（流式 SSE）
+│   │       └── feedback/route.ts     # 预测验证反馈
 │   ├── components/
 │   │   ├── camera-capture.tsx    # 拍照组件（相机/相册）
 │   │   ├── chat-interface.tsx    # AI 问答全屏界面
 │   │   ├── reading-result.tsx    # 解读结果展示
+│   │   ├── prediction-feedback.tsx # 预测验证反馈组件
 │   │   ├── divination-page.tsx   # 通用测算页面模板
 │   │   └── ui/                   # shadcn/ui 组件
 │   └── lib/
@@ -61,6 +63,8 @@
 2. POST /api/face-reading - 面相分析（SSE 流式，支持图片）
 3. POST /api/palm-reading - 手相分析（SSE 流式，支持图片）
 4. POST /api/divination - 通用测算（SSE 流式，type 参数区分测算类型）
+5. POST /api/feedback - 预测验证反馈（JSON，收集用户验证结果用于AI进化）
+6. GET /api/feedback - 查询反馈统计（JSON，返回准确率统计）
 
 ## 代码规范
 - 严格 TypeScript，禁止隐式 any

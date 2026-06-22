@@ -4,6 +4,7 @@ import { useCallback, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { BirthInfoForm, BirthInfo } from '@/components/birth-info-form';
+import { PredictionFeedback } from '@/components/prediction-feedback';
 import Link from 'next/link';
 
 // ---- 各术数专用表单 ----
@@ -562,6 +563,13 @@ export function DivinationPage({ type, icon, title, subtitle, placeholder, syste
                 {result}
                 {loading && <span className="typewriter-cursor" />}
               </div>
+            )}
+            {/* Feedback after streaming completes */}
+            {!loading && result && (
+              <PredictionFeedback
+                divinationType={type}
+                predictionSummary={result.slice(0, 500)}
+              />
             )}
           </div>
         )}

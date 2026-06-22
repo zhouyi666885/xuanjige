@@ -6,6 +6,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { BirthInfoForm, type BirthInfo } from '@/components/birth-info-form';
+import { PredictionFeedback } from '@/components/prediction-feedback';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -246,6 +247,13 @@ export function ChatInterface({ open, onClose }: ChatInterfaceProps) {
                   <span className="typewriter-cursor" />
                 )}
               </div>
+              {/* Feedback on last assistant message after streaming */}
+              {msg.role === 'assistant' && i === messages.length - 1 && !loading && msg.content.length > 50 && (
+                <PredictionFeedback
+                  divinationType="chat"
+                  predictionSummary={msg.content.slice(0, 500)}
+                />
+              )}
             </div>
           </div>
         ))}
