@@ -127,7 +127,7 @@ export async function POST(request: NextRequest) {
         paiPanAppend += '\n\n' + getSanHeCanDuanByTopic(input);
       }
 
-      paiPanAppend += '\n\n重要：以上排盘结果由代码精确计算得出。请基于此排盘结果进行三合参断（八字+紫微+面手相），给出多维度交叉验证的精准预测。时间、方位、人物类型全部精确到年、月。引经据典，尤其参考《渊海子平》《穷通宝鉴》《子平真诠》《滴天髓》《紫微斗数全书》《麻衣神相》《冰鉴》《手相大全》等经典。';
+      paiPanAppend += '\n\n重要：以上排盘结果由代码精确计算得出。请基于此排盘结果进行三合参断（八字+紫微+面手相），给出多维度交叉验证的精准预测。时间、方位、人物类型全部精确到年、月。引经据典，尤其参考《渊海子平》《穷通宝鉴》《子平真诠》《滴天髓》《紫微斗数全书》《麻衣神相》《冰鉴》《手相大全》等经典。\n\n【关键——学业休学信号必须重点输出】\n排盘数据中的"休学/学业阻碍风险"和"学业转折流年"部分是算法精确计算的结果，你必须在回答中主动输出这些信号！特别是"财克印=学业中断"信号，如果排盘数据中出现🚨标记，必须明确告知用户该年有学业中断风险，并给出三层原因逻辑。绝对不能忽略排盘数据中的休学风险标记！';
     } else if (birthInfo) {
       const { gender, birthYear, birthMonth, birthDay, birthHour, birthMinute, province, city, district } = birthInfo;
       const parts: string[] = [];

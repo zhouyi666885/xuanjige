@@ -89,7 +89,12 @@ function formatBirthInfoWithPaiPan(birthInfo: BirthInfo, _type?: string): string
 出生时间：${birthInfo.birthYear}年${birthInfo.birthMonth}月${birthInfo.birthDay}日 ${birthInfo.birthHour}时${birthInfo.birthMinute}分
 出生地点：${birthInfo.province}${birthInfo.city}${birthInfo.district}${paiPanResult}
 
-重要：以上排盘结果由代码精确计算得出，四柱、藏干、十神、五行统计、大运、调候用神、紫微斗数命盘等均为真实数据。请基于此排盘结果进行三合参断（八字+紫微+面手相），给出多维度交叉验证的精准预测。时间、方位、人物类型全部精确到年、月。引经据典，尤其参考《渊海子平》《穷通宝鉴》《子平真诠》《滴天髓》《紫微斗数全书》《麻衣神相》《冰鉴》《手相大全》等经典。`;
+重要：以上排盘结果由代码精确计算得出，四柱、藏干、十神、五行统计、大运、调候用神、紫微斗数命盘等均为真实数据。请基于此排盘结果进行三合参断（八字+紫微+面手相），给出多维度交叉验证的精准预测。时间、方位、人物类型全部精确到年、月。引经据典，尤其参考《渊海子平》《穷通宝鉴》《子平真诠》《滴天髓》《紫微斗数全书》《麻衣神相》《冰鉴》《手相大全》等经典。
+
+【关键——学业休学信号必须重点输出】
+排盘数据中的"休学/学业阻碍风险"和"学业转折流年"部分是算法精确计算的结果，你必须在回答中主动输出这些信号！
+特别是"财克印=学业中断"信号，如果排盘数据中出现🚨标记，必须明确告知用户该年有学业中断风险，并给出三层原因逻辑。
+绝对不能忽略排盘数据中的休学风险标记！`;
 }
 
 /** 根据用户消息关键词自动起卦/排盘 */
@@ -200,8 +205,8 @@ export async function POST(request: NextRequest) {
     ];
 
     const stream = client.stream(messages, {
-      model: 'doubao-seed-2-0-lite-260215',
-      temperature: mode === 'professional' ? 0.5 : 0.8,
+      model: 'doubao-seed-2-0-pro-260215',
+      temperature: mode === 'professional' ? 0.4 : 0.7,
     });
 
     const encoder = new TextEncoder();
