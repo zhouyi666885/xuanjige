@@ -1896,7 +1896,7 @@ export function predictXueYe(paiPan: BaZiPaiPan, currentYear?: number): string {
     const caiWX3 = caiWXMap3[dayWX] || '水';
     const chongMap3: Record<string, string> = {'子':'午','丑':'未','寅':'申','卯':'酉','辰':'戌','巳':'亥','午':'子','未':'丑','申':'寅','酉':'卯','戌':'辰','亥':'巳'};
     const yinZhiArr3 = getYinXingZhi(dayGan);
-    let isCaiKeYin = yearWX === caiWX3;
+    const isCaiKeYin = yearWX === caiWX3;
     let isChongYin = false;
     for (const yz of yinZhiArr3) {
       if (chongMap3[yearGanZhi.zhi] === yz && allZhi.includes(yz)) isChongYin = true;

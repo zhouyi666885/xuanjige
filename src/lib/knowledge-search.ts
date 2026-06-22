@@ -6,7 +6,91 @@
 
 import { KnowledgeClient, Config } from 'coze-coding-dev-sdk';
 
-const DATASET_NAME = 'xuanxue_classics';
+// 13个领域知识库名称（与导入脚本一致）
+const ALL_DATASETS = [
+  'xueye_knowledge',       // 学业
+  'hunyin_knowledge',      // 婚姻
+  'shiye_knowledge',       // 事业
+  'caiyun_knowledge',      // 财运
+  'jiankang_knowledge',    // 健康
+  'liuqin_knowledge',      // 六亲
+  'dayun_knowledge',       // 大运流年
+  'geju_knowledge',        // 格局判断
+  'shensha_knowledge',     // 神煞应用
+  'liuyao_knowledge',      // 六爻占卜
+  'meihua_knowledge',      // 梅花易数
+  'fengshui_knowledge',    // 风水地理
+  'xiangxue_knowledge',    // 面相手相
+];
+
+// 领域关键词→数据集映射（精准搜索时使用）
+const DOMAIN_DATASET_MAP: Record<string, string[]> = {
+  '学业': ['xueye_knowledge'],
+  '学习': ['xueye_knowledge'],
+  '考试': ['xueye_knowledge'],
+  '升学': ['xueye_knowledge'],
+  '休学': ['xueye_knowledge'],
+  '复学': ['xueye_knowledge'],
+  '学历': ['xueye_knowledge'],
+  '读书': ['xueye_knowledge'],
+  '婚姻': ['hunyin_knowledge'],
+  '结婚': ['hunyin_knowledge'],
+  '离婚': ['hunyin_knowledge'],
+  '恋爱': ['hunyin_knowledge'],
+  '配偶': ['hunyin_knowledge'],
+  '夫妻': ['hunyin_knowledge'],
+  '感情': ['hunyin_knowledge'],
+  '事业': ['shiye_knowledge'],
+  '工作': ['shiye_knowledge'],
+  '职业': ['shiye_knowledge'],
+  '升职': ['shiye_knowledge'],
+  '创业': ['shiye_knowledge'],
+  '财运': ['caiyun_knowledge'],
+  '赚钱': ['caiyun_knowledge'],
+  '破财': ['caiyun_knowledge'],
+  '投资': ['caiyun_knowledge'],
+  '健康': ['jiankang_knowledge'],
+  '疾病': ['jiankang_knowledge'],
+  '身体': ['jiankang_knowledge'],
+  '手术': ['jiankang_knowledge'],
+  '父母': ['liuqin_knowledge'],
+  '兄弟': ['liuqin_knowledge'],
+  '子女': ['liuqin_knowledge'],
+  '六亲': ['liuqin_knowledge'],
+  '大运': ['dayun_knowledge'],
+  '流年': ['dayun_knowledge'],
+  '格局': ['geju_knowledge'],
+  '用神': ['geju_knowledge'],
+  '忌神': ['geju_knowledge'],
+  '神煞': ['shensha_knowledge'],
+  '桃花': ['shensha_knowledge'],
+  '驿马': ['shensha_knowledge'],
+  '华盖': ['shensha_knowledge'],
+  '六爻': ['liuyao_knowledge'],
+  '起卦': ['liuyao_knowledge'],
+  '占卜': ['liuyao_knowledge'],
+  '梅花': ['meihua_knowledge'],
+  '风水': ['fengshui_knowledge'],
+  '住房': ['fengshui_knowledge'],
+  '面相': ['xiangxue_knowledge'],
+  '手相': ['xiangxue_knowledge'],
+  '面容': ['xiangxue_knowledge'],
+};
+
+/**
+ * 根据查询文本识别应该搜索哪些数据集
+ * 精准模式：只搜索相关领域；通用模式：搜索所有数据集
+ */
+function resolveDatasets(query: string): string[] | undefined {
+  const matchedDatasets = new Set<string>();
+  for (const [keyword, datasets] of Object.entries(DOMAIN_DATASET_MAP)) {
+    if (query.includes(keyword)) {
+      datasets.forEach(d => matchedDatasets.add(d));
+    }
+  }
+  // 如果匹配到特定领域，只搜索这些领域；否则搜索全部
+  return matchedDatasets.size > 0 ? Array.from(matchedDatasets) : undefined;
+}
 
 let clientInstance: KnowledgeClient | null = null;
 
@@ -38,7 +122,8 @@ export async function searchKnowledge(
 ): Promise<KnowledgeSearchResult[]> {
   try {
     const client = getKnowledgeClient();
-    const response = await client.search(query, [DATASET_NAME], topK, minScore);
+    const tableNames = resolveDatasets(query);
+    const response = await client.search(query, tableNames, topK, minScore);
 
     if (response.code === 0 && response.chunks) {
       return response.chunks
