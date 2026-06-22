@@ -269,6 +269,11 @@ export function DivinationPage({ type, icon, title, subtitle, placeholder, syste
   // Custom form data (for liuyao/meihua/qimen/fengshui/xingming)
   const [customData, setCustomData] = useState<Record<string, string>>({});
 
+  // AI Q&A state
+  const [chatMessages, setChatMessages] = useState<{ role: 'user' | 'assistant'; content: string }[]>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
+
   const buildInputText = useCallback(() => {
     let text = '';
 
@@ -434,6 +439,71 @@ export function DivinationPage({ type, icon, title, subtitle, placeholder, syste
     return input.trim();
   };
 
+  const handleChatSubmit = useCallback(async () => {
+    if (!chatInput.trim() || chatLoading || !result) return;
+    const userMsg = chatInput.trim();
+    setChatInput('');
+    setChatMessages(prev => [...prev, { role: 'user', content: userMsg }]);
+    setChatLoading(true);
+
+    try {
+      const contextMessage = `【${title}测算结果】\n${result.slice(0, 2000)}\n\n【用户追问】${userMsg}`;
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: userMsg,
+          mode,
+          context: `用户正在使用「${title}」功能，以下是测算结果：\n${result.slice(0, 2000)}`,
+          history: chatMessages.slice(-6).map(m => ({ role: m.role, content: m.content })),
+        }),
+      });
+
+      if (!response.ok) throw new Error('请求失败');
+
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('无法读取响应');
+
+      const decoder = new TextDecoder();
+      let accumulated = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n');
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            if (data === '[DONE]') continue;
+            try {
+              const parsed = JSON.parse(data);
+              if (parsed.content) {
+                accumulated += parsed.content;
+                setChatMessages(prev => {
+                  const updated = [...prev];
+                  const lastMsg = updated[updated.length - 1];
+                  if (lastMsg?.role === 'assistant') {
+                    updated[updated.length - 1] = { ...lastMsg, content: accumulated };
+                  } else {
+                    updated.push({ role: 'assistant', content: accumulated });
+                  }
+                  return updated;
+                });
+              }
+            } catch {
+              // Skip invalid JSON
+            }
+          }
+        }
+      }
+    } catch {
+      setChatMessages(prev => [...prev, { role: 'assistant', content: '问答出错，请稍后再试' }]);
+    } finally {
+      setChatLoading(false);
+    }
+  }, [chatInput, chatLoading, result, title, type, mode]);
+
   const renderForm = () => {
     if (formType === 'birth') {
       return <BirthInfoForm value={birthInfo} onChange={(info: BirthInfo | null) => setBirthInfo(info ?? birthInfo)} />;
@@ -571,6 +641,63 @@ export function DivinationPage({ type, icon, title, subtitle, placeholder, syste
                 predictionSummary={result.slice(0, 500)}
               />
             )}
+          </div>
+        )}
+
+        {/* AI Q&A Section - appears after result */}
+        {!loading && result && (
+          <div className="bg-card border border-gold/10 rounded-xl p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-gold">💬</span>
+              <h3 className="text-gold font-serif font-bold">AI 追问</h3>
+              <span className="text-xs text-gold/40">基于测算结果继续提问</span>
+            </div>
+
+            {/* Chat messages */}
+            {chatMessages.length > 0 && (
+              <div className="space-y-3 mb-4 max-h-[400px] overflow-y-auto">
+                {chatMessages.map((msg, i) => (
+                  <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`max-w-[85%] rounded-xl px-4 py-2.5 text-sm leading-relaxed ${
+                      msg.role === 'user'
+                        ? 'bg-gold/20 text-foreground border border-gold/20'
+                        : 'bg-ink border border-gold/10 text-foreground'
+                    }`}>
+                      <div className="whitespace-pre-wrap">{msg.content}</div>
+                      {msg.role === 'assistant' && i === chatMessages.length - 1 && chatLoading && (
+                        <span className="typewriter-cursor" />
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Chat input */}
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={chatInput}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setChatInput(e.target.value)}
+                onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleChatSubmit();
+                  }
+                }}
+                placeholder={`追问关于${title}的问题...`}
+                className="flex-1 bg-ink border border-gold/20 rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-gold/40"
+                disabled={chatLoading}
+              />
+              <Button
+                onClick={handleChatSubmit}
+                disabled={chatLoading || !chatInput.trim()}
+                className="bg-gold text-ink hover:bg-gold/90 px-4"
+                size="sm"
+              >
+                {chatLoading ? '...' : '发送'}
+              </Button>
+            </div>
           </div>
         )}
 

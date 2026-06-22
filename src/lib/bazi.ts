@@ -1849,6 +1849,10 @@ export function predictXueYe(paiPan: BaZiPaiPan, currentYear?: number): string {
   // 食伤五行
   const shiShangWXMap: Record<string, string> = { '木': '火', '火': '土', '土': '金', '金': '水', '水': '木' };
   const shiShangWX = shiShangWXMap[dayWX] || '火';
+  // 用神忌神判断
+  const wangShuai = judgeWangShuai(paiPan);
+  const isYinJi = wangShuai.jiShen.includes('印星'); // 印星为忌（身旺时印多为忌）
+  const isYinYong = wangShuai.yongShen.includes('印星'); // 印星为用（身弱时需印帮）
 
   // 四柱中有无印星、文昌
   const allZhi = [paiPan.yearPillar.zhi, paiPan.monthPillar.zhi, paiPan.dayPillar.zhi, paiPan.hourPillar.zhi];
@@ -1860,7 +1864,13 @@ export function predictXueYe(paiPan: BaZiPaiPan, currentYear?: number): string {
 
   let text = '\n\n===== 学业预测 =====\n';
   text += `【学业星分析】日干${dayGan}(${dayWX})，印星=${yinWX}，食伤=${shiShangWX}\n`;
-  text += hasYinXing ? '✅ 命局带印星，学习根基深厚，利于学术深造\n' : '⚠️ 命局印星不显，需靠后天努力补足\n';
+  text += hasYinXing
+    ? (isYinJi
+      ? '⚠️ 命局带印星，但印星为忌（身旺印多为忌），学业容易分心、想学但学不进去，需行财官食伤运方利学业\n'
+      : '✅ 命局带印星且为用，学习根基深厚，利于学术深造\n')
+    : (isYinYong
+      ? '⚠️ 命局印星不显且为用神，需大运流年引动印星方利学业\n'
+      : '⚠️ 命局印星不显，需靠后天努力补足\n');
   text += hasWenChang ? `✅ 命带文昌贵人（${wenChangZhi}），利考试、利文职\n` : '⚠️ 文昌不显，考试运需靠流年引动\n';
 
   // 《八字学业预测学》论断
@@ -1894,7 +1904,27 @@ export function predictXueYe(paiPan: BaZiPaiPan, currentYear?: number): string {
 
     if (isCaiKeYin && hasYinXing) label = '🚨 财克印！学业严重受阻，极可能休学/退学/中断';
     else if (isChongYin) label = '⚠️ 冲印星，学业根基动摇，成绩大幅波动';
-    else if (yearWX === yinWX) label = '📚 印星年！学业最旺，考试大利，适合升学/考证';
+    else if (yearWX === yinWX) {
+      if (isYinJi) {
+        // 印星为忌：印星年不是好事，反而加重"想学但学不进去"
+        // 检查前几年是否有连续财克印（休学后恢复期判断）
+        let prevCaiKeYinYears = 0;
+        for (let k = 1; k <= 3; k++) {
+          const prevYear = year - k;
+          const prevGZ = getYearGanZhi(prevYear);
+          if (WUXING_GAN[prevGZ.gan] === caiWX3 && hasYinXing) prevCaiKeYinYears++;
+        }
+        if (prevCaiKeYinYears >= 2) {
+          label = '🔄 印星年为忌+连续财克印后恢复期：有复学念头但难以真正回去，只是想想而已';
+        } else if (prevCaiKeYinYears >= 1) {
+          label = '🔄 印星年为忌+财克印后：可能想恢复学业，但行动力不足，需比劫帮身或食伤泄秀才行';
+        } else {
+          label = '⚠️ 印星年为忌！想学但学不进去，注意力不集中，印多为患反增焦虑';
+        }
+      } else {
+        label = '📚 印星年！学业最旺，考试大利，适合升学/考证';
+      }
+    }
     else if (yearWX === shiShangWX) label = '🎨 食伤年，才华横溢，利创作/竞赛，但考试需防粗心';
     else if (WUXING_ZHI[yearGanZhi.zhi] === yinWX) label = '📚 印星地支年，学业暗中助力';
     else if (yearGanZhi.zhi === wenChangZhi) label = '✨ 文昌引动年！考试运极佳，逢考必过';
@@ -1954,6 +1984,41 @@ export function predictXueYe(paiPan: BaZiPaiPan, currentYear?: number): string {
       if (chongMap[yearGanZhi.zhi] === yz && allZhi.includes(yz)) {
         text += `  ⚠️ ${year}年（${yearGanZhi.gan}${yearGanZhi.zhi}）：冲印星（${yz}），学业根基动摇，成绩波动大\n`;
       }
+    }
+  }
+
+  // 恢复期判断——连续财克印后，印星年能否真正恢复
+  text += '【学业恢复期判断】\n';
+  // 找出过去10年中的财克印年份
+  const caiKeYinYears: number[] = [];
+  for (let i = -10; i <= 0; i++) {
+    const year = now + i;
+    const age = year - birthYearVal;
+    if (age < 6 || age > 30) continue;
+    const yearGZ = getYearGanZhi(year);
+    if (WUXING_GAN[yearGZ.gan] === caiWX && hasYinXing) {
+      caiKeYinYears.push(year);
+    }
+  }
+  if (caiKeYinYears.length === 0) {
+    text += '  近年无财克印信号，学业运势平稳\n';
+  } else {
+    text += `  财克印年份：${caiKeYinYears.join('、')}\n`;
+    if (isYinJi) {
+      text += '  ⚠️ 印星为忌！即使到了印星流年，也不会真正恢复学业，只是有复学的念头但缺乏行动力。\n';
+      text += '  《滴天髓》云：旺极宜泄不宜帮。身旺印多为忌，印星流年反而加重焦虑和无力感。\n';
+      text += '  真正恢复学业的信号：食伤泄秀年（才华释放、找到兴趣方向）或财官年（有目标有动力），而非印星年。\n';
+    } else {
+      text += '  ✅ 印星为用！下一个印星流年或比劫帮身流年，可能真正恢复学业。\n';
+    }
+    // 连续2年及以上财克印=学业中断时间长
+    let consecutive = 1;
+    for (let i = 1; i < caiKeYinYears.length; i++) {
+      if (caiKeYinYears[i] === caiKeYinYears[i - 1] + 1) consecutive++;
+    }
+    if (consecutive >= 2) {
+      text += `  🚨 连续${consecutive}年财克印！学业中断时间不会短，恢复需要更长时间和更强的运势配合。\n`;
+      text += '  已验证案例：丁亥丁未戊申戊午女命，2022-2023连续两年财克印，2023年休学，至2026年（印星年丙午）仍未复学。原因：印为忌，印星年到只是"想回去"而非"真能回去"。\n';
     }
   }
 
