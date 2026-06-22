@@ -7,6 +7,12 @@ import { matchKnowledge, getAllKnowledge } from '@/lib/classic-knowledge';
 import { generateSanHeCanDuanPrompt, getSanHeCanDuanByTopic, SAN_HE_CAN_DUAN_GUIDE } from '@/lib/sanhe-canduan';
 import { generateMianXiangFramework, getMianXiangPredictionGuide } from '@/lib/xiangxue';
 import { generateShouXiangFramework, getShouXiangPredictionGuide } from '@/lib/shouxiang';
+import { tongQianQiGua, shiJianQiGua as liuyaoShiJian, formatLiuYaoPaiPan as liuyaoFormat } from '@/lib/liuyao';
+import { shiJianQiGua as meihuaShiJian, shuZiQiGua, wenZiQiGua, formatMeiHuaPaiPan as meihuaFormat } from '@/lib/meihua';
+import { paiPan as qimenPaiPan, formatQiMenPaiPan as qimenFormat } from '@/lib/qimen';
+import { paiPan as liurenPaiPan, formatLiuRenPaiPan as liurenFormat } from '@/lib/liuren';
+import { paiPan as fengshuiPaiPan, formatFengShuiPaiPan as fengshuiFormat } from '@/lib/fengshui';
+import { calculateXingMing as xingmingCalculate, formatXingMingPaiPan as xingmingFormat } from '@/lib/xingming';
 
 export const dynamic = 'force-dynamic';
 
@@ -86,6 +92,73 @@ function formatBirthInfoWithPaiPan(birthInfo: BirthInfo, _type?: string): string
 重要：以上排盘结果由代码精确计算得出，四柱、藏干、十神、五行统计、大运、调候用神、紫微斗数命盘等均为真实数据。请基于此排盘结果进行三合参断（八字+紫微+面手相），给出多维度交叉验证的精准预测。时间、方位、人物类型全部精确到年、月。引经据典，尤其参考《渊海子平》《穷通宝鉴》《子平真诠》《滴天髓》《紫微斗数全书》《麻衣神相》《冰鉴》《手相大全》等经典。`;
 }
 
+/** 根据用户消息关键词自动起卦/排盘 */
+function autoQiGua(message: string, birthInfo: BirthInfo | null): string {
+  const currentYear = new Date().getFullYear();
+  let result = '';
+  const now = new Date();
+  const y = birthInfo?.birthYear || now.getFullYear();
+  const m = birthInfo?.birthMonth || (now.getMonth() + 1);
+  const d = birthInfo?.birthDay || now.getDate();
+  const h = birthInfo?.birthHour || now.getHours();
+
+  // 六爻
+  if (/六爻|铜钱|起卦|占卜/.test(message)) {
+    try {
+      const bazi = paiPan(birthInfo?.gender === '男' ? 'male' : 'female', y, m, d, h, birthInfo?.birthMinute || 0, birthInfo?.province || '');
+      const gua = liuyaoShiJian(y, m, d, h, bazi.dayPillar.gan, bazi.dayPillar.zhi, bazi.monthPillar.zhi, message);
+      result += `\n\n【六爻起卦结果（代码计算）】\n${liuyaoFormat(gua)}`;
+    } catch (_e) { /* ignore */ }
+  }
+
+  // 梅花易数
+  if (/梅花|易数|数字起卦/.test(message)) {
+    try {
+      const gua = meihuaShiJian(y, m, d, h, message);
+      result += `\n\n【梅花易数起卦结果（代码计算）】\n${meihuaFormat(gua)}`;
+    } catch (_e) { /* ignore */ }
+  }
+
+  // 奇门遁甲
+  if (/奇门|遁甲/.test(message)) {
+    try {
+      const bazi = paiPan(birthInfo?.gender === '男' ? 'male' : 'female', y, m, d, h, birthInfo?.birthMinute || 0, birthInfo?.province || '');
+      const qm = qimenPaiPan(m, d, h, bazi.dayPillar.gan + bazi.dayPillar.zhi);
+      result += `\n\n【奇门遁甲排盘结果（代码计算）】\n${qimenFormat(qm)}`;
+    } catch (_e) { /* ignore */ }
+  }
+
+  // 大六壬
+  if (/六壬|大六壬/.test(message)) {
+    try {
+      const bazi = paiPan(birthInfo?.gender === '男' ? 'male' : 'female', y, m, d, h, birthInfo?.birthMinute || 0, birthInfo?.province || '');
+      const lr = liurenPaiPan(y, m, d, h, bazi.dayPillar.gan, bazi.dayPillar.zhi);
+      result += `\n\n【大六壬排盘结果（代码计算）】\n${liurenFormat(lr)}`;
+    } catch (_e) { /* ignore */ }
+  }
+
+  // 风水
+  if (/风水|住房|房子|搬家|装修/.test(message) && birthInfo) {
+    try {
+      const fs = fengshuiPaiPan(currentYear, '坎', '离');
+      result += `\n\n【风水排盘结果（代码计算）】\n${fengshuiFormat(fs)}`;
+    } catch (_e) { /* ignore */ }
+  }
+
+  // 姓名
+  if (/姓名|名字|取名|改名/.test(message)) {
+    try {
+      const name = message.replace(/[^一-龥]/g, '').slice(0, 4);
+      if (name.length >= 2) {
+        const xm = xingmingCalculate(name);
+        result += `\n\n【姓名测算结果（代码计算）】\n${xingmingFormat(xm)}`;
+      }
+    } catch (_e) { /* ignore */ }
+  }
+
+  return result;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { message, mode = 'casual', history = [], birthInfo } = await request.json();
@@ -112,7 +185,9 @@ export async function POST(request: NextRequest) {
     
     // 加入三合参断话题指引
     const topicGuide = getSanHeCanDuanByTopic(message);
-    const systemPrompt = basePrompt + '\n\n' + classicKnowledgeStr + '\n\n' + topicGuide;
+    // 加入自动起卦/排盘
+    const autoQiGuaResult = autoQiGua(message, birthInfo ? (birthInfo as BirthInfo) : null);
+    const systemPrompt = basePrompt + '\n\n' + classicKnowledgeStr + '\n\n' + topicGuide + autoQiGuaResult;
 
     const messages = [
       { role: 'system' as const, content: systemPrompt },

@@ -7,6 +7,12 @@ import { matchKnowledge } from '@/lib/classic-knowledge';
 import { generateSanHeCanDuanPrompt, getSanHeCanDuanByTopic, SAN_HE_CAN_DUAN_GUIDE } from '@/lib/sanhe-canduan';
 import { generateMianXiangFramework, getMianXiangPredictionGuide } from '@/lib/xiangxue';
 import { generateShouXiangFramework, getShouXiangPredictionGuide } from '@/lib/shouxiang';
+import { tongQianQiGua, shiJianQiGua as liuyaoShiJian, formatLiuYaoPaiPan as liuyaoFormat } from '@/lib/liuyao';
+import { shiJianQiGua as meihuaShiJian, shuZiQiGua, wenZiQiGua, formatMeiHuaPaiPan as meihuaFormat } from '@/lib/meihua';
+import { paiPan as qimenPaiPan, formatQiMenPaiPan as qimenFormat } from '@/lib/qimen';
+import { paiPan as liurenPaiPan, formatLiuRenPaiPan as liurenFormat } from '@/lib/liuren';
+import { paiPan as fengshuiPaiPan, formatFengShuiPaiPan as fengshuiFormat } from '@/lib/fengshui';
+import { calculateXingMing as xingmingCalculate, formatXingMingPaiPan as xingmingFormat } from '@/lib/xingming';
 
 export const dynamic = 'force-dynamic';
 
@@ -138,6 +144,90 @@ export async function POST(request: NextRequest) {
         if (district) loc += ` ${district}`;
         parts.push(loc);
       }
+
+      // 六爻起卦
+      if (type === 'liuyao') {
+        try {
+          // 用时间起卦，日干日支从八字排盘推算
+          const bazi = paiPan(gender === '男' ? 'male' : 'female', birthYear, birthMonth, birthDay, birthHour || 12, birthMinute || 0, province || '');
+          const guaResult = liuyaoShiJian(birthYear, birthMonth, birthDay, birthHour || 12, bazi.dayPillar.gan, bazi.dayPillar.zhi, bazi.monthPillar.zhi, input);
+          paiPanAppend = `\n\n【六爻起卦结果（代码计算，非AI脑补）】\n${liuyaoFormat(guaResult)}`;
+        } catch (e) {
+          paiPanAppend = '\n\n[六爻起卦计算出错]';
+        }
+      }
+
+      // 梅花易数起卦
+      if (type === 'meihua') {
+        try {
+          const guaResult = meihuaShiJian(birthYear, birthMonth, birthDay, birthHour || 12, input);
+          paiPanAppend = `\n\n【梅花易数起卦结果（代码计算，非AI脑补）】\n${meihuaFormat(guaResult)}`;
+        } catch (e) {
+          paiPanAppend = '\n\n[梅花易数起卦计算出错]';
+        }
+      }
+
+      // 奇门遁甲排盘
+      if (type === 'qimen') {
+        try {
+          const bazi = paiPan(gender === '男' ? 'male' : 'female', birthYear, birthMonth, birthDay, birthHour || 12, birthMinute || 0, province || '');
+          const qmResult = qimenPaiPan(birthMonth, birthDay, birthHour || 12, bazi.dayPillar.gan + bazi.dayPillar.zhi);
+          paiPanAppend = `\n\n【奇门遁甲排盘结果（代码计算，非AI脑补）】\n${qimenFormat(qmResult)}`;
+        } catch (e) {
+          paiPanAppend = '\n\n[奇门遁甲排盘计算出错]';
+        }
+      }
+
+      // 大六壬排盘
+      if (type === 'liuren') {
+        try {
+          const bazi = paiPan(gender === '男' ? 'male' : 'female', birthYear, birthMonth, birthDay, birthHour || 12, birthMinute || 0, province || '');
+          const lrResult = liurenPaiPan(birthYear, birthMonth, birthDay, birthHour || 12, bazi.dayPillar.gan, bazi.dayPillar.zhi);
+          paiPanAppend = `\n\n【大六壬排盘结果（代码计算，非AI脑补）】\n${liurenFormat(lrResult)}`;
+        } catch (e) {
+          paiPanAppend = '\n\n[大六壬排盘计算出错]';
+        }
+      }
+
+      // 风水排盘
+      if (type === 'fengshui' && birthYear) {
+        try {
+          const fsResult = fengshuiPaiPan(birthYear || currentYear, '坎', '离');
+          paiPanAppend = `\n\n【风水排盘结果（代码计算，非AI脑补）】\n${fengshuiFormat(fsResult)}`;
+        } catch (e) {
+          paiPanAppend = '\n\n[风水排盘计算出错]';
+        }
+      }
+
+      // 姓名测算
+      if (type === 'xingming' && input) {
+        try {
+          const xmResult = xingmingCalculate(input);
+          paiPanAppend = `\n\n【姓名测算结果（代码计算，非AI脑补）】\n${xingmingFormat(xmResult)}`;
+        } catch (e) {
+          paiPanAppend = '\n\n[姓名测算计算出错]';
+        }
+      }
+
+      // 对于有出生信息的六爻/梅花/奇门/六壬，也追加八字紫微双盘辅助参断
+      if (['liuyao', 'meihua', 'qimen', 'liuren'].includes(type) && birthYear && birthMonth && birthDay) {
+        try {
+          const g = gender === '男' ? 'male' : 'female';
+          const baziResult = paiPan(g, birthYear, birthMonth, birthDay, birthHour || 12, birthMinute || 0, province || '');
+          paiPanAppend += `\n\n【辅助参断·八字排盘】\n${formatPaiPanFull(baziResult, currentYear)}`;
+          const ziweiResult = ziweiPaiPan({
+            year: birthYear, month: birthMonth, day: birthDay,
+            hour: birthHour || 12, minute: birthMinute || 0,
+            gender: gender === '男' ? '男' : '女',
+            yearGan: baziResult.yearPillar.gan, yearZhi: baziResult.yearPillar.zhi,
+          });
+          paiPanAppend += `\n\n【辅助参断·紫微斗数排盘】\n${ziweiFormatPaiPan(ziweiResult)}`;
+          paiPanAppend += '\n\n重要：请结合上述排盘/起卦结果与八字紫微辅助盘，进行交叉参断。时间精确到年月。引经据典。';
+        } catch (_e) {
+          // 辅助排盘失败不影响主流程
+        }
+      }
+
       if (parts.length > 0) {
         userInput = parts.join('\n') + '\n\n' + input;
       }
