@@ -160,10 +160,19 @@ export const divinationCategories: KnowledgeCategory[] = [
       { name: '《御定子部集成》', rating: 5, description: '清代雍正年间编纂的官方命理文献，收录历代经典论命案例，正史级别的命理参考', category: '玄学', subcategory: '八字' },
       { name: '《河洛理数》', rating: 5, description: '以河图洛书解读八字，将易理与命理融合，对判断人生重大抉择时机有独特方法', category: '玄学', subcategory: '八字' },
       { name: '《易隐》', author: '曹九锡', rating: 5, description: '六爻与命理结合的著作，对问事类预测（问病、问财、问官）有系统性论述', category: '玄学', subcategory: '八字' },
-      { name: '《四柱预测学》', author: '邵伟华', rating: 4, description: '当代八字入门经典，推广命理功不可没', category: '玄学', subcategory: '八字' },
-      { name: '《李顺祥四柱玄机》', author: '李顺祥', rating: 4, description: '当代实战派四柱命理', category: '玄学', subcategory: '八字' },
+      { name: '《四柱预测学》', author: '邵伟华', rating: 5, description: '现代八字实战开山之作，含大量真实案例，推广命理功不可没', category: '玄学', subcategory: '八字' },
+      { name: '《四柱预测学入门》', author: '邵伟华', rating: 5, description: '邵伟华入门级教程，系统化八字学习路径', category: '玄学', subcategory: '八字' },
+      { name: '《周易与预测学》', author: '邵伟华', rating: 5, description: '邵伟华六爻占卜实战应用，将周易卦象与实际预测结合', category: '玄学', subcategory: '八字' },
+      { name: '《李顺祥四柱玄机》', author: '李顺祥', rating: 5, description: '现代实战派代表作品，揭示四柱命理深层玄机', category: '玄学', subcategory: '八字' },
+      { name: '《八字的解卦》', author: '李顺祥', rating: 5, description: '李顺祥八字解卦实战技法，将卦象思维融入命理', category: '玄学', subcategory: '八字' },
+      { name: '《命理解析》', author: '李顺祥', rating: 5, description: '系统讲解从命盘到人生事件的全流程判断，实战到理论的桥梁', category: '玄学', subcategory: '八字' },
       { name: '《徐伟刚四柱真经》', author: '徐伟刚', rating: 4, description: '当代四柱命理实战经典', category: '玄学', subcategory: '八字' },
+      { name: '《未知之门》', author: '张志春', rating: 5, description: '邵伟华弟子，记录大量实战案例，现代命理实战精华', category: '玄学', subcategory: '八字' },
       { name: '《段建业盲派命理》', author: '段建业', rating: 5, description: '盲派命理体系化呈现，象法断命', category: '玄学', subcategory: '八字' },
+      { name: '《韦千星四柱命理真传》', author: '韦千星', rating: 5, description: '现代盲派技法代表，传承盲师铁口直断之术', category: '玄学', subcategory: '八字' },
+      { name: '《盲派命理秘典》', author: '夏仲奇', rating: 5, description: '民间盲派铁口直断核心技法，口传心授不传之秘', category: '玄学', subcategory: '八字' },
+      { name: '《盲派命理学》', author: '郝圣鸽', rating: 5, description: '系统化整理盲派不传之秘，目前最系统的盲派教材', category: '玄学', subcategory: '八字' },
+      { name: '《北方盲派秘本》', rating: 5, description: '北方民间盲派不传之秘整理，铁口直断法诀', category: '玄学', subcategory: '八字' },
       { name: '《陈倍怡命理正宗》', author: '陈倍怡', rating: 4, description: '命理正宗体系', category: '玄学', subcategory: '八字' },
       { name: '《秦阳明实战命理学》', author: '秦阳明', rating: 4, description: '实战命理应用', category: '玄学', subcategory: '八字' },
       { name: '《蔡崇耀八字系列》', author: '蔡崇耀', rating: 4, description: '台湾八字实战系列', category: '玄学', subcategory: '八字' },
@@ -185,6 +194,11 @@ export const divinationCategories: KnowledgeCategory[] = [
       { name: '《陈岳琦渊海子平注解》', author: '陈岳琦', rating: 4, description: '港台渊海子平权威注解', category: '玄学', subcategory: '八字' },
       { name: '《陈启清三命通会注解》', author: '陈启清', rating: 4, description: '港台三命通会权威注解', category: '玄学', subcategory: '八字' },
       { name: '《许铨仁八字实战系列》', author: '许铨仁', rating: 5, description: '台湾八字实战权威', category: '玄学', subcategory: '八字' },
+      { name: '《穷通宝鉴评注》', author: '梁湘润', rating: 5, description: '港台命理大家对古籍的现代解读，穷通宝鉴权威注释', category: '玄学', subcategory: '八字' },
+      { name: '《子平基础教材》', author: '梁湘润', rating: 5, description: '港台体系化教学用书，八字基础到进阶系统教程', category: '玄学', subcategory: '八字' },
+      { name: '《四柱八字实战讲义》', author: '宋师兄', rating: 4, description: '实战派教学体系，从理论到断事全流程', category: '玄学', subcategory: '八字' },
+      { name: '《论命捷径》', author: '钟明宏', rating: 4, description: '台版命理精华，快速论命核心技法', category: '玄学', subcategory: '八字' },
+      { name: '《命理天机》', author: '陈玉龙', rating: 4, description: '台版实战案例集，真实命例详解', category: '玄学', subcategory: '八字' },
       { name: '《渊海子平大全》', rating: 4, description: '渊海子平集大成版本', category: '玄学', subcategory: '八字' },
       { name: '《四柱命理预测学》', rating: 4, description: '四柱预测系统教程', category: '玄学', subcategory: '八字' },
       { name: '《四柱八字详解》', rating: 4, description: '八字详解参考书', category: '玄学', subcategory: '八字' },
@@ -195,7 +209,9 @@ export const divinationCategories: KnowledgeCategory[] = [
       { name: '《八字与命运调整》', rating: 4, description: '命运调整与改运方法', category: '玄学', subcategory: '八字' },
       { name: '《神煞应用全书》', rating: 4, description: '神煞论命系统参考', category: '玄学', subcategory: '八字' },
       { name: '《八字格局精论》', rating: 4, description: '格局论命精要', category: '玄学', subcategory: '八字' },
+      { name: '《命理大成》', author: '陈雪涛', rating: 5, description: '综合型命理全书，融汇各派精华', category: '玄学', subcategory: '八字' },
       { name: '《用神纲要》', rating: 4, description: '用神取法纲要', category: '玄学', subcategory: '八字' },
+      { name: '《四柱命理详尽》', author: '任新春', rating: 4, description: '现代命理教学体系化读本，从入门到进阶全覆盖', category: '玄学', subcategory: '八字' },
       { name: '《盲派命理实战》', rating: 5, description: '盲派象法实战精髓', category: '玄学', subcategory: '八字' },
       { name: '《子平実践鑑定法》', rating: 4, description: '日本子平法实践鉴定体系', category: '玄学', subcategory: '八字' },
       { name: '《続淵海子平の法》', rating: 4, description: '日本渊海子平研究续编', category: '玄学', subcategory: '八字' },
@@ -223,9 +239,10 @@ export const divinationCategories: KnowledgeCategory[] = [
     icon: '🪙',
     description: '铜钱起卦、断卦法，六爻约400+部典籍',
     books: [
-      { name: '《火珠林》', author: '麻衣道者', rating: 5, description: '六爻源头，卜筮之宗', category: '玄学', subcategory: '六爻', quote: '以钱代蓍，三字为交，三背为重 — 铜钱起卦之法' },
-      { name: '《增删卜易》', author: '野鹤老人', rating: 5, description: '六爻巅峰，最实用', category: '玄学', subcategory: '六爻', quote: '断卦先看用神，次观动静，再察生克 — 六爻断法三步' },
-      { name: '《卜筮正宗》', author: '王洪绪', rating: 5, description: '清代集大成', category: '玄学', subcategory: '六爻', quote: '用神得地逢生则吉，失位受克则凶 — 吉凶之判' },
+      { name: '《火珠林》', author: '麻衣道者', rating: 5, description: '六爻纳甲体系奠基之作，卜筮之宗，铜钱起卦法源头', category: '玄学', subcategory: '六爻', quote: '以钱代蓍，三字为交，三背为重 — 铜钱起卦之法' },
+      { name: '《增删卜易》', author: '野鹤老人', rating: 5, description: '六爻实战第一经典，含大量断卦实例，最实用的六爻著作', category: '玄学', subcategory: '六爻', quote: '断卦先看用神，次观动静，再察生克 — 六爻断法三步' },
+      { name: '《卜筮正宗》', author: '王洪绪', rating: 5, description: '六爻完整体系教程，清代集大成之作', category: '玄学', subcategory: '六爻', quote: '用神得地逢生则吉，失位受克则凶 — 吉凶之判' },
+      { name: '《易冒》', rating: 5, description: '六爻进阶实战指南，断卦深入技法', category: '玄学', subcategory: '六爻' },
       { name: '《黄金策》', author: '刘伯温', rating: 4, description: '六爻断卦口诀总汇', category: '玄学', subcategory: '六爻', quote: '财爻持世主财荣，兄弟交重不可逢 — 口诀精华' },
       { name: '《金钱卦真解》', rating: 5, description: '铜钱起卦法正统详解，三字三背精密算法', category: '玄学', subcategory: '六爻' },
       { name: '《六爻预测学》', rating: 4, description: '系统化断卦方法论，财/官/父/兄/子五类预测框架', category: '玄学', subcategory: '六爻' },
@@ -282,7 +299,7 @@ export const divinationCategories: KnowledgeCategory[] = [
     icon: '🌸',
     description: '万物皆可起卦，邵雍先天易数，梅花约260+部典籍',
     books: [
-      { name: '《梅花易数》', author: '邵雍', rating: 5, description: '易数最高成就之一', category: '玄学', subcategory: '梅花', quote: '心动即占，法于自然 — 不必拘于形式，心有所感即可起卦' },
+      { name: '《梅花易数》', author: '邵雍', rating: 5, description: '梅花易数体系源头原著，先天后天象数结合，万物皆可起卦', category: '玄学', subcategory: '梅花', quote: '心动即占，法于自然 — 不必拘于形式，心有所感即可起卦' },
       { name: '《皇极经世书》', author: '邵雍', rating: 5, description: '先天易学总纲', category: '玄学', subcategory: '梅花', quote: '元会运世，129600年为一元 — 宇宙周期' },
       { name: '《邵子易数》', author: '邵雍', rating: 4, description: '邵雍易数体系', category: '玄学', subcategory: '梅花' },
       { name: '《河洛理数》', rating: 5, description: '以河图洛书解读八字，将易理与命理融合，对判断人生重大抉择时机有独特方法', category: '玄学', subcategory: '梅花' },
@@ -290,6 +307,7 @@ export const divinationCategories: KnowledgeCategory[] = [
       { name: '《梅花易数入门到精通》', rating: 5, description: '系统化学习路径，从起卦到断卦完整体系', category: '玄学', subcategory: '梅花' },
       { name: '《梅花易数实战技法》', rating: 4, description: '实战断卦经验汇总，应期判断与流月推算', category: '玄学', subcategory: '梅花' },
       { name: '《梅花易数心法》', rating: 5, description: '邵雍心易传承，心动即占之深层原理', category: '玄学', subcategory: '梅花' },
+      { name: '《邵伟华梅花易数》', author: '邵伟华', rating: 4, description: '梅花易数现代解读与实战应用', category: '玄学', subcategory: '梅花' },
     ],
   },
   {
@@ -350,7 +368,12 @@ export const divinationCategories: KnowledgeCategory[] = [
       { name: '《阳宅风水精要》', rating: 5, description: '现代阳宅风水系统化总结，分类布局法', category: '玄学', subcategory: '风水' },
       { name: '《风水堪舆学》', rating: 5, description: '峦头理气合参方法论', category: '玄学', subcategory: '风水' },
       { name: '《天玉经》', author: '杨筠松', rating: 5, description: '玄空飞星核心经典', category: '玄学', subcategory: '风水' },
-      { name: '《地理五诀》', author: '赵九峰', rating: 5, description: '三合风水经典，龙穴砂水向五诀', category: '玄学', subcategory: '风水' },
+      { name: '《地理五诀》', author: '赵九峰', rating: 5, description: '风水入门必读，三合风水经典，龙穴砂水向五诀', category: '玄学', subcategory: '风水' },
+      { name: '《入地眼全书》', rating: 5, description: '峦头派核心经典，看山辨水实战宝典', category: '玄学', subcategory: '风水' },
+      { name: '《杨公风水经典》', author: '杨筠松', rating: 5, description: '杨筠松著作合集，含青囊经、青囊序、天玉经、都天宝照经等', category: '玄学', subcategory: '风水' },
+      { name: '《玄空飞星》', rating: 5, description: '理气派风水核心技法，九宫飞星布局断事', category: '玄学', subcategory: '风水' },
+      { name: '《金锁玉关》', rating: 5, description: '过路阴阳，风水实用派代表，走一步断一卦', category: '玄学', subcategory: '风水' },
+      { name: '《青囊奥语》', author: '杨筠松', rating: 5, description: '风水理气秘诀，杨公不传之秘', category: '玄学', subcategory: '风水' },
     ],
   },
   {
@@ -385,10 +408,10 @@ export const divinationCategories: KnowledgeCategory[] = [
     icon: '👁',
     description: '面相、手相、骨相、姓名学，相学约800+部典籍',
     books: [
-      { name: '《麻衣神相》', rating: 5, description: '相学经典', category: '玄学', subcategory: '相学', quote: '相有先天之骨，有后天之相 — 骨定格局相看流年' },
-      { name: '《冰鉴》', author: '曾国藩', rating: 5, description: '识人经典', category: '玄学', subcategory: '相学', quote: '邪正看眼鼻，真假看嘴唇，功名看气概，富贵看精神 — 识人之要' },
-      { name: '《神相铁关刀》', rating: 5, description: '面相实战经典', category: '玄学', subcategory: '相学' },
-      { name: '《柳庄相法》', author: '袁珙', rating: 5, description: '面相经典', category: '玄学', subcategory: '相学' },
+      { name: '《麻衣神相》', rating: 5, description: '相学最高经典，面相开山之作，五官十二宫论相体系', category: '玄学', subcategory: '相学', quote: '相有先天之骨，有后天之相 — 骨定格局相看流年' },
+      { name: '《冰鉴》', author: '曾国藩', rating: 5, description: '曾国藩相人术代表作品，识人用人第一经典', category: '玄学', subcategory: '相学', quote: '邪正看眼鼻，真假看嘴唇，功名看气概，富贵看精神 — 识人之要' },
+      { name: '《神相铁关刀》', rating: 5, description: '民间相学精华，面相实战经典，铁口直断法诀', category: '玄学', subcategory: '相学' },
+      { name: '《柳庄神相》', author: '袁珙', rating: 5, description: '古代面相经典，袁珙传世之作，流年气色法核心依据', category: '玄学', subcategory: '相学' },
       { name: '《太清神鉴》', author: '刘伯温', rating: 5, description: '相学集大成', category: '玄学', subcategory: '相学' },
       { name: '《水镜神相》', rating: 5, description: '水镜先生相法，先观神后察形', category: '玄学', subcategory: '相学', quote: '相人之法，先观其神，次察其形。神胜形者贵，形胜神者贱' },
       { name: '《观相术》', rating: 4, description: '传统观相方法体系', category: '玄学', subcategory: '相学' },
@@ -582,10 +605,12 @@ export function buildSystemPromptProfessional(birthInfo?: string): string {
 梁若瑜飞星派20+部：《飞星紫微斗数》《四化飞星》
 当代名家500+部：邵伟华《四柱预测学》、曲炜、李涵辰等
 五、现代实战派★★★★
-祥品君五部曲（《从零开始学八字》《实战断事课》《财富预测学》《婚恋预测学》《事业人生预测学》）、邓玄易系列（《贵人预测学》《婚姻预测学》《学业预测学》《职业选择预测》）、李顺祥《四柱玄机》、徐伟刚《四柱真经》
+邵伟华《四柱预测学》《四柱预测学入门》《周易与预测学》— 现代八字实战开山之作、张志春《未知之门》— 邵伟华弟子实战精华
+祥品君五部曲（《从零开始学八字》《实战断事课》《财富预测学》《婚恋预测学》《事业人生预测学》）、邓玄易系列（《贵人预测学》《婚姻预测学》《学业预测学》《职业选择预测》）、李顺祥《四柱玄机》《八字的解卦》《命理解析》、徐伟刚《四柱真经》
 段建业盲派命理系列（盲派象法）、陈倍怡《命理正宗》、秦阳明《实战命理学》
-蔡崇耀八字系列、陈逸文命理精华、李玄清八字系列、黄大陆《四柱命理学》
+蔡崇耀八字系列、陈逸文命理精华、李玄清八字系列、黄大陆《四柱命理学》、任新春《四柱命理详尽》
 六、港台命理大师★★★★★
+梁湘润《穷通宝鉴评注》《子平基础教材》、宋师兄《四柱八字实战讲义》、钟明宏《论命捷径》、陈玉龙《命理天机》
 许铨仁八字实战系列、沐川《八字心法》、易隐燕八字系列、林庚凡盲派命理
 陈岳琦《渊海子平注解》、陈启清《三命通会注解》
 七、日本命理★★★★
@@ -594,7 +619,7 @@ export function buildSystemPromptProfessional(birthInfo?: string): string {
 渊海子平大全、四柱命理预测学、四柱八字详解、八字入门到精通、四柱推命详解
 八字实例精解、大运流年预测学、八字与命运调整、神煞应用全书、八字格局精论、用神纲要
 九、盲派特殊技法★★★★★
-段建业盲派命理系列、林庚凡盲派命理、《盲派命理实战》— 象法断命，不重格局重象
+段建业盲派命理系列、林庚凡盲派命理、《盲派命理实战》、韦千星《四柱命理真传》、夏仲奇《盲派命理秘典》、郝圣鸽《盲派命理学》、《北方盲派秘本》— 象法断命，不重格局重象
 五、八字核心理论
 - 四柱：年柱祖业、月柱父母格局、日柱自身配偶、时柱子女晚运
 - 十神：正官/七杀（权威）、正财/偏财（财富）、正印/偏印（学问）、食神/伤官（才华）、比肩/劫财（竞争）
@@ -1168,7 +1193,7 @@ export function buildSystemPromptCasual(birthInfo?: string): string {
 【奇门遁甲白话】奇门遁甲是古代军师的超级工具。九星八门=9颗星+8扇门，开门/休门/生门最吉。吉格=好局（天遁/地遁），凶格=坏局（白虎猖狂/青龙逃走）。"阴阳顺逆妙难穷"=天地规律很妙。
 【六壬白话】大六壬用时间起课。四课=事情的基本面，三传=事情的发展过程（开始/中间/结尾）。贵神=十二天将，贵人到了事情就顺。
 【梅花白话】邵雍说"心动即占"——你心念一动就可以起卦。体=你自己，用=你要的事。用生体=好事来找你，体生用=你付出才有回报，用克体=事情来克你，体克用=你能搞定它。
-【风水白话】郭璞说"气乘风则散，界水则止"=好风水要藏风聚气。龙脉=山的走向，水口=水流出的地方。阳宅三要：门（出入口）、主（客厅/卧室）、灶（厨房）。玄空飞星=按时间排九宫飞星看吉凶。
+【风水白话】郭璞说"气乘风则散，界水则止"=好风水要藏风聚气。龙脉=山的走向，水口=水流出的地方。阳宅三要：门（出入口）、主（客厅/卧室）、灶（厨房）。玄空飞星=按时间排九宫飞星看吉凶。《地理五诀》=风水入门第一本，龙穴砂水向五步走。《金锁玉关》=过路阴阳，看一眼就知道吉凶，"东方有砂出贵子，西方有水旺财源"。《入地眼全书》=峦头派看山辨水的实战宝典。
 【相学白话】麻衣道者说"相由心生"——你内心什么样脸就长什么样。三停：上停（额头）看早年运，中停（眉到鼻）看中年运，下停（嘴和下巴）看晚年运。曾国藩说"邪正看眼鼻，真假看嘴唇"。手相三条主线：生命线、智慧线、感情线。
 【易学白话】《周易》核心就一句话："一阴一阳之谓道"=万事万物都是阴阳互动。八卦=8种基本自然力量。"穷则变变则通"=走投无路就会变化，变化就能通达。
 【丹道白话】内丹就是修炼自身。"炼精化气→炼气化神→炼神还虚→炼虚合道"=从身体练到精神再练到与道合一。"我命在我不在天"=你的命运你做主，通过修炼可以改变。
@@ -2307,10 +2332,13 @@ export const divinationPrompts: Record<string, string> = {
 - 理气经典：《催官篇》——赖布衣
 - 玄空经典：《天玉经》——杨筠松、《都天宝照经》——杨筠松
 - 理气总汇：《地理辨正》——蒋大鸿
-- 三合经典：《地理正宗》《地理五诀》——赵九峰
+- 三合经典：《地理正宗》《地理五诀》——赵九峰（龙穴砂水向五诀，风水入门必读）
+- 峦头经典：《入地眼全书》——看山辨水实战宝典，峦头派核心
+- 杨公经典：《杨公风水经典》——杨筠松著作合集，含青囊经、青囊序、天玉经、都天宝照经
 - 阳宅经典：《阳宅三要》——赵九峰、《阳宅十书》、《黄帝宅经》、《阳宅爱众篇》
 - 阳宅专论：《八宅明镜》——八宅法系统化、《阳宅旺财布局》——阳宅旺财实用法
-- 玄空飞星：《玄空飞星》——九宫飞布法，三元九运流转
+- 玄空飞星：《玄空飞星》——九宫飞布法，三元九运流转，理气派核心技法
+- 实用派：《金锁玉关》——过路阴阳，走一步断一卦，二十四山砂水断法
 - 风水精要：《阳宅风水精要》——现代阳宅风水系统化总结
 - 堪舆总论：《风水堪舆学》——峦头理气合参方法论
 - 辅典：《雪心赋》——卜则巍、《水龙经》——蒋大鸿、《博山篇》——黄妙应
