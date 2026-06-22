@@ -1805,11 +1805,345 @@ export function predictCaiYun(paiPanResult: BaZiPaiPan, currentYear?: number): s
 }
 
 /**
- * 完整实战预测输出（贵人+财运+行业+方位）
+ * 完整实战预测输出（贵人+财运+行业+方位+学业+婚姻+六亲）
  */
 export function formatShiZhanPrediction(paiPanResult: BaZiPaiPan, currentYear?: number): string {
   let text = '===== 实战派具体预测 =====';
   text += predictGuiRen(paiPanResult, currentYear);
   text += predictCaiYun(paiPanResult, currentYear);
+  text += predictXueYe(paiPanResult, currentYear);
+  text += predictHunYin(paiPanResult, currentYear);
+  text += predictLiuQin(paiPanResult);
+  return text;
+}
+
+// ============ 学业预测算法 ============
+// 依据：《八字学业预测学》《子平命理学业》《滴天髓学业篇》
+// 印星=学业星，食伤=才华星，官杀=考试压力
+
+/** 印星地支查表（以日干查四柱地支藏干中的印星） */
+function getYinXingZhi(dayGan: string): string[] {
+  const yinMap: Record<string, string[]> = {
+    '甲': ['子'], '乙': ['亥'], '丙': ['卯'], '丁': ['寅'],
+    '戊': ['午'], '己': ['巳'], '庚': ['丑','辰','未','戌'],
+    '辛': ['丑','辰','未','戌'], '壬': ['申','酉'], '癸': ['申','酉'],
+  };
+  return yinMap[dayGan] || [];
+}
+
+/** 文昌贵人查表（日干→地支） */
+const WEN_CHANG: Record<string, string> = {
+  '甲': '巳', '乙': '午', '丙': '申', '丁': '酉',
+  '戊': '申', '己': '酉', '庚': '亥', '辛': '子',
+  '壬': '寅', '癸': '卯',
+};
+
+/** 学业预测 */
+function predictXueYe(paiPan: BaZiPaiPan, currentYear?: number): string {
+  const now = currentYear || new Date().getFullYear();
+  const dayGan = paiPan.dayPillar.gan;
+  const dayWX = WUXING_GAN[dayGan];
+  // 印星五行
+  const yinWXMap: Record<string, string> = { '木': '水', '火': '木', '土': '火', '金': '土', '水': '金' };
+  const yinWX = yinWXMap[dayWX] || '木';
+  // 食伤五行
+  const shiShangWXMap: Record<string, string> = { '木': '火', '火': '土', '土': '金', '金': '水', '水': '木' };
+  const shiShangWX = shiShangWXMap[dayWX] || '火';
+
+  // 四柱中有无印星、文昌
+  const allZhi = [paiPan.yearPillar.zhi, paiPan.monthPillar.zhi, paiPan.dayPillar.zhi, paiPan.hourPillar.zhi];
+  const allGan = [paiPan.yearPillar.gan, paiPan.monthPillar.gan, paiPan.dayPillar.gan, paiPan.hourPillar.gan];
+  const yinZhiSet = new Set(getYinXingZhi(dayGan));
+  const hasYinXing = allZhi.some(z => yinZhiSet.has(z)) || allGan.some(g => WUXING_GAN[g] === yinWX);
+  const wenChangZhi = WEN_CHANG[dayGan];
+  const hasWenChang = allZhi.includes(wenChangZhi);
+
+  let text = '\n\n===== 学业预测 =====\n';
+  text += `【学业星分析】日干${dayGan}(${dayWX})，印星=${yinWX}，食伤=${shiShangWX}\n`;
+  text += hasYinXing ? '✅ 命局带印星，学习根基深厚，利于学术深造\n' : '⚠️ 命局印星不显，需靠后天努力补足\n';
+  text += hasWenChang ? `✅ 命带文昌贵人（${wenChangZhi}），利考试、利文职\n` : '⚠️ 文昌不显，考试运需靠流年引动\n';
+
+  // 《八字学业预测学》论断
+  text += '【学业经典论断】\n';
+  if (hasYinXing && hasWenChang) {
+    text += '《子平命理学业》：印星得力+文昌入命，学业有成，可考名校。印星代表记忆力、理解力，文昌代表考试运、文采。\n';
+  } else if (hasYinXing) {
+    text += '《八字学业预测学》：印星为用，根基好但需把握考试时机。大运走印运时，学业最顺。\n';
+  } else {
+    text += '《滴天髓》：印星不显，需行印运方发。流年遇印星时，学业有突破。\n';
+  }
+
+  // 学业转折流年（未来5年）
+  text += '【学业转折流年】\n';
+  for (let i = 0; i <= 5; i++) {
+    const year = now + i;
+    const yearGanZhi = getYearGanZhi(year);
+    const yearGan = yearGanZhi.gan;
+    const yearWX = WUXING_GAN[yearGan];
+    let label = '';
+    if (yearWX === yinWX) label = '📚 印星年！学业最旺，考试大利，适合升学/考证';
+    else if (yearWX === shiShangWX) label = '🎨 食伤年，才华横溢，利创作/竞赛，但考试需防粗心';
+    else if (WUXING_ZHI[yearGanZhi.zhi] === yinWX) label = '📚 印星地支年，学业暗中助力';
+    else if (yearGanZhi.zhi === wenChangZhi) label = '✨ 文昌引动年！考试运极佳，逢考必过';
+    else {
+      // 看流月
+      const yinMonths: string[] = [];
+      const LIU_YUE_ZHI = ['寅','卯','辰','巳','午','未','申','酉','戌','亥','子','丑'];
+      for (let m = 0; m < 12; m++) {
+        if (WUXING_ZHI[LIU_YUE_ZHI[m]] === yinWX) yinMonths.push(`${m + 1}月`);
+      }
+      if (yinMonths.length > 0) label = `🔄 平年，印星旺月：${yinMonths.join('、')}，可重点冲刺`;
+      else label = '🔄 平年';
+    }
+    text += `  ${year}年：${label}\n`;
+  }
+
+  // 休学风险判断
+  text += '【休学/学业阻碍风险】\n';
+  const shangGuanWX = shiShangWX; // 伤官=叛逆
+  const guanWXMap: Record<string, string> = { '木': '金', '火': '水', '土': '木', '金': '火', '水': '土' };
+  const guanWX = guanWXMap[dayWX] || '金';
+  for (let i = 0; i <= 3; i++) {
+    const year = now + i;
+    const yearGanZhi = getYearGanZhi(year);
+    const yearWX = WUXING_GAN[yearGanZhi.gan];
+    if (yearWX === shangGuanWX) {
+      text += `  ⚠️ ${year}年（食伤旺）：心浮气躁，可能分心/厌学，需家长关注\n`;
+    }
+    if (WUXING_ZHI[yearGanZhi.zhi] === guanWX && yearWX === shangGuanWX) {
+      text += `  ⚠️ ${year}年（伤官见官）：学业最大阻碍年，可能休学或成绩大幅下滑\n`;
+    }
+  }
+
+  return text;
+}
+
+// ============ 婚姻预测算法 ============
+// 依据：《八字婚姻预测学》《子平命理婚恋》《滴天髓婚恋篇》
+// 男命以财星为妻，女命以官杀为夫
+
+/** 日支（配偶宫）信息 */
+function getPeiOuGong(paiPan: BaZiPaiPan): { zhi: string; wx: string; cangGan: string[] } {
+  const zhi = paiPan.dayPillar.zhi;
+  return { zhi, wx: WUXING_ZHI[zhi], cangGan: CANGGAN[zhi] || [] };
+}
+
+/** 婚姻预测 */
+function predictHunYin(paiPan: BaZiPaiPan, currentYear?: number): string {
+  const now = currentYear || new Date().getFullYear();
+  const dayGan = paiPan.dayPillar.gan;
+  const dayWX = WUXING_GAN[dayGan];
+  const gender = paiPan.birthInfo.gender;
+  const peiOuGong = getPeiOuGong(paiPan);
+
+  // 配偶星五行：男命=财星，女命=官杀
+  const caiWXMap: Record<string, string> = { '木': '土', '火': '金', '土': '水', '金': '木', '水': '火' };
+  const guanWXMap: Record<string, string> = { '木': '金', '火': '水', '土': '木', '金': '火', '水': '土' };
+  const peiOuWX = gender === 'male' ? (caiWXMap[dayWX] || '土') : (guanWXMap[dayWX] || '金');
+
+  // 四柱中找配偶星
+  const allZhi = [paiPan.yearPillar.zhi, paiPan.monthPillar.zhi, paiPan.dayPillar.zhi, paiPan.hourPillar.zhi];
+  const allGan = [paiPan.yearPillar.gan, paiPan.monthPillar.gan, paiPan.dayPillar.gan, paiPan.hourPillar.gan];
+  const hasPeiOuXingGan = allGan.some(g => WUXING_GAN[g] === peiOuWX);
+  const hasPeiOuXingZhi = allZhi.some(z => (CANGGAN[z] || []).some(cg => WUXING_GAN[cg] === peiOuWX));
+
+  // 配偶方位（配偶星五行→方位）
+  const wxFangWei: Record<string, string> = { '金': '正西/西北', '木': '正东/东南', '水': '正北', '火': '正南', '土': '中部/东北/西南' };
+
+  // 红鸾天喜查表（年支→红鸾/天喜）
+  const HONG_LUAN: Record<string, string> = {
+    '子': '卯', '丑': '寅', '寅': '丑', '卯': '子', '辰': '亥', '巳': '戌',
+    '午': '酉', '未': '申', '申': '未', '酉': '午', '戌': '巳', '亥': '辰',
+  };
+  const TIAN_XI: Record<string, string> = {
+    '子': '酉', '丑': '申', '寅': '未', '卯': '午', '辰': '巳', '巳': '辰',
+    '午': '卯', '未': '寅', '申': '丑', '酉': '子', '戌': '亥', '亥': '戌',
+  };
+  const yearZhi = paiPan.yearPillar.zhi;
+  const hongLuanZhi = HONG_LUAN[yearZhi];
+  const tianXiZhi = TIAN_XI[yearZhi];
+
+  let text = '\n\n===== 婚姻预测 =====\n';
+  text += `【配偶星分析】${gender === 'male' ? '男命以财星为妻' : '女命以官杀为夫'}，配偶星五行=${peiOuWX}\n`;
+  text += hasPeiOuXingGan ? '✅ 天干透配偶星，姻缘明显\n' : '';
+  text += hasPeiOuXingZhi ? '✅ 地支藏配偶星，有暗缘\n' : '';
+  if (!hasPeiOuXingGan && !hasPeiOuXingZhi) {
+    text += '⚠️ 命局配偶星不显，姻缘需待大运流年引动\n';
+  }
+
+  text += `【配偶宫分析】日支=${peiOuGong.zhi}(${peiOuGong.wx})，藏干=${peiOuGong.cangGan.join('')}\n`;
+  // 日支合化论断
+  if (peiOuGong.cangGan.some(cg => WUXING_GAN[cg] === peiOuWX)) {
+    text += '✅ 配偶宫藏配偶星，婚姻稳定，配偶能干\n';
+  }
+
+  text += `【配偶方位】${wxFangWei[peiOuWX]}\n`;
+  text += `【红鸾星】${hongLuanZhi}（红鸾引动年≈婚期）\n`;
+  text += `【天喜星】${tianXiZhi}（天喜引动年≈添喜）\n`;
+
+  // 《八字婚姻预测学》经典论断
+  text += '【婚姻经典论断】\n';
+  if (gender === 'female') {
+    text += '《子平命理婚恋》：女命以官杀为夫，官星得位（年月）主早婚，官星在时柱主晚婚。官星混杂（正偏官同现）主感情复杂。\n';
+  } else {
+    text += '《子平命理婚恋》：男命以财星为妻，正财主正妻贤惠，偏财主偏缘或再婚。财星一位最贞，多见则感情不稳。\n';
+  }
+
+  // 婚期流年（未来5年引动红鸾/天喜/配偶星的年份）
+  text += '【婚恋引动流年】\n';
+  const ZHI_SHUXIANG: Record<string, string> = { '子': '鼠', '丑': '牛', '寅': '虎', '卯': '兔', '辰': '龙', '巳': '蛇', '午': '马', '未': '羊', '申': '猴', '酉': '鸡', '戌': '狗', '亥': '猪' };
+  for (let i = 0; i <= 7; i++) {
+    const year = now + i;
+    const yearGanZhi = getYearGanZhi(year);
+    const yearWX = WUXING_GAN[yearGanZhi.gan];
+    const yearZhi2 = yearGanZhi.zhi;
+    let label = '';
+    // 红鸾引动
+    if (yearZhi2 === hongLuanZhi) label = '💕 红鸾星动！此年姻缘最旺，婚恋大事可成';
+    // 天喜引动
+    else if (yearZhi2 === tianXiZhi) label = '🎉 天喜星动！此年添喜，利婚利子';
+    // 配偶星引动
+    else if (yearWX === peiOuWX) label = `💘 配偶星年！${gender === 'male' ? '财星' : '官星'}当值，感情有实质进展`;
+    // 配偶宫引动（流年地支与日支合）
+    else if (isLiuHe(yearZhi2, peiOuGong.zhi)) label = '💍 流年合配偶宫，感情稳定或定婚';
+    else {
+      // 看流月
+      const peiOuMonths: string[] = [];
+      const LIU_YUE_ZHI = ['寅','卯','辰','巳','午','未','申','酉','戌','亥','子','丑'];
+      for (let m = 0; m < 12; m++) {
+        if (WUXING_ZHI[LIU_YUE_ZHI[m]] === peiOuWX || LIU_YUE_ZHI[m] === hongLuanZhi) {
+          peiOuMonths.push(`${m + 1}月`);
+        }
+      }
+      if (peiOuMonths.length > 0) label = `🔄 姻缘旺月：${peiOuMonths.join('、')}，可主动出击`;
+      else label = '🔄 平年';
+    }
+    text += `  ${year}年（属${ZHI_SHUXIANG[yearZhi2]}）：${label}\n`;
+  }
+
+  // 配偶特征
+  text += '【配偶特征推断】\n';
+  const peiOuWXFeature: Record<string, string> = {
+    '金': '配偶肤色偏白，性格果断，做事利落，可能从事金融/法律/管理',
+    '木': '配偶身材修长，性格温和，有学识，可能从事教育/文化/医疗',
+    '水': '配偶聪明灵活，善于交际，可能从事贸易/传媒/服务业',
+    '火': '配偶热情开朗，精力充沛，可能从事电子/能源/餐饮',
+    '土': '配偶稳重厚道，包容力强，可能从事房地产/农业/建筑',
+  };
+  text += `  五行${peiOuWX}型：${peiOuWXFeature[peiOuWX] || ''}\n`;
+
+  return text;
+}
+
+/** 六合判断 */
+function isLiuHe(zhi1: string, zhi2: string): boolean {
+  const liuHe: Record<string, string> = {
+    '子': '丑', '丑': '子', '寅': '亥', '亥': '寅',
+    '卯': '戌', '戌': '卯', '辰': '酉', '酉': '辰',
+    '巳': '申', '申': '巳', '午': '未', '未': '午',
+  };
+  return liuHe[zhi1] === zhi2;
+}
+
+/** 获取年干支（已有函数则不重复） */
+function getYearGanZhi(year: number): { gan: string; zhi: string } {
+  const ganIdx = (year - 4) % 10;
+  const zhiIdx = (year - 4) % 12;
+  return { gan: TIANGAN[ganIdx], zhi: DIZHI[zhiIdx] };
+}
+
+// ============ 六亲预测算法 ============
+// 依据：《八字六亲预测学》《三命通会》六亲论
+// 年柱=祖上/父母，月柱=父母/兄弟，日支=配偶，时柱=子女
+
+/** 六亲预测 */
+function predictLiuQin(paiPan: BaZiPaiPan): string {
+  const dayGan = paiPan.dayPillar.gan;
+  const dayWX = WUXING_GAN[dayGan];
+  const allZhi = [paiPan.yearPillar.zhi, paiPan.monthPillar.zhi, paiPan.dayPillar.zhi, paiPan.hourPillar.zhi];
+  const allGan = [paiPan.yearPillar.gan, paiPan.monthPillar.gan, paiPan.dayPillar.gan, paiPan.hourPillar.gan];
+
+  // 六亲十神对应
+  const yinWXMap: Record<string, string> = { '木': '水', '火': '木', '土': '火', '金': '土', '水': '金' };
+  const biJieWX = dayWX; // 比劫=同五行
+  const shiShangWXMap: Record<string, string> = { '木': '火', '火': '土', '土': '金', '金': '水', '水': '木' };
+  const caiWXMap: Record<string, string> = { '木': '土', '火': '金', '土': '水', '金': '木', '水': '火' };
+  const guanWXMap: Record<string, string> = { '木': '金', '火': '水', '土': '木', '金': '火', '水': '土' };
+  const yinWX = yinWXMap[dayWX];
+  const shiShangWX = shiShangWXMap[dayWX];
+  const caiWX = caiWXMap[dayWX];
+  const guanWX = guanWXMap[dayWX];
+
+  let text = '\n\n===== 六亲预测 =====\n';
+
+  // 1. 父母（印星=母，财星=父）
+  text += '【父母】\n';
+  text += `  母亲星：印星（${yinWX}），父亲星：财星（${caiWX}）\n`;
+  // 年柱看祖上
+  const yearGanWX = WUXING_GAN[paiPan.yearPillar.gan];
+  const yearZhiWX = WUXING_ZHI[paiPan.yearPillar.zhi];
+  if (yearGanWX === yinWX || yearZhiWX === yinWX) {
+    text += '  ✅ 年柱带印星，母亲能力突出，家境有根基\n';
+  } else if (yearGanWX === caiWX || yearZhiWX === caiWX) {
+    text += '  ✅ 年柱带财星，父亲事业有成，家境殷实\n';
+  } else {
+    text += '  ⚠️ 年柱父母星不显，父母助力需看大运\n';
+  }
+  // 月柱看父母
+  const monthGanWX = WUXING_GAN[paiPan.monthPillar.gan];
+  const monthZhiWX = WUXING_ZHI[paiPan.monthPillar.zhi];
+  if (monthGanWX === yinWX || monthZhiWX === yinWX) {
+    text += '  ✅ 月柱印星得力，母亲关怀多，学业有助\n';
+  }
+  if (monthGanWX === caiWX || monthZhiWX === caiWX) {
+    text += '  ✅ 月柱财星，父亲助力大\n';
+  }
+
+  // 2. 兄弟姐妹（比劫=兄弟）
+  text += '【兄弟姐妹】\n';
+  const biJieCount = allGan.filter(g => WUXING_GAN[g] === biJieWX).length +
+    allZhi.filter(z => (CANGGAN[z] || []).some(cg => WUXING_GAN[cg] === biJieWX)).length;
+  if (biJieCount >= 3) {
+    text += '  比劫多，兄弟姐妹缘厚，但竞争也大\n';
+  } else if (biJieCount >= 1) {
+    text += '  比劫适中，有兄弟姐妹助力\n';
+  } else {
+    text += '  比劫少，兄弟姐妹缘薄，多独立奋斗\n';
+  }
+
+  // 3. 配偶（日支）
+  text += '【配偶】\n';
+  const dayZhi = paiPan.dayPillar.zhi;
+  const dayZhiWX = WUXING_ZHI[dayZhi];
+  const cangGan = CANGGAN[dayZhi] || [];
+  text += `  配偶宫日支=${dayZhi}(${dayZhiWX})，藏干=${cangGan.join('')}\n`;
+  if (cangGan.some(cg => WUXING_GAN[cg] === caiWX)) {
+    text += '  ✅ 配偶宫藏财星，配偶能干，经济条件好\n';
+  } else if (cangGan.some(cg => WUXING_GAN[cg] === guanWX)) {
+    text += '  ✅ 配偶宫藏官星，配偶有责任心，社会地位好\n';
+  } else if (cangGan.some(cg => WUXING_GAN[cg] === yinWX)) {
+    text += '  ✅ 配偶宫藏印星，配偶体贴温柔，像母亲般照顾\n';
+  } else if (cangGan.some(cg => WUXING_GAN[cg] === biJieWX)) {
+    text += '  ⚠️ 配偶宫藏比劫，配偶个性强，可能有竞争者\n';
+  }
+
+  // 4. 子女（时柱+食伤星）
+  text += '【子女】\n';
+  text += `  子女星：食伤（${shiShangWX}），子女宫：时柱${paiPan.hourPillar.gan}${paiPan.hourPillar.zhi}\n`;
+  const hourGanWX = WUXING_GAN[paiPan.hourPillar.gan];
+  const hourZhiWX = WUXING_ZHI[paiPan.hourPillar.zhi];
+  const hourCangGan = CANGGAN[paiPan.hourPillar.zhi] || [];
+  if (hourGanWX === shiShangWX || hourZhiWX === shiShangWX || hourCangGan.some(cg => WUXING_GAN[cg] === shiShangWX)) {
+    text += '  ✅ 时柱带食伤，子女聪明有才华，子女缘厚\n';
+  } else {
+    text += '  ⚠️ 时柱食伤不显，子女缘需待流年引动\n';
+  }
+
+  // 5. 六亲关系总论
+  text += '【六亲经典论断】\n';
+  text += '《三命通会》六亲论：年柱管祖上，月柱管父母，日支管配偶，时柱管子女。\n';
+  text += '印星旺者与母缘厚，财星旺者与父缘厚，比劫旺者兄弟姐妹多，食伤旺者子女有出息。\n';
+  text += '用神在何宫，该宫六亲最得力；忌神在何宫，该宫六亲多拖累。\n';
+
   return text;
 }

@@ -847,6 +847,137 @@ export function predictZiWeiShiZhan(paiPan: ZiWeiPaiPan, currentYear?: number): 
     }
   }
 
+  // 四、学业预测（紫微斗数学业篇/大耕老师方法）
+  lines.push('\n【学业预测（紫微斗数学业篇）】');
+  if (shiYeGong) {
+    const shiYeStarNames = shiYeGong.stars.map((s: { name: string }) => s.name);
+    const hasHuaKe = shiYeGong.stars.some((s: { hua?: string }) => s.hua === '化科');
+    const hasWenChang = shiYeGong.stars.some((s: { name: string }) => s.name === '文昌');
+    const hasWenQu = shiYeGong.stars.some((s: { name: string }) => s.name === '文曲');
+
+    if (hasHuaKe) {
+      lines.push('  · 官禄宫化科：学业有成名之象，考试运极佳，利升学利考证');
+    }
+    if (hasWenChang || hasWenQu) {
+      lines.push('  · 官禄宫有文昌/文曲：利文职利考试，学术能力强');
+    }
+    if (shiYeStarNames.includes('天机')) {
+      lines.push('  · 天机入官禄：聪明善思考，利理工科、计算机、策略分析');
+    }
+    if (shiYeStarNames.includes('太阴')) {
+      lines.push('  · 太阴入官禄：细腻敏感，利文科、艺术、医学');
+    }
+    if (shiYeStarNames.includes('天梁')) {
+      lines.push('  · 天梁入官禄：利学术研究、医学、法律，考试运稳');
+    }
+    if (shiYeStarNames.includes('紫微') || shiYeStarNames.includes('天府')) {
+      lines.push('  · 紫微/天府入官禄：利管理类、行政管理，考公务员有利');
+    }
+    if (shiYeStarNames.includes('太阳')) {
+      lines.push('  · 太阳入官禄：利政治、外交、传媒，需庙旺方利');
+    }
+  }
+
+  // 文昌文曲所在宫位论学业
+  const wenChangGong = paiPan.gongs.find((g: { stars: { name: string }[] }) => g.stars.some((s: { name: string }) => s.name === '文昌'));
+  const wenQuGong = paiPan.gongs.find((g: { stars: { name: string }[] }) => g.stars.some((s: { name: string }) => s.name === '文曲'));
+  if (wenChangGong) {
+    const gongName = (wenChangGong as { name: string }).name;
+    lines.push(`  · 文昌在${gongName}：学业根基在此领域`);
+  }
+  if (wenQuGong) {
+    const gongName = (wenQuGong as { name: string }).name;
+    lines.push(`  · 文曲在${gongName}：才华方向在此领域`);
+  }
+
+  // 学业转折流年
+  lines.push('  · 近5年学业转折流年：');
+  for (let y = now; y <= now + 4; y++) {
+    const yearGanIdx = (y - 4) % 10;
+    const yearGan = TIANGAN[yearGanIdx >= 0 ? yearGanIdx : yearGanIdx + 10];
+    const siHua = SI_HUA_TABLE[yearGan];
+    if (siHua) {
+      const keStar = siHua.ke;
+      const keGong = paiPan.gongs.find((g: { stars: { name: string }[] }) => g.stars.some((s: { name: string }) => s.name === keStar));
+      if (keGong) {
+        const gongName = (keGong as { name: string }).name;
+        if (gongName === '官禄宫' || gongName === '命宫' || gongName === '财帛宫') {
+          lines.push(`    - ${y}年：${keStar}化科入${gongName}，学业大利！考试升学绝佳年份`);
+        } else {
+          lines.push(`    - ${y}年：${keStar}化科入${gongName}，学术有助力`);
+        }
+      }
+    }
+  }
+
+  // 五、婚姻预测（紫微斗数婚恋篇/郑穆德婚恋指南）
+  lines.push('\n【婚姻预测（紫微斗数婚恋篇）】');
+  const fuQiGong = paiPan.gongs.find((g: { name: string }) => g.name === '夫妻宫');
+  if (fuQiGong) {
+    const fuQiStarNames = fuQiGong.stars.map((s: { name: string }) => s.name);
+    lines.push(`  · 夫妻宫星曜：${fuQiStarNames.join('、')}`);
+
+    if (fuQiStarNames.includes('紫微')) lines.push('  · 紫微入夫妻：配偶有气质有权威，晚婚更佳');
+    if (fuQiStarNames.includes('天机')) lines.push('  · 天机入夫妻：配偶聪明但善变，宜年龄差距大');
+    if (fuQiStarNames.includes('太阳')) lines.push('  · 太阳入夫妻：配偶光明磊落（庙旺方吉）');
+    if (fuQiStarNames.includes('太阴')) lines.push('  · 太阴入夫妻：配偶温柔体贴，可能情绪化');
+    if (fuQiStarNames.includes('武曲')) lines.push('  · 武曲入夫妻：配偶刚毅独立，宜晚婚');
+    if (fuQiStarNames.includes('天同')) lines.push('  · 天同入夫妻：配偶温和，感情甜蜜');
+    if (fuQiStarNames.includes('七杀')) lines.push('  · 七杀入夫妻：配偶强势，感情波折多，宜晚婚');
+    if (fuQiStarNames.includes('破军')) lines.push('  · 破军入夫妻：感情多变，易有波折重组');
+    if (fuQiStarNames.includes('贪狼')) lines.push('  · 贪狼入夫妻：配偶多才多艺但桃花重，需防第三者');
+    if (fuQiStarNames.includes('廉贞')) lines.push('  · 廉贞入夫妻：感情热烈但波折多，配偶桃花旺');
+
+    for (const star of fuQiGong.stars) {
+      if (star.hua === '化禄') lines.push(`  · ${star.name}化禄入夫妻：感情甜蜜，配偶经济条件好`);
+      if (star.hua === '化权') lines.push(`  · ${star.name}化权入夫妻：配偶强势掌权`);
+      if (star.hua === '化科') lines.push(`  · ${star.name}化科入夫妻：配偶有才学有口碑`);
+      if (star.hua === '化忌') lines.push(`  · ⚠️ ${star.name}化忌入夫妻：感情受阻，需用心经营`);
+    }
+
+    // 婚恋引动年份
+    lines.push('  · 近7年婚恋引动年份：');
+    for (let y = now; y <= now + 6; y++) {
+      const yearGanIdx = (y - 4) % 10;
+      const yearGan = TIANGAN[yearGanIdx >= 0 ? yearGanIdx : yearGanIdx + 10];
+      const siHua = SI_HUA_TABLE[yearGan];
+      if (siHua) {
+        const luGong = paiPan.gongs.find((g: { stars: { name: string }[] }) => g.stars.some((s: { name: string }) => s.name === siHua.lu));
+        if (luGong && (luGong as { name: string }).name === '夫妻宫') {
+          lines.push(`    - ${y}年：化禄入夫妻宫！感情甜蜜年，婚恋大利`);
+        }
+        const jiGong = paiPan.gongs.find((g: { stars: { name: string }[] }) => g.stars.some((s: { name: string }) => s.name === siHua.ji));
+        if (jiGong && (jiGong as { name: string }).name === '夫妻宫') {
+          lines.push(`    - ${y}年：⚠️ 化忌入夫妻宫，感情波折年`);
+        }
+      }
+    }
+  }
+
+  // 六、六亲预测（紫微斗数六亲篇）
+  lines.push('\n【六亲预测（紫微斗数六亲篇）】');
+  const fuMuGong = paiPan.gongs.find((g: { name: string }) => g.name === '父母宫');
+  if (fuMuGong) {
+    const fuMuStarNames = fuMuGong.stars.map((s: { name: string }) => s.name);
+    lines.push(`  · 父母宫星曜：${fuMuStarNames.join('、')}`);
+    if (fuMuGong.stars.some((s: { hua?: string }) => s.hua === '化禄')) lines.push('  · 父母宫化禄：与父母缘厚');
+    if (fuMuGong.stars.some((s: { hua?: string }) => s.hua === '化忌')) lines.push('  · ⚠️ 父母宫化忌：与父母缘薄，或父母健康需关注');
+  }
+  const xiongDiGong = paiPan.gongs.find((g: { name: string }) => g.name === '兄弟宫');
+  if (xiongDiGong) {
+    const xiongDiStarNames = xiongDiGong.stars.map((s: { name: string }) => s.name);
+    lines.push(`  · 兄弟宫星曜：${xiongDiStarNames.join('、')}`);
+    if (xiongDiGong.stars.some((s: { hua?: string }) => s.hua === '化禄')) lines.push('  · 兄弟宫化禄：兄弟姐妹有助力');
+    if (xiongDiGong.stars.some((s: { hua?: string }) => s.hua === '化忌')) lines.push('  · ⚠️ 兄弟宫化忌：兄弟姐妹缘薄');
+  }
+  const ziNvGong = paiPan.gongs.find((g: { name: string }) => g.name === '子女宫');
+  if (ziNvGong) {
+    const ziNvStarNames = ziNvGong.stars.map((s: { name: string }) => s.name);
+    lines.push(`  · 子女宫星曜：${ziNvStarNames.join('、')}`);
+    if (ziNvGong.stars.some((s: { hua?: string }) => s.hua === '化禄')) lines.push('  · 子女宫化禄：子女有出息');
+    if (ziNvGong.stars.some((s: { hua?: string }) => s.hua === '化忌')) lines.push('  · ⚠️ 子女宫化忌：子女缘薄或操心多');
+  }
+
   return lines.join('\n');
 }
 
