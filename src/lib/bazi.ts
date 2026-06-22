@@ -70,30 +70,201 @@ const SOLAR_TERMS_2024: SolarTerm[] = [
   { month: 12, day: 6, name: '大雪', zhiIndex: 0 },   // 子月
 ];
 
-// 更精确的节气计算 - 使用天文算法近似
+// 24节气名称（0=小寒, 1=大寒, 2=立春, ..., 23=冬至）
+const SOLAR_TERM_NAMES = [
+  '小寒', '大寒', '立春', '雨水', '惊蛰', '春分',
+  '清明', '谷雨', '立夏', '小满', '芒种', '夏至',
+  '小暑', '大暑', '立秋', '处暑', '白露', '秋分',
+  '寒露', '霜降', '立冬', '小雪', '大雪', '冬至',
+];
+
+// 节气对应月份（1-12月）
+const SOLAR_TERM_MONTHS = [1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12];
+
+// 21世纪节气C值（经验公式常数）
+const C_21 = [
+  5.4055, 20.12,   // 小寒, 大寒
+  3.87,   18.73,   // 立春, 雨水
+  5.63,   20.646,  // 惊蛰, 春分
+  4.81,   20.1,    // 清明, 谷雨
+  5.52,   21.04,   // 立夏, 小满
+  5.678,  21.37,   // 芒种, 夏至
+  7.108,  22.83,   // 小暑, 大暑
+  7.5,    23.13,   // 立秋, 处暑
+  7.646,  23.042,  // 白露, 秋分
+  8.318,  23.438,  // 寒露, 霜降
+  7.438,  22.36,   // 立冬, 小雪
+  7.18,   21.94,   // 大雪, 冬至
+];
+
+// 20世纪节气C值
+const C_20 = [
+  6.11,   20.84,
+  4.15,   19.04,
+  6.11,   21.17,
+  5.59,   20.888,
+  6.318,  21.86,
+  6.003,  22.20,
+  7.928,  23.65,
+  8.35,   23.95,
+  8.44,   23.822,
+  9.098,  24.218,
+  8.218,  23.08,
+  7.9,    22.6,
+];
+
+// 已知特殊年份修正（21世纪部分年份个别节气日期需要±1天修正）
+// 键格式: "termIndex-year", 值为偏移天数
+const SOLAR_TERM_CORRECTIONS: Record<string, number> = {
+  // 小寒
+  '0-2019': 1, '0-2025': -1,
+  // 立春
+  '2-2026': 1,
+  // 雨水
+  '3-2026': 1,
+  // 惊蛰
+  '4-2011': 1,
+  // 清明
+  '6-2012': 1, '6-2024': 1,
+  // 谷雨
+  '7-2012': 1, '7-2028': 1,
+  // 立夏
+  '8-2011': 1,
+  // 小满
+  '9-2011': 1, '9-2028': -1,
+  // 芒种
+  '10-2011': 1, '10-2027': 1,
+  // 夏至
+  '11-2021': -1,
+  // 小暑
+  '12-2016': 1, '12-2025': 1,
+  // 大暑
+  '13-2016': 1,
+  // 立秋
+  '14-2002': 1, '14-2023': 1,
+  // 白露
+  '16-2023': 1,
+  // 寒露
+  '18-2008': 1,
+  // 霜降
+  '19-2008': 1, '19-2024': 1,
+  // 立冬
+  '20-2014': 1, '20-2029': 1,
+  // 小雪
+  '21-2014': 1, '21-2029': 1,
+  // 大雪
+  '22-2021': -1,
+  // 冬至
+  '23-2021': -1,
+};
+
+// 使用经验公式计算24节气日期
+// 精度：±1天（足够起运年龄计算使用）
+// termIndex: 0=小寒, 1=大寒, 2=立春, ..., 23=冬至
+function getSolarTermDateApprox(year: number, termIndex: number): { month: number; day: number } {
+  const Y = year % 100;
+  const C = year >= 2000 ? C_21[termIndex] : C_20[termIndex];
+
+  const month = SOLAR_TERM_MONTHS[termIndex];
+
+  // 节气日期公式：D = [Y * 0.2422 + C] - L
+  // L = Math.floor(Y/4) （闰年修正）
+  const L = Math.floor(Y / 4);
+  let day = Math.floor(Y * 0.2422 + C) - L;
+
+  // 应用已知特殊年份修正
+  const correctionKey = `${termIndex}-${year}`;
+  if (correctionKey in SOLAR_TERM_CORRECTIONS) {
+    day += SOLAR_TERM_CORRECTIONS[correctionKey];
+  }
+
+  // 确保日期合法
+  const maxDay = getDaysInMonth(year, month);
+  day = Math.max(1, Math.min(maxDay, day));
+
+  return { month, day };
+}
+
+// 仅获取12个"节"的日期（用于月柱和起运计算）
+// jieIndex: 0=小寒, 1=立春, 2=惊蛰, ..., 11=大雪
+function getJieDate(year: number, jieIndex: number): { month: number; day: number } {
+  // 12个节对应24节气中的偶数索引：0=小寒, 2=立春, 4=惊蛰, ...
+  return getSolarTermDateApprox(year, jieIndex * 2);
+}
+
+// 更精确的节气计算 - 使用经验公式
+// 保持向后兼容：返回指定"节"的日期（day only）
 function getSolarTermDay(year: number, termIndex: number): number {
-  // 24节气编号：0=小寒, 1=大寒, 2=立春, 3=雨水, ...
-  // 这里只用到12个节（不是气）
-  // 使用寿星天文历的简化算法
-  const y = year;
-  const century = Math.floor(y / 100) + 1;
+  // termIndex 对应 SOLAR_TERMS_2024 的索引（0-11），即12个节
+  const result = getJieDate(year, termIndex);
+  return result.day;
+}
 
-  // 每个节气对应太阳黄经度数
-  // 小寒=285°, 立春=315°, 惊蛰=345°, 清明=15°, ...
-  const angleBase = [285, 315, 345, 15, 45, 75, 105, 135, 165, 195, 225, 255];
+// 计算两个日期之间的天数差（date2 - date1）
+function daysBetweenDates(
+  year1: number, month1: number, day1: number,
+  year2: number, month2: number, day2: number
+): number {
+  const d1 = new Date(year1, month1 - 1, day1);
+  const d2 = new Date(year2, month2 - 1, day2);
+  const diffMs = d2.getTime() - d1.getTime();
+  return Math.round(diffMs / (1000 * 60 * 60 * 24));
+}
 
-  // 简化版：用经验公式估算节气日期
-  // 基准2024年数据 + 年份微调
-  const base = SOLAR_TERMS_2024[termIndex].day;
+// 起运年龄计算
+// 根据出生日到最近节气的距离，按照"三天为一年"的规则换算
+// forward=true: 顺行（从出生日顺数到下一个"节"）
+// forward=false: 逆行（从当月之"节"顺数到出生日）
+function calculateQiYunAge(
+  year: number, month: number, day: number,
+  forward: boolean
+): { years: number; months: number; daysRemainder: number; totalDays: number; startAge: number } {
+  // 找到当月之"节"和下一个"节"
+  // 12个节与月份对应：小寒→1月, 立春→2月, 惊蛰→3月, ...
+  // 即 jieIndex = month - 1 (0-based)
+  const currentJieIndex = month - 1; // 当月之节在SOLAR_TERMS_2024中的索引
+  const nextJieIndex = (currentJieIndex + 1) % 12; // 下一个节
+  const nextJieYear = nextJieIndex === 0 ? year + 1 : year; // 如果下一个节是小寒（1月），可能是下一年
 
-  // 每100年约偏移0.24天
-  const offset = (y - 2024) * 0.0024;
-  const day = Math.round(base + offset);
+  const currentJie = getJieDate(currentJieIndex === 0 ? (month === 1 ? year : year - 1) : year, currentJieIndex);
+  const nextJie = getJieDate(nextJieYear, nextJieIndex);
 
-  // 每年波动修正（简化）
-  const wave = Math.sin((y - 2000) * 0.3) * 1.5;
+  // 修正：当前节可能跨年（12月大雪 → 1月小寒）
+  let currentJieYear = year;
+  if (currentJieIndex === 0 && month > 1) {
+    // 小寒在1月，如果当前月份>1，说明小寒是今年的
+    currentJieYear = year;
+  } else if (currentJieIndex === 11 && month === 12) {
+    // 大雪在12月，年份就是当年
+    currentJieYear = year;
+  }
 
-  return Math.max(1, Math.min(28, Math.round(day + wave)));
+  let distanceDays: number;
+
+  if (forward) {
+    // 顺行：从出生日顺数到下一个"节"
+    distanceDays = daysBetweenDates(year, month, day, nextJieYear, nextJie.month, nextJie.day);
+  } else {
+    // 逆行：从当月之"节"顺数到出生日
+    distanceDays = daysBetweenDates(currentJieYear, currentJie.month, currentJie.day, year, month, day);
+  }
+
+  // 确保距离为正
+  distanceDays = Math.max(0, distanceDays);
+
+  // 三天为一年，一天为四个月，一个时辰为十天
+  const years = Math.floor(distanceDays / 3);
+  const remainingDays = distanceDays % 3;
+  const months = remainingDays * 4; // 1天=4个月
+  const daysRemainder = 0; // 简化，不计算到天数
+
+  return {
+    years,
+    months,
+    daysRemainder,
+    totalDays: distanceDays,
+    startAge: years, // 起运年龄（整数部分）
+  };
 }
 
 // ========== 真太阳时校正 ==========
@@ -195,7 +366,7 @@ function getYearPillar(year: number, month: number, day: number): { gan: string;
 }
 
 // 月柱（五虎遁月法）
-function getMonthPillar(yearGan: string, month: number, day: number): { gan: string; zhi: string } {
+function getMonthPillar(yearGan: string, month: number, day: number, year: number = 0): { gan: string; zhi: string } {
   // 先确定当前在哪个节气月
   // 节气月：立春→寅月, 惊蛰→卯月, 清明→辰月, 立夏→巳月, 芒种→午月, 小暑→未月
   //         立秋→申月, 白露→酉月, 寒露→戌月, 立冬→亥月, 大雪→子月, 小寒→丑月
@@ -205,8 +376,8 @@ function getMonthPillar(yearGan: string, month: number, day: number): { gan: str
 
   for (let i = terms.length - 1; i >= 0; i--) {
     const term = terms[i];
-    const termDay = getSolarTermDay(yearGan ? 0 : 0, i); // 简化
-    if (month > term.month || (month === term.month && day >= term.day)) {
+    const termDay = getSolarTermDay(year || new Date().getFullYear(), i);
+    if (month > term.month || (month === term.month && day >= termDay)) {
       zhiIndex = term.zhiIndex;
       break;
     }
@@ -289,9 +460,19 @@ function getShiShen(dayGan: string, otherGan: string): string {
 // ========== 大运计算 ==========
 interface DaYun {
   startAge: number;
+  endAge: number;
   gan: string;
   zhi: string;
   cangGan: string[];
+}
+
+// 起运年龄详情
+interface QiYunDetail {
+  startAge: number;       // 起运年龄（整数）
+  startAgeMonths: number; // 起运月龄（余数部分）
+  totalDays: number;      // 距节气天数
+  direction: string;      // 顺逆
+  directionReason: string; // 顺逆原因
 }
 
 function getDaYun(
@@ -306,19 +487,21 @@ function getDaYun(
   const isMale = gender === 'male';
   const forward = (isYangYear && isMale) || (!isYangYear && !isMale);
 
-  // 起运年龄计算（简化：用月柱推算距离下一个/上一个节气的时间）
-  // 简化起运年龄为3-6岁
+  // 精确计算起运年龄
+  const qiYun = calculateQiYunAge(year, month, day, forward);
+
   const monthZhiIndex = DIZHI.indexOf(monthZhi);
 
   const daYunList: DaYun[] = [];
-  const startAge = 3 + Math.floor(Math.random() * 3); // 简化起运年龄3-5岁
 
   for (let i = 0; i < 8; i++) {
     const offset = forward ? (i + 1) : -(i + 1);
     const ganIdx = ((TIANGAN.indexOf(monthGan) + offset) % 10 + 10) % 10;
     const zhiIdx = ((monthZhiIndex + offset) % 12 + 12) % 12;
+    const startAge = qiYun.startAge + i * 10;
     daYunList.push({
-      startAge: startAge + i * 10,
+      startAge,
+      endAge: startAge + 9,
       gan: TIANGAN[ganIdx],
       zhi: DIZHI[zhiIdx],
       cangGan: CANGGAN[DIZHI[zhiIdx]],
@@ -326,6 +509,30 @@ function getDaYun(
   }
 
   return daYunList;
+}
+
+// 获取起运详情（供前端展示）
+export function getQiYunDetail(
+  yearGan: string,
+  gender: 'male' | 'female',
+  year: number, month: number, day: number
+): QiYunDetail {
+  const yearGanIndex = TIANGAN.indexOf(yearGan);
+  const isYangYear = yearGanIndex % 2 === 0;
+  const isMale = gender === 'male';
+  const forward = (isYangYear && isMale) || (!isYangYear && !isMale);
+
+  const qiYun = calculateQiYunAge(year, month, day, forward);
+
+  return {
+    startAge: qiYun.startAge,
+    startAgeMonths: qiYun.months,
+    totalDays: qiYun.totalDays,
+    direction: forward ? '顺行' : '逆行',
+    directionReason: isYangYear
+      ? `${yearGan}属阳年${isMale ? '男命→顺行' : '女命→逆行'}`
+      : `${yearGan}属阴年${isMale ? '男命→逆行' : '女命→顺行'}`,
+  };
 }
 
 // ========== 五行统计 ==========
@@ -391,7 +598,7 @@ export function paiPan(
   const yearP = getYearPillar(trueTime.year, trueTime.month, trueTime.day);
 
   // 3. 月柱
-  const monthP = getMonthPillar(yearP.gan, trueTime.month, trueTime.day);
+  const monthP = getMonthPillar(yearP.gan, trueTime.month, trueTime.day, trueTime.year);
 
   // 4. 日柱
   const dayP = getDayPillar(trueTime.year, trueTime.month, trueTime.day);
@@ -527,8 +734,17 @@ export function formatPaiPan(result: BaZiPaiPan): string {
   lines.push('');
 
   lines.push(`【大运排列】`);
+  // 起运详情
+  const qiYunDetail = getQiYunDetail(
+    result.yearPillar.gan,
+    result.birthInfo.gender === '男' ? 'male' : 'female',
+    result.birthInfo.trueSolarTime.year,
+    result.birthInfo.trueSolarTime.month,
+    result.birthInfo.trueSolarTime.day
+  );
+  lines.push(`${qiYunDetail.directionReason}，距节气${qiYunDetail.totalDays}天，${qiYunDetail.startAge}岁${qiYunDetail.startAgeMonths > 0 ? qiYunDetail.startAgeMonths + '个月' : ''}起运`);
   for (const dy of result.daYun) {
-    lines.push(`${dy.startAge}岁：${dy.gan}${dy.zhi}（藏干：${dy.cangGan.join('、')}）`);
+    lines.push(`${dy.startAge}-${dy.endAge}岁：${dy.gan}${dy.zhi}（藏干：${dy.cangGan.join('、')}）`);
   }
 
   return lines.join('\n');
@@ -1241,7 +1457,7 @@ export function getTiaoHou(dayGan: string, monthZhiIndex: number): TiaoHouInfo |
 
 // 在 BaZiPaiPan 接口中新增调候字段
 // 扩展格式化输出
-export function formatPaiPanFull(result: BaZiPaiPan): string {
+export function formatPaiPanFull(result: BaZiPaiPan, currentYear?: number): string {
   let text = formatPaiPan(result);
 
   // ========== 1. 《滴天髓》旺衰判断 ==========
@@ -1330,5 +1546,249 @@ export function formatPaiPanFull(result: BaZiPaiPan): string {
     text += '四柱未见明显神煞\n';
   }
 
+  // ========== 6. 实战派具体预测（邓玄易贵人法+祥品君财运法） ==========
+  text += formatShiZhanPrediction(result, currentYear);
+
+  return text;
+}
+
+// ============================================================
+// 实战派具体预测算法（邓玄易贵人法/祥品君财运法/郑穆德紫微法）
+// ============================================================
+
+// 地支→方位映射
+const ZHI_FANGWEI: Record<string, string> = {
+  '子': '正北', '丑': '东北偏北', '寅': '东北偏东',
+  '卯': '正东', '辰': '东南偏东', '巳': '东南偏南',
+  '午': '正南', '未': '西南偏南', '申': '西南偏西',
+  '酉': '正西', '戌': '西北偏西', '亥': '西北偏北',
+};
+
+// 地支→属相映射
+const ZHI_SHUXIANG: Record<string, string> = {
+  '子': '鼠', '丑': '牛', '寅': '虎', '卯': '兔',
+  '辰': '龙', '巳': '蛇', '午': '马', '未': '羊',
+  '申': '猴', '酉': '鸡', '戌': '狗', '亥': '猪',
+};
+
+// 天乙贵人查表（日干→贵人生支）
+const TIANYI_GUIREN_MAP: Record<string, string[]> = {
+  '甲': ['丑', '未'], '戊': ['丑', '未'], '庚': ['丑', '未'],
+  '乙': ['子', '申'], '己': ['子', '申'],
+  '丙': ['亥', '酉'], '丁': ['亥', '酉'],
+  '壬': ['卯', '巳'], '癸': ['卯', '巳'],
+  '辛': ['午', '寅'],
+};
+
+// 文昌贵人查表
+const WENCHANG_GUIREN_MAP: Record<string, string> = {
+  '甲': '巳', '乙': '午', '丙': '申', '丁': '酉', '戊': '申',
+  '己': '酉', '庚': '亥', '辛': '子', '壬': '寅', '癸': '卯',
+};
+
+// 天乙贵人来源推断（根据贵人地支在四柱中的位置）
+function getGuiRenSource(zhi: string, pillars: { year: string; month: string; day: string; hour: string }): string {
+  if (pillars.year.includes(zhi)) return '来自祖辈/长辈/远方';
+  if (pillars.month.includes(zhi)) return '来自父母/兄弟/同辈';
+  if (pillars.day.includes(zhi)) return '来自配偶/近亲';
+  if (pillars.hour.includes(zhi)) return '来自下属/晚辈/子女';
+  return '来自大运流年引动';
+}
+
+// 贵人帮助方向推断
+function getGuiRenHelpType(dayGan: string, guirenZhi: string): string {
+  const guirenWuXing: Record<string, string> = {
+    '子': '水', '丑': '土', '寅': '木', '卯': '木',
+    '辰': '土', '巳': '火', '午': '火', '未': '土',
+    '申': '金', '酉': '金', '戌': '土', '亥': '水',
+  };
+  const dayWuXingMap: Record<string, string> = {
+    '甲': '木', '乙': '木', '丙': '火', '丁': '火', '戊': '土',
+    '己': '土', '庚': '金', '辛': '金', '壬': '水', '癸': '水',
+  };
+  const dayWX = dayWuXingMap[dayGan] || '';
+  const guirenWX = guirenWuXing[guirenZhi] || '';
+
+  if (guirenWX === dayWX) return '人脉/社交/合作方面';
+  // 五行生克关系
+  const sheng: Record<string, string> = { '木': '火', '火': '土', '土': '金', '金': '水', '水': '木' };
+  const ke: Record<string, string> = { '木': '土', '土': '水', '水': '火', '火': '金', '金': '木' };
+  if (sheng[dayWX] === guirenWX) return '事业/学业/晋升方面（贵人泄你之力助你成长）';
+  if (sheng[guirenWX] === dayWX) return '财运/资源/物质方面（贵人生你之力给你资源）';
+  if (ke[dayWX] === guirenWX) return '事业突破/权力/管理方面（贵人克制你使你自律上进）';
+  if (ke[guirenWX] === dayWX) return '技术/专业/创作方面（你克制贵人的领域）';
+  return '综合方面';
+}
+
+// 流年引动贵人判断
+function getGuiRenLiuNian(guirenZhi: string[], currentYear: number): { year: number; zhi: string; desc: string }[] {
+  const zhiList = ['子', '丑', '寅', '卯', '辰', '巳', '午', '未', '申', '酉', '戌', '亥'];
+  const results: { year: number; zhi: string; desc: string }[] = [];
+  // 检查当前年前后10年
+  for (let offset = -2; offset <= 10; offset++) {
+    const year = currentYear + offset;
+    const zhiIdx = (year - 4) % 12;
+    const zhi = zhiList[zhiIdx >= 0 ? zhiIdx : zhiIdx + 12];
+    if (guirenZhi.includes(zhi)) {
+      const shuXiang = ZHI_SHUXIANG[zhi];
+      const fangWei = ZHI_FANGWEI[zhi];
+      const tense = offset < 0 ? '已过' : offset === 0 ? '今年' : '将到';
+      results.push({
+        year,
+        zhi,
+        desc: `${year}年（${tense}）属${shuXiang}年，贵人星引动，贵人方位在${fangWei}，注意${fangWei}方向来的人脉机遇`,
+      });
+    }
+  }
+  return results;
+}
+
+// 五行→行业映射（祥品君方法）
+const WUXING_HANGYE: Record<string, string[]> = {
+  '木': ['教育', '文化', '出版', '传媒', '服装', '家具', '花卉', '农业', '林业', '医药', '中医', '健康', '培训', '法律', '宗教'],
+  '火': ['电子', '科技', '互联网', '电力', '能源', '餐饮', '美容', '影视', '娱乐', '广告', '照明', '化工', '军警', '光学', '通信'],
+  '土': ['房地产', '建筑', '矿业', '农业', '仓储', '物流', '保险', '信托', '殡葬', '皮革', '水泥', '砖瓦', '古董', '咨询', '中介'],
+  '金': ['金融', '银行', '证券', '投资', '机械', '汽车', '五金', '珠宝', '钟表', '外科', '武术', '公检法', '精密', '五金', '刀具'],
+  '水': ['贸易', '运输', '航运', '渔业', '饮料', '酒类', '旅游', '清洁', '水利', '通讯', '公关', '外交', '营销', '策划', '信息'],
+};
+
+// 五行→有利方位
+const WUXING_FANGWEI: Record<string, string> = {
+  '木': '东方、东南方', '火': '南方', '土': '中部、东北、西南',
+  '金': '西方、西北方', '水': '北方',
+};
+
+/**
+ * 邓玄易贵人预测法
+ * 输出：贵人方位、属相、出现时机、来源、帮助方向
+ */
+export function predictGuiRen(paiPanResult: BaZiPaiPan, currentYear?: number): string {
+  const now = currentYear || new Date().getFullYear();
+  const dayGan = paiPanResult.dayPillar.gan;
+  const guirenZhi = TIANYI_GUIREN_MAP[dayGan] || [];
+  const pillars = {
+    year: paiPanResult.yearPillar.zhi,
+    month: paiPanResult.monthPillar.zhi,
+    day: paiPanResult.dayPillar.zhi,
+    hour: paiPanResult.hourPillar.zhi,
+  };
+  const allZhi = [pillars.year, pillars.month, pillars.day, pillars.hour];
+
+  let text = '\n\n【天乙贵人预测】（邓玄易贵人法 + 《三命通会》）\n';
+  text += `日干：${dayGan} → 天乙贵人在${guirenZhi.map(z => ZHI_SHUXIANG[z] + '（' + z + '）').join('、')}\n\n`;
+
+  // 判断贵人是否透出
+  const touChu = guirenZhi.filter(z => allZhi.includes(z));
+  if (touChu.length > 0) {
+    text += `✅ 贵人星透出四柱：${touChu.map(z => ZHI_SHUXIANG[z] + '（' + z + '）').join('、')}\n`;
+    for (const z of touChu) {
+      text += `  - 属${ZHI_SHUXIANG[z]}的人是你的贵人，方位在${ZHI_FANGWEI[z]}\n`;
+      text += `  - 来源：${getGuiRenSource(z, pillars)}\n`;
+      text += `  - 帮助方向：${getGuiRenHelpType(dayGan, z)}\n`;
+    }
+  } else {
+    text += `⚠️ 贵人星未透四柱，需等大运流年引动\n`;
+    for (const z of guirenZhi) {
+      text += `  - 属${ZHI_SHUXIANG[z]}的人是你的贵人，方位在${ZHI_FANGWEI[z]}\n`;
+      text += `  - 帮助方向：${getGuiRenHelpType(dayGan, z)}\n`;
+    }
+  }
+
+  // 文昌贵人
+  const wenChangZhi = WENCHANG_GUIREN_MAP[dayGan];
+  if (wenChangZhi) {
+    text += `\n【文昌贵人】属${ZHI_SHUXIANG[wenChangZhi]}（${wenChangZhi}），方位${ZHI_FANGWEI[wenChangZhi]}\n`;
+    text += `  - 学业/考试/文职的贵人，考试前可往${ZHI_FANGWEI[wenChangZhi]}方拜文昌\n`;
+  }
+
+  // 流年引动贵人
+  text += `\n【贵人引动时机】\n`;
+  const liuNianResults = getGuiRenLiuNian(guirenZhi, now);
+  if (liuNianResults.length > 0) {
+    for (const r of liuNianResults) {
+      text += `  - ${r.desc}\n`;
+    }
+  } else {
+    text += `  - 近期无贵人星直接引动，需看大运配合\n`;
+  }
+
+  return text;
+}
+
+/**
+ * 祥品君财运+行业+方位预测法
+ * 输出：有利行业、有利方位、财运流年
+ */
+export function predictCaiYun(paiPanResult: BaZiPaiPan, currentYear?: number): string {
+  const now = currentYear || new Date().getFullYear();
+  const dayGan = paiPanResult.dayPillar.gan;
+  const dayWuXingMap: Record<string, string> = {
+    '甲': '木', '乙': '木', '丙': '火', '丁': '火', '戊': '土',
+    '己': '土', '庚': '金', '辛': '金', '壬': '水', '癸': '水',
+  };
+  const dayWX = dayWuXingMap[dayGan] || '土';
+
+  // 日主所克的五行为正财/偏财
+  const keMap: Record<string, string> = { '木': '土', '火': '金', '土': '水', '金': '木', '水': '火' };
+  const caiWX = keMap[dayWX] || '土'; // 正偏财五行
+
+  let text = '\n\n【财运+行业+方位预测】（祥品君实战法）\n';
+
+  // 有利行业（日主五行适合的行业）
+  text += `\n【适合你的行业】（日主${dayGan}${dayWX}行）\n`;
+  const hangYe = WUXING_HANGYE[dayWX] || [];
+  text += `  首选（本命行业）：${hangYe.slice(0, 5).join('、')}\n`;
+  text += `  次选：${hangYe.slice(5, 10).join('、')}\n`;
+
+  // 财运行业
+  text += `\n【财运行业】（财星${caiWX}行）\n`;
+  const caiHangYe = WUXING_HANGYE[caiWX] || [];
+  text += `  直接赚钱的行业：${caiHangYe.slice(0, 5).join('、')}\n`;
+  text += `  偏财行业：${caiHangYe.slice(5, 10).join('、')}\n`;
+
+  // 有利方位
+  text += `\n【有利方位】\n`;
+  text += `  事业发展方位：${WUXING_FANGWEI[dayWX]}\n`;
+  text += `  求财方位：${WUXING_FANGWEI[caiWX]}\n`;
+
+  // 流年财运
+  text += `\n【近十年财运流年】\n`;
+  const zhiList = ['子', '丑', '寅', '卯', '辰', '巳', '午', '未', '申', '酉', '戌', '亥'];
+  const shengMap: Record<string, string> = { '木': '火', '火': '土', '土': '金', '金': '水', '水': '木' };
+  const yinWX = shengMap[dayWX] || '火'; // 印星五行（生我的）
+  const guanWX = keMap[dayWX] || '金'; // 官杀五行（克我的）
+
+  for (let offset = 0; offset <= 10; offset++) {
+    const year = now + offset;
+    const zhiIdx = (year - 4) % 12;
+    const zhi = zhiList[zhiIdx >= 0 ? zhiIdx : zhiIdx + 12];
+    const zhiWX: Record<string, string> = {
+      '子': '水', '丑': '土', '寅': '木', '卯': '木',
+      '辰': '土', '巳': '火', '午': '火', '未': '土',
+      '申': '金', '酉': '金', '戌': '土', '亥': '水',
+    };
+    const yearWX = zhiWX[zhi] || '土';
+
+    let label = '';
+    if (yearWX === caiWX) label = '💰 财星年，财运亨通，适合投资';
+    else if (yearWX === dayWX) label = '💪 比劫年，竞争大但人脉旺';
+    else if (yearWX === yinWX) label = '📚 印星年，学习进修好，有贵人';
+    else if (yearWX === guanWX) label = '⚖️ 官杀年，事业压力但可能晋升';
+    else if (shengMap[yearWX] === dayWX) label = '🍽️ 食伤年，才华展现，适合创业';
+    else label = '🔄 平稳年';
+
+    text += `  ${year}年（属${ZHI_SHUXIANG[zhi]}）${label}\n`;
+  }
+
+  return text;
+}
+
+/**
+ * 完整实战预测输出（贵人+财运+行业+方位）
+ */
+export function formatShiZhanPrediction(paiPanResult: BaZiPaiPan, currentYear?: number): string {
+  let text = '===== 实战派具体预测 =====';
+  text += predictGuiRen(paiPanResult, currentYear);
+  text += predictCaiYun(paiPanResult, currentYear);
   return text;
 }

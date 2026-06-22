@@ -7,7 +7,7 @@ export default function ZiweiClassicsPage() {
     <ClassicDetailPage
       title="紫微斗数典籍"
       icon="⭐"
-      totalCount="~1150部"
+      totalCount="~1250部"
       existingCount="~1100部"
       lostCount="~50部"
       sections={[

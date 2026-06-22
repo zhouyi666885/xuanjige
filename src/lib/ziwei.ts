@@ -6,6 +6,7 @@
 
 const TIANGAN = ['甲', '乙', '丙', '丁', '戊', '己', '庚', '辛', '壬', '癸'];
 const DIZHI = ['子', '丑', '寅', '卯', '辰', '巳', '午', '未', '申', '酉', '戌', '亥'];
+const DI_ZHI_YEAR: Record<number, string> = { 0: '子', 1: '丑', 2: '寅', 3: '卯', 4: '辰', 5: '巳', 6: '午', 7: '未', 8: '申', 9: '酉', 10: '戌', 11: '亥' };
 
 // 十四主星
 const ZHU_XING = [
@@ -659,6 +660,187 @@ export function formatPaiPan(result: ZiWeiPaiPan): string {
   lines.push('星曜亮度参照《紫微斗数三合大全》庙旺利陷表。');
   lines.push('四化论断依据《紫微斗数全书》化星篇及中州派四化专论。');
   lines.push('格局判定依据《紫微斗数全书》格局篇及三合派格局论。');
+
+  return lines.join('\n');
+}
+
+/**
+ * 紫微斗数实战预测（郑穆德/杨智宇方法）
+ * 预测具体事项：事业老板类型、创业赚钱时机、衰运赔钱时机、贵人方向
+ */
+export function predictZiWeiShiZhan(paiPan: ZiWeiPaiPan, currentYear?: number): string {
+  const now = currentYear || new Date().getFullYear();
+  const lines: string[] = [];
+  lines.push('\n=== 紫微斗数实战预测（郑穆德/杨智宇方法）===');
+
+  const mingGong = paiPan.gongs.find(g => g.name === '命宫');
+  const shiYeGong = paiPan.gongs.find(g => g.name === '官禄宫');
+  const caiBoGong = paiPan.gongs.find(g => g.name === '财帛宫');
+  const qianYiGong = paiPan.gongs.find(g => g.name === '迁移宫');
+
+  // 一、事业老板类型（郑穆德法）
+  if (shiYeGong) {
+    lines.push('\n【事业与老板类型预测】');
+    const shiYeStars = shiYeGong.stars.map(s => s.name);
+
+    if (shiYeStars.includes('紫微')) {
+      lines.push('  · 你下一份工作的老板：大格局、有权威、喜欢掌控全局的类型，可能是大型企业高管或创业者');
+      lines.push('  · 老板风格：重视制度与面子，喜欢下属尊重其决策');
+      lines.push('  · 合作建议：对老板要尊重到位，不要当面反驳，私下建言更有效');
+    }
+    if (shiYeStars.includes('天府')) {
+      lines.push('  · 你下一份工作的老板：稳重保守型，善于理财守业，不太喜欢冒险');
+      lines.push('  · 老板风格：注重稳健发展，按部就班');
+    }
+    if (shiYeStars.includes('太阳')) {
+      lines.push('  · 你下一份工作的老板：热心大方、爱面子的类型，男老板概率大');
+      lines.push('  · 老板风格：喜欢帮助人但也要回报，讲人情味');
+    }
+    if (shiYeStars.includes('太阴')) {
+      lines.push('  · 你下一份工作的老板：细腻温柔型，女老板概率大，注重细节');
+      lines.push('  · 老板风格：情感丰富，直觉强，重过程轻结果');
+    }
+    if (shiYeStars.includes('天机')) {
+      lines.push('  · 你下一份工作的老板：聪明善变型，想法多但可能朝令夕改');
+      lines.push('  · 老板风格：思维敏捷，喜欢创新，但需注意方向经常调整');
+    }
+    if (shiYeStars.includes('七杀')) {
+      lines.push('  · 你下一份工作的老板：强势霸气型，说一不二，执行力极强');
+      lines.push('  · 老板风格：高压管理，竞争意识强，适者生存');
+    }
+    if (shiYeStars.includes('破军')) {
+      lines.push('  · 你下一份工作的老板：颠覆创新型，经常大刀阔斧改革');
+      lines.push('  · 老板风格：不安于现状，喜欢推倒重来');
+    }
+    if (shiYeStars.includes('贪狼')) {
+      lines.push('  · 你下一份工作的老板：多才多艺、人际广泛型，应酬多');
+      lines.push('  · 老板风格：机会导向，善于交际，可能同时经营多个项目');
+    }
+    if (shiYeStars.includes('武曲')) {
+      lines.push('  · 你下一份工作的老板：务实刚毅型，重视业绩数字');
+      lines.push('  · 老板风格：结果导向，赏罚分明，不拖泥带水');
+    }
+    if (shiYeStars.includes('天梁')) {
+      lines.push('  · 你下一份工作的老板：老成持重型，像长辈一样关照下属');
+      lines.push('  · 老板风格：有责任心，循循善诱，但可能过于保守');
+    }
+    if (shiYeStars.includes('巨门')) {
+      lines.push('  · 你下一份工作的老板：口才好、疑心重的类型，需要反复沟通');
+      lines.push('  · 老板风格：善于分析质疑，需要充分数据和论证');
+    }
+
+    // 四化对事业的影响
+    for (const star of shiYeGong.stars) {
+      if (star.hua === '化禄') {
+        lines.push(`  · ${star.name}化禄入官禄：事业财运亨通，这颗星带来赚钱机会`);
+      }
+      if (star.hua === '化权') {
+        lines.push(`  · ${star.name}化权入官禄：事业有权，可掌实权，升职机会大`);
+      }
+      if (star.hua === '化科') {
+        lines.push(`  · ${star.name}化科入官禄：事业有名，口碑好，适合靠名气赚钱`);
+      }
+      if (star.hua === '化忌') {
+        lines.push(`  · ${star.name}化忌入官禄：事业受阻，该方面易生波折，需格外注意`);
+      }
+    }
+  }
+
+  // 二、创业赚钱/衰运赔钱时机（郑穆德法）
+  lines.push('\n【创业赚钱与衰运赔钱时机预测】');
+  if (caiBoGong) {
+    const caiStars = caiBoGong.stars.map(s => s.name);
+    const hasHuaLu = caiBoGong.stars.some(s => s.hua === '化禄');
+    const hasHuaJi = caiBoGong.stars.some(s => s.hua === '化忌');
+
+    if (hasHuaLu) {
+      lines.push('  · 财帛宫化禄：一生财运基础好，赚钱有机缘');
+    }
+    if (hasHuaJi) {
+      lines.push('  · 财帛宫化忌：财运多波折，赚钱辛苦，需防破财');
+    }
+
+    // 根据大限推算赚钱/赔钱时期
+    const daXianList = paiPan.gongs
+      .filter(g => g.daXianAge)
+      .map(g => ({ startAge: g.daXianAge![0], endAge: g.daXianAge![1], gongStars: g.stars.map(s => s.name) }));
+    if (daXianList.length > 0) {
+      lines.push('  · 大限财运走势：');
+      for (const dx of daXianList) {
+        const dxEnd = dx.endAge;
+        const yearStart = paiPan.input.year + dx.startAge;
+        const yearEnd = paiPan.input.year + dxEnd;
+        const dxStars = dx.gongStars || [];
+        const dxHasHuaLu = dxStars.some((s: string) => s.includes('禄'));
+        const dxHasHuaJi = dxStars.some((s: string) => s.includes('忌'));
+
+        if (dxHasHuaLu && !dxHasHuaJi) {
+          if (yearEnd >= now - 5) {
+            lines.push(`    - ${yearStart}-${yearEnd}年（${dx.startAge}-${dxEnd}岁）：财运大好，适合创业投资`);
+          }
+        } else if (dxHasHuaJi && !dxHasHuaLu) {
+          if (yearEnd >= now - 5) {
+            lines.push(`    - ${yearStart}-${yearEnd}年（${dx.startAge}-${dxEnd}岁）：财运低迷，保守为宜，不宜冒险`);
+          }
+        }
+      }
+    }
+
+    // 流年关键年份
+    lines.push('  · 近5年流年财运提示：');
+    for (let y = now; y <= now + 4; y++) {
+      const yearGanIdx = (y - 4) % 10;
+      const yearGan = TIANGAN[yearGanIdx];
+      const siHua = SI_HUA_TABLE[yearGan];
+      if (siHua) {
+        const luStar = siHua.lu;
+        const jiStar = siHua.ji;
+        lines.push(`    - ${y}年（${yearGan}${DI_ZHI_YEAR[(y - 4) % 12]}年）：化禄星=${luStar} 化忌星=${jiStar}`);
+      }
+    }
+  }
+
+  // 三、贵人方向预测（杨智宇法）
+  lines.push('\n【贵人方向预测（杨智宇方法）】');
+  if (mingGong) {
+    const mingZhi = mingGong.diZhi;
+    const directionMap: Record<string, string> = {
+      '子': '正北', '丑': '东北偏北', '寅': '东北偏东',
+      '卯': '正东', '辰': '东南偏东', '巳': '东南偏南',
+      '午': '正南', '未': '西南偏南', '申': '西南偏西',
+      '酉': '正西', '戌': '西北偏西', '亥': '西北偏北',
+    };
+    lines.push(`  · 命宫地支：${mingZhi}，贵人最旺方向：${directionMap[mingZhi] || '需综合判断'}`);
+
+    // 迁移宫贵人
+    if (qianYiGong) {
+      const qianYiStars = qianYiGong.stars.map(s => s.name);
+      if (qianYiStars.includes('天魁') || qianYiStars.includes('天钺')) {
+        lines.push('  · 迁移宫有天魁/天钺：外出发展遇贵人概率极大，贵人多在外地');
+      }
+      if (qianYiStars.includes('左辅') || qianYiStars.includes('右弼')) {
+        lines.push('  · 迁移宫有左辅/右弼：外出有助力，朋友多、人脉广');
+      }
+      if (qianYiStars.includes('化禄')) {
+        lines.push('  · 迁移宫化禄：外出赚钱机会多，适合向外发展');
+      }
+    }
+
+    // 适合发展的方位
+    lines.push('  · 适合发展方位建议：');
+    if (mingGong.stars.some(s => s.name === '紫微' || s.name === '天府')) {
+      lines.push('    - 帝星坐命：适合去大城市、中心位置发展，越核心越好');
+    }
+    if (mingGong.stars.some(s => s.name === '太阳')) {
+      lines.push('    - 太阳坐命：适合向东、向南发展，白天做事有利');
+    }
+    if (mingGong.stars.some(s => s.name === '太阴')) {
+      lines.push('    - 太阴坐命：适合向西、向北发展，夜晚或幕后工作有利');
+    }
+    if (mingGong.stars.some(s => s.name === '七杀' || s.name === '破军')) {
+      lines.push('    - 杀破狼坐命：适合去新环境开拓，离家发展更佳');
+    }
+  }
 
   return lines.join('\n');
 }

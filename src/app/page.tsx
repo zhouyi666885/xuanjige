@@ -43,10 +43,10 @@ export default function Home() {
   ];
 
   const classicCategories = [
-    { icon: '📚', name: '全部经典', count: '19055部', href: '/classics' },
+    { icon: '📚', name: '全部经典', count: '20000部', href: '/classics' },
     { icon: '📜', name: '易学系统', count: '2270+部', href: '/classics' },
     { icon: '📖', name: '八字命理', count: '1180+部', href: '/classics' },
-    { icon: '🌟', name: '紫微斗数', count: '1150+部', href: '/classics' },
+    { icon: '🌟', name: '紫微斗数', count: '1250+部', href: '/classics' },
     { icon: '🏔️', name: '风水地理', count: '1130+部', href: '/classics' },
     { icon: '🧘', name: '丹道气功', count: '830+部', href: '/classics' },
   ];
@@ -117,7 +117,7 @@ export default function Home() {
               <h3 className="text-gold font-serif font-bold">AI 玄学问答</h3>
               <p className="text-muted-foreground text-xs mt-0.5">
                 {readingMode === 'professional'
-                  ? '专业引经据典，通晓19000部典籍'
+                  ? '专业引经据典，通晓近20000部典籍'
                   : '白话轻松聊，用大白话讲明白玄学'
                 }
               </p>

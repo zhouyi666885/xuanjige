@@ -74,8 +74,8 @@ const divinationCategories: ClassicCategory[] = [
   {
     icon: '🔮',
     name: '八字命理',
-    count: '~1180部',
-    desc: '子平法、格局论、调候论、病药说',
+    count: '~1300部',
+    desc: '子平法、格局论、调候论、病药说、盲派',
     highlights: ['《渊海子平》', '《三命通会》', '《滴天髓》', '《子平真诠》', '《穷通宝鉴》'],
     href: '/classics/bazi-classics',
   },
@@ -90,7 +90,7 @@ const divinationCategories: ClassicCategory[] = [
   {
     icon: '🌀',
     name: '奇门遁甲',
-    count: '~530部',
+    count: '~600部',
     desc: '九宫八门、转盘飞盘、太乙神数',
     highlights: ['《烟波钓叟赋》', '《奇门遁甲大全》', '《太乙神数》'],
     href: '/classics/qimen-classics',
@@ -114,15 +114,15 @@ const divinationCategories: ClassicCategory[] = [
   {
     icon: '⭐',
     name: '紫微斗数',
-    count: '~1150部',
-    desc: '中州派、飞星派、三合派',
+    count: '~1250部',
+    desc: '中州派、飞星派、三合派、日本紫微',
     highlights: ['《紫微斗数全书》', '中州派全集', '飞星派全集'],
     href: '/classics/ziwei-classics',
   },
   {
     icon: '🏔️',
     name: '风水地理',
-    count: '~1130部',
+    count: '~1200部',
     desc: '形势派、理气派、阳宅',
     highlights: ['《葬经》', '《撼龙经》', '《阳宅三要》', '《天玉经》'],
     href: '/classics/fengshui-classics',
@@ -146,10 +146,26 @@ const divinationCategories: ClassicCategory[] = [
   {
     icon: '👤',
     name: '相学',
-    count: '~710部',
+    count: '~800部',
     desc: '面相、手相、姓名学',
-    highlights: ['《麻衣神相》', '《冰鉴》', '《神相全编》', '《太清神鉴》'],
-    href: '/classics/xiangxue',
+    highlights: ['《麻衣神相》', '《冰鉴》', '《水镜神相》', '《手相大全》', '《太清神鉴》'],
+    href: '/classics/xiangxue-classics',
+  },
+  {
+    icon: '♈',
+    name: '西方占星学',
+    count: '~300部',
+    desc: '心理占星、太阳弧推运、卜卦占星',
+    highlights: ['诺·泰尔推运', '丽兹·格林心理占星', '罗伯特·汉德行星预测'],
+    href: '/classics/western-astrology',
+  },
+  {
+    icon: '🌟',
+    name: '七政四余/星命学',
+    count: '~200部',
+    desc: '果老星宗、二十八宿论命',
+    highlights: ['《果老星宗》', '《七政四余》', '《二十八宿论命》'],
+    href: '/classics/qizheng',
   },
 ];
 

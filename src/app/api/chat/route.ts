@@ -38,7 +38,7 @@ function formatBirthInfoWithPaiPan(birthInfo: BirthInfo, _type?: string): string
       birthInfo.birthMinute,
       birthInfo.province
     );
-    const baziText = formatPaiPanFull(baziResult);
+    const baziText = formatPaiPanFull(baziResult, new Date().getFullYear());
     baziYearGan = baziResult.yearPillar.gan;
     baziYearZhi = baziResult.yearPillar.zhi;
     paiPanResult = `\n\n【八字精确排盘结果（代码计算，非AI脑补）】\n${baziText}`;

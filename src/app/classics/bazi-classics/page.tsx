@@ -8,7 +8,7 @@ export default function BaziClassicsPage() {
       title="八字命理典籍"
       icon="🕐"
       totalCount="~1180部"
-      existingCount="~1150部"
+      existingCount="~1300部"
       lostCount="~30部"
       sections={[
         { title: '古典必读（大师级）', rating: '★★★★★ 必读核心', books: [

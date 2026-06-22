@@ -85,7 +85,7 @@ export async function POST(request: NextRequest) {
       try {
         const g = gender === '男' ? 'male' : 'female';
         const baziResult = paiPan(g, birthYear, birthMonth, birthDay, birthHour, birthMinute, province || '');
-        const baziText = formatPaiPanFull(baziResult);
+        const baziText = formatPaiPanFull(baziResult, new Date().getFullYear());
         paiPanAppend = `\n\n【八字精确排盘结果（代码计算，非AI脑补）】\n${baziText}`;
         baziYearGan = baziResult.yearPillar.gan;
         baziYearZhi = baziResult.yearPillar.zhi;
