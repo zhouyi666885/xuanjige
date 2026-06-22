@@ -1839,7 +1839,7 @@ const WEN_CHANG: Record<string, string> = {
 };
 
 /** 学业预测 */
-function predictXueYe(paiPan: BaZiPaiPan, currentYear?: number): string {
+export function predictXueYe(paiPan: BaZiPaiPan, currentYear?: number): string {
   const now = currentYear || new Date().getFullYear();
   const dayGan = paiPan.dayPillar.gan;
   const dayWX = WUXING_GAN[dayGan];
@@ -1881,7 +1881,20 @@ function predictXueYe(paiPan: BaZiPaiPan, currentYear?: number): string {
     const yearGan = yearGanZhi.gan;
     const yearWX = WUXING_GAN[yearGan];
     let label = '';
-    if (yearWX === yinWX) label = '📚 印星年！学业最旺，考试大利，适合升学/考证';
+    // 先判断负向信号（财克印/冲印星）
+    const caiWXMap3: Record<string, string> = { '木': '土', '火': '金', '土': '水', '金': '木', '水': '火' };
+    const caiWX3 = caiWXMap3[dayWX] || '水';
+    const chongMap3: Record<string, string> = {'子':'午','丑':'未','寅':'申','卯':'酉','辰':'戌','巳':'亥','午':'子','未':'丑','申':'寅','酉':'卯','戌':'辰','亥':'巳'};
+    const yinZhiArr3 = getYinXingZhi(dayGan);
+    let isCaiKeYin = yearWX === caiWX3;
+    let isChongYin = false;
+    for (const yz of yinZhiArr3) {
+      if (chongMap3[yearGanZhi.zhi] === yz && allZhi.includes(yz)) isChongYin = true;
+    }
+
+    if (isCaiKeYin && hasYinXing) label = '🚨 财克印！学业严重受阻，极可能休学/退学/中断';
+    else if (isChongYin) label = '⚠️ 冲印星，学业根基动摇，成绩大幅波动';
+    else if (yearWX === yinWX) label = '📚 印星年！学业最旺，考试大利，适合升学/考证';
     else if (yearWX === shiShangWX) label = '🎨 食伤年，才华横溢，利创作/竞赛，但考试需防粗心';
     else if (WUXING_ZHI[yearGanZhi.zhi] === yinWX) label = '📚 印星地支年，学业暗中助力';
     else if (yearGanZhi.zhi === wenChangZhi) label = '✨ 文昌引动年！考试运极佳，逢考必过';
@@ -1898,20 +1911,49 @@ function predictXueYe(paiPan: BaZiPaiPan, currentYear?: number): string {
     text += `  ${year}年：${label}\n`;
   }
 
-  // 休学风险判断
+  // 休学风险判断——三大经典信号
   text += '【休学/学业阻碍风险】\n';
-  const shangGuanWX = shiShangWX; // 伤官=叛逆
-  const guanWXMap: Record<string, string> = { '木': '金', '火': '水', '土': '木', '金': '火', '水': '土' };
-  const guanWX = guanWXMap[dayWX] || '金';
-  for (let i = 0; i <= 3; i++) {
+  // 财星五行（克印星的五行）
+  const caiWXMap2: Record<string, string> = { '木': '土', '火': '金', '土': '水', '金': '木', '水': '火' };
+  const caiWX = caiWXMap2[dayWX] || '水'; // 财星五行
+  const guanWXMap2: Record<string, string> = { '木': '金', '火': '水', '土': '木', '金': '火', '水': '土' };
+  const guanWX = guanWXMap2[dayWX] || '木'; // 官杀五行
+
+  // 只分析学龄段（6岁以上）的风险，排除幼儿期
+  const birthYearVal = paiPan.birthInfo?.year || (now - 18);
+  for (let i = -10; i <= 5; i++) {
     const year = now + i;
+    const age = year - birthYearVal;
+    if (age < 6) continue; // 未达学龄，跳过
     const yearGanZhi = getYearGanZhi(year);
-    const yearWX = WUXING_GAN[yearGanZhi.gan];
-    if (yearWX === shangGuanWX) {
-      text += `  ⚠️ ${year}年（食伤旺）：心浮气躁，可能分心/厌学，需家长关注\n`;
+    const yearGanWX = WUXING_GAN[yearGanZhi.gan];
+    const yearZhiWX = WUXING_ZHI[yearGanZhi.zhi];
+
+    // 信号一：财克印——最经典的休学/学业中断信号
+    // 流年天干为财星（克印），印星受克→学业中断
+    if (yearGanWX === caiWX && hasYinXing) {
+      text += `  🚨 ${year}年（${yearGanZhi.gan}${yearGanZhi.zhi}）：财克印！《三命通会》"财多坏印，学业必阻"——印星受克，学业严重受阻，极可能休学/退学/学业中断\n`;
+    } else if (yearZhiWX === caiWX && hasYinXing) {
+      text += `  ⚠️ ${year}年（${yearGanZhi.gan}${yearGanZhi.zhi}）：地支财星暗克印，学业有阻碍，注意力不集中\n`;
     }
-    if (WUXING_ZHI[yearGanZhi.zhi] === guanWX && yearWX === shangGuanWX) {
-      text += `  ⚠️ ${year}年（伤官见官）：学业最大阻碍年，可能休学或成绩大幅下滑\n`;
+
+    // 信号二：伤官见官——叛逆期+学业阻碍
+    if (yearGanWX === shiShangWX && yearZhiWX === guanWX) {
+      text += `  🚨 ${year}年（${yearGanZhi.gan}${yearGanZhi.zhi}）：伤官见官！《子平真诠》"伤官见官，祸患百端"——学业最大阻碍年，可能休学或成绩大幅下滑\n`;
+    } else if (yearGanWX === shiShangWX) {
+      text += `  ⚠️ ${year}年（${yearGanZhi.gan}${yearGanZhi.zhi}）：食伤旺，心浮气躁，可能分心/厌学，需家长关注\n`;
+    }
+
+    // 信号三：印星被冲——学业根基动摇
+    const yinGanSet = new Set<string>();
+    TIANGAN.forEach((g: string) => { if (WUXING_GAN[g] === yinWX) yinGanSet.add(g); });
+    // 地支冲印星（简化判断：流年地支与命局印星地支相冲）
+    const chongMap: Record<string, string> = {'子':'午','丑':'未','寅':'申','卯':'酉','辰':'戌','巳':'亥','午':'子','未':'丑','申':'寅','酉':'卯','戌':'辰','亥':'巳'};
+    const yinZhiArr = getYinXingZhi(dayGan);
+    for (const yz of yinZhiArr) {
+      if (chongMap[yearGanZhi.zhi] === yz && allZhi.includes(yz)) {
+        text += `  ⚠️ ${year}年（${yearGanZhi.gan}${yearGanZhi.zhi}）：冲印星（${yz}），学业根基动摇，成绩波动大\n`;
+      }
     }
   }
 
@@ -1929,7 +1971,7 @@ function getPeiOuGong(paiPan: BaZiPaiPan): { zhi: string; wx: string; cangGan: s
 }
 
 /** 婚姻预测 */
-function predictHunYin(paiPan: BaZiPaiPan, currentYear?: number): string {
+export function predictHunYin(paiPan: BaZiPaiPan, currentYear?: number): string {
   const now = currentYear || new Date().getFullYear();
   const dayGan = paiPan.dayPillar.gan;
   const dayWX = WUXING_GAN[dayGan];
@@ -2057,7 +2099,7 @@ function getYearGanZhi(year: number): { gan: string; zhi: string } {
 // 年柱=祖上/父母，月柱=父母/兄弟，日支=配偶，时柱=子女
 
 /** 六亲预测 */
-function predictLiuQin(paiPan: BaZiPaiPan): string {
+export function predictLiuQin(paiPan: BaZiPaiPan): string {
   const dayGan = paiPan.dayPillar.gan;
   const dayWX = WUXING_GAN[dayGan];
   const allZhi = [paiPan.yearPillar.zhi, paiPan.monthPillar.zhi, paiPan.dayPillar.zhi, paiPan.hourPillar.zhi];
