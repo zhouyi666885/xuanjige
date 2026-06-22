@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { BirthInfoForm } from '@/components/birth-info-form';
+import { PredictionFeedback } from '@/components/prediction-feedback';
 
 interface BirthInfo {
   year: string;
@@ -344,6 +345,12 @@ export function ReadingResult({ type, image, mode, onClose }: ReadingResultProps
                     {result}
                     {loading && <span className="inline-block w-1.5 h-4 bg-gold/70 animate-pulse ml-0.5 align-text-bottom" />}
                   </div>
+                  {!loading && result && (
+                    <PredictionFeedback
+                      divinationType={type === 'face' ? 'face-reading' : 'palm-reading'}
+                      predictionSummary={result.slice(0, 200)}
+                    />
+                  )}
                 </div>
               )}
             </div>
