@@ -161,7 +161,7 @@ function autoQiGua(message: string, birthInfo: BirthInfo | null): string {
 
 export async function POST(request: NextRequest) {
   try {
-    const { message, mode = 'casual', history = [], birthInfo } = await request.json();
+    const { message, mode = 'casual', history = [], birthInfo, context } = await request.json();
 
     if (!message || typeof message !== 'string') {
       return new Response(JSON.stringify({ error: '请提供消息内容' }), {
@@ -187,7 +187,8 @@ export async function POST(request: NextRequest) {
     const topicGuide = getSanHeCanDuanByTopic(message);
     // 加入自动起卦/排盘
     const autoQiGuaResult = autoQiGua(message, birthInfo ? (birthInfo as BirthInfo) : null);
-    const systemPrompt = basePrompt + '\n\n' + classicKnowledgeStr + '\n\n' + topicGuide + autoQiGuaResult;
+    const contextStr = context ? `\n\n【前置分析结果】\n${context}\n请在以上分析结果基础上，继续深入回答用户的问题。` : '';
+    const systemPrompt = basePrompt + '\n\n' + classicKnowledgeStr + '\n\n' + topicGuide + autoQiGuaResult + contextStr;
 
     const messages = [
       { role: 'system' as const, content: systemPrompt },

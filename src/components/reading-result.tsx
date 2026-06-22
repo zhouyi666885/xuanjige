@@ -68,17 +68,19 @@ export function ReadingResult({ type, image, mode, onClose }: ReadingResultProps
           body: JSON.stringify({
             image,
             mode,
-            birthInfo: {
-              gender: birthInfo!.gender === 'male' ? '男' : '女',
-              birthYear: parseInt(birthInfo!.year),
-              birthMonth: parseInt(birthInfo!.month),
-              birthDay: parseInt(birthInfo!.day),
-              birthHour: parseInt(birthInfo!.hour || '12'),
-              birthMinute: parseInt(birthInfo!.minute || '0'),
-              province: birthInfo!.province,
-              city: birthInfo!.city,
-              district: birthInfo!.district,
-            },
+            ...(birthInfo ? {
+              birthInfo: {
+                gender: birthInfo.gender === 'male' ? '男' : '女',
+                birthYear: parseInt(birthInfo.year),
+                birthMonth: parseInt(birthInfo.month),
+                birthDay: parseInt(birthInfo.day),
+                birthHour: parseInt(birthInfo.hour || '12'),
+                birthMinute: parseInt(birthInfo.minute || '0'),
+                province: birthInfo.province,
+                city: birthInfo.city,
+                district: birthInfo.district,
+              },
+            } : {}),
           }),
         });
 
@@ -157,7 +159,7 @@ export function ReadingResult({ type, image, mode, onClose }: ReadingResultProps
           message: userMsg,
           mode,
           birthInfo: birthInfo ? {
-            gender: birthInfo.gender === 'male' ? '女' : '男',
+            gender: birthInfo.gender === 'male' ? '男' : '女',
             birthYear: parseInt(birthInfo.year),
             birthMonth: parseInt(birthInfo.month),
             birthDay: parseInt(birthInfo.day),
