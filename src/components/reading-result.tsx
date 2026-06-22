@@ -7,10 +7,13 @@ interface ReadingResultProps {
   type: 'face' | 'palm';
   image: string;
   mode: 'casual' | 'professional';
+  birthDate?: string;
+  birthHour?: string;
+  gender?: string;
   onClose: () => void;
 }
 
-export function ReadingResult({ type, image, mode, onClose }: ReadingResultProps) {
+export function ReadingResult({ type, image, mode, birthDate, birthHour, gender, onClose }: ReadingResultProps) {
   const [result, setResult] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -23,7 +26,7 @@ export function ReadingResult({ type, image, mode, onClose }: ReadingResultProps
         const response = await fetch(apiUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ image, mode }),
+          body: JSON.stringify({ image, mode, birthDate, birthHour, gender }),
         });
 
         if (!response.ok) throw new Error('请求失败');

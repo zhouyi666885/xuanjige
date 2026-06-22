@@ -72,7 +72,7 @@ export default function Home() {
             >
               <div className="text-5xl mb-3 group-hover:scale-110 transition-transform">👤</div>
               <h3 className="text-gold font-serif font-bold text-lg">拍面相</h3>
-              <p className="text-muted-foreground text-xs mt-1">拍照看面相</p>
+              <p className="text-muted-foreground text-xs mt-1">贵人方位·姻缘应期</p>
               <div className="absolute -top-1 -right-1 w-3 h-3 bg-vermilion rounded-full animate-pulse" />
             </button>
 
@@ -82,7 +82,7 @@ export default function Home() {
             >
               <div className="text-5xl mb-3 group-hover:scale-110 transition-transform">🤚</div>
               <h3 className="text-gold font-serif font-bold text-lg">拍手相</h3>
-              <p className="text-muted-foreground text-xs mt-1">拍照看手相</p>
+              <p className="text-muted-foreground text-xs mt-1">结婚年龄·事业高峰</p>
               <div className="absolute -top-1 -right-1 w-3 h-3 bg-vermilion rounded-full animate-pulse" />
             </button>
           </div>
