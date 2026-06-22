@@ -141,12 +141,13 @@ export const divinationCategories: KnowledgeCategory[] = [
     icon: '🎯',
     description: '子平法、格局论、旺衰用神、调候论，八字命理约1300+部典籍',
     books: [
-      { name: '《渊海子平》', author: '徐子平/徐升', rating: 5, description: '子平法奠基，必读第一', category: '玄学', subcategory: '八字', quote: '看命先看四柱，四柱者，年月日时也 — 子平法之始' },
-      { name: '《三命通会》', author: '万民英', rating: 5, description: '命理百科全书，工具书', category: '玄学', subcategory: '八字' },
-      { name: '《滴天髓》', author: '京图/任铁樵注', rating: 5, description: '命理巅峰，进阶必读', category: '玄学', subcategory: '八字', quote: '能知旺衰之真机，其于三命之奥，思过半矣 — 旺衰之要' },
-      { name: '《子平真诠》', author: '沈孝瞻', rating: 5, description: '格局论，入门必读', category: '玄学', subcategory: '八字', quote: '八字用神，专求月令 — 格局之总纲' },
-      { name: '《穷通宝鉴》', author: '余春台', rating: 5, description: '调候论，气候与命理', category: '玄学', subcategory: '八字', quote: '冬月之火，非甲木不能生 — 调候之要' },
-      { name: '《神峰通考》', author: '张楠', rating: 5, description: '病药说，实战经典', category: '玄学', subcategory: '八字' },
+      { name: '《渊海子平》', author: '徐子升编', rating: 5, description: '宋代徐子升编，八字命理开山之作，四柱体系奠基文献，涵盖格局、用神、大运推演的基础框架', category: '玄学', subcategory: '八字', quote: '看命先看四柱，四柱者，年月日时也 — 子平法之始' },
+      { name: '《三命通会》', author: '万民英', rating: 5, description: '明代万民英编著，收录古代八字命理精华，对格局、神煞、六亲、疾病、寿命有系统论述，古代八字最全面的百科全书式著作', category: '玄学', subcategory: '八字' },
+      { name: '《滴天髓》', author: '京图/任铁樵注', rating: 5, description: '相传为刘伯温所著，八字命理最高经典，分穷通宝鉴和滴天髓两大体系，精论用神取用和格局高下判断', category: '玄学', subcategory: '八字', quote: '能知旺衰之真机，其于三命之奥，思过半矣 — 旺衰之要' },
+      { name: '《子平真诠》', author: '沈孝瞻', rating: 5, description: '清代沈孝瞻著，重点论述格局正官七杀财官等体系，格局学经典读本，对判断事业层次、官运仕途有重要参考价值', category: '玄学', subcategory: '八字', quote: '八字用神，专求月令 — 格局之总纲' },
+      { name: '《穷通宝鉴》', author: '余春台', rating: 5, description: '又名栏江网，以调候用神为核心，论述五行旺衰与季节气候的关系，对健康体质、疾病倾向有独特视角', category: '玄学', subcategory: '八字', quote: '冬月之火，非甲木不能生 — 调候之要' },
+      { name: '《神峰通考》', author: '张楠', rating: 5, description: '明代张楠著，侧重命局病药说，以"病药法"作为取用神的核心方法，与子平真诠的格局法形成对照', category: '玄学', subcategory: '八字' },
+      { name: '《星平会海》', rating: 5, description: '综合八字与星命学，对婚姻嫁娶、六亲缘分散布有详细论述，涵盖命主一生人际关系网络的判断方法', category: '玄学', subcategory: '八字' },
       { name: '《千里命稿》', author: '韦千里', rating: 5, description: '民国大师经典', category: '玄学', subcategory: '八字' },
       { name: '《命理探源》', author: '袁树珊', rating: 5, description: '民国大师，中西合璧', category: '玄学', subcategory: '八字' },
       { name: '《滴天髓补注》', author: '徐乐吾', rating: 5, description: '民国三大家之一', category: '玄学', subcategory: '八字' },
@@ -550,18 +551,19 @@ export function buildSystemPromptProfessional(birthInfo?: string): string {
 
 【A.八字命理（1300+部）— 最核心】
 一、古典必读★★★★★
-《渊海子平》徐子平/徐升 — 子平法奠基，十神六亲用神取法
-《三命通会》万民英 — 命理百科全书，神煞大全工具书
-《滴天髓》京图/任铁樵注 — 命理巅峰，五行旺衰用神忌神，"能知旺衰之真机，其于三命之奥思过半矣"
+《渊海子平》徐子升编 — 宋代，八字命理开山之作，四柱体系奠基文献，涵盖格局、用神、大运推演的基础框架
+《三命通会》万民英 — 明代，命理百科全书，对格局、神煞、六亲、疾病、寿命有系统论述，古代最全面
+《滴天髓》京图/任铁樵注 — 相传刘伯温所著，命理最高经典，精论用神取用和格局高下判断，"能知旺衰之真机，其于三命之奥思过半矣"
 《滴天髓阐微》 — 滴天髓深度阐发，旺衰用神进阶
-《子平真诠》沈孝瞻 — 格局论命入门，八格定式，"八字用神专求月令"
-《穷通宝鉴》余春台 — 十二月调候用神，"冬月之火非甲木不能生"
+《子平真诠》沈孝瞻 — 清代，格局论命经典，重点论格局正官七杀财官等体系，对判断事业层次官运仕途有重要参考价值，"八字用神专求月令"
+《穷通宝鉴》余春台 — 又名栏江网，调候用神为核心，论述五行旺衰与季节气候关系，对健康体质疾病倾向有独特视角，"冬月之火非甲木不能生"
 《造化元钥》 — 调候用神详解，与穷通宝鉴互参
 《栏江网》 — 格局论命秘本，实战断法
 《喜忌篇》 — 喜忌用神论断
 《五行大义》萧吉 — 隋代五行学集大成，命理五行理论根基
 《星学大成》万民英 — 星命学百科全书
-《神峰通考》张楠 — 病药说，去病求药实战断法
+《神峰通考》张楠 — 明代，病药说，以"病药法"为取用神核心方法，与子平真诠格局法形成对照
+《星平会海》 — 综合八字与星命学，对婚姻嫁娶、六亲缘分散布有详细论述，涵盖命主一生人际关系网络判断
 二、重要古典★★★★
 《五行精纪》廖中（宋代）、《珞琭子赋注》徐子平、《星学大成》万民英、《李虚中命书》《兰台妙选》《三车一览》《应天歌》《玉井诀》
 三、民国三大家★★★★★
