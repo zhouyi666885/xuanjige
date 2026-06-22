@@ -1620,9 +1620,11 @@ function getGuiRenHelpType(dayGan: string, guirenZhi: string): string {
   return '综合方面';
 }
 
-// 流年引动贵人判断
+// 流年流月引动贵人判断（精确到月）
 function getGuiRenLiuNian(guirenZhi: string[], currentYear: number): { year: number; zhi: string; desc: string }[] {
   const zhiList = ['子', '丑', '寅', '卯', '辰', '巳', '午', '未', '申', '酉', '戌', '亥'];
+  // 流月地支：正月寅→腊月丑（以节气换月为准）
+  const liuYueZhi = ['寅', '卯', '辰', '巳', '午', '未', '申', '酉', '戌', '亥', '子', '丑'];
   const results: { year: number; zhi: string; desc: string }[] = [];
   // 检查当前年前后10年
   for (let offset = -2; offset <= 10; offset++) {
@@ -1633,10 +1635,20 @@ function getGuiRenLiuNian(guirenZhi: string[], currentYear: number): { year: num
       const shuXiang = ZHI_SHUXIANG[zhi];
       const fangWei = ZHI_FANGWEI[zhi];
       const tense = offset < 0 ? '已过' : offset === 0 ? '今年' : '将到';
+      // 找出该年哪几个月（流月）也引动贵人
+      const liuYueTrigger: string[] = [];
+      for (let m = 0; m < 12; m++) {
+        if (guirenZhi.includes(liuYueZhi[m])) {
+          liuYueTrigger.push(`${m + 1}月（${liuYueZhi[m]}月）`);
+        }
+      }
+      const monthHint = liuYueTrigger.length > 0
+        ? `，关键月份：${liuYueTrigger.join('、')}`
+        : '';
       results.push({
         year,
         zhi,
-        desc: `${year}年（${tense}）属${shuXiang}年，贵人星引动，贵人方位在${fangWei}，注意${fangWei}方向来的人脉机遇`,
+        desc: `${year}年（${tense}）属${shuXiang}年，贵人星引动，贵人方位在${fangWei}，注意${fangWei}方向来的人脉机遇${monthHint}`,
       });
     }
   }
@@ -1751,12 +1763,13 @@ export function predictCaiYun(paiPanResult: BaZiPaiPan, currentYear?: number): s
   text += `  事业发展方位：${WUXING_FANGWEI[dayWX]}\n`;
   text += `  求财方位：${WUXING_FANGWEI[caiWX]}\n`;
 
-  // 流年财运
+  // 流年财运（精确到月）
   text += `\n【近十年财运流年】\n`;
   const zhiList = ['子', '丑', '寅', '卯', '辰', '巳', '午', '未', '申', '酉', '戌', '亥'];
   const shengMap: Record<string, string> = { '木': '火', '火': '土', '土': '金', '金': '水', '水': '木' };
   const yinWX = shengMap[dayWX] || '火'; // 印星五行（生我的）
   const guanWX = keMap[dayWX] || '金'; // 官杀五行（克我的）
+  const liuYueZhi = ['寅', '卯', '辰', '巳', '午', '未', '申', '酉', '戌', '亥', '子', '丑'];
 
   for (let offset = 0; offset <= 10; offset++) {
     const year = now + offset;
@@ -1777,7 +1790,15 @@ export function predictCaiYun(paiPanResult: BaZiPaiPan, currentYear?: number): s
     else if (shengMap[yearWX] === dayWX) label = '🍽️ 食伤年，才华展现，适合创业';
     else label = '🔄 平稳年';
 
-    text += `  ${year}年（属${ZHI_SHUXIANG[zhi]}）${label}\n`;
+    // 找出该年财运最旺的月份
+    const caiMonths: string[] = [];
+    for (let m = 0; m < 12; m++) {
+      const mWX = zhiWX[liuYueZhi[m]] || '土';
+      if (mWX === caiWX) caiMonths.push(`${m + 1}月（${liuYueZhi[m]}月）`);
+    }
+    const monthHint = caiMonths.length > 0 ? `，求财旺月：${caiMonths.join('、')}` : '';
+
+    text += `  ${year}年（属${ZHI_SHUXIANG[zhi]}）${label}${monthHint}\n`;
   }
 
   return text;

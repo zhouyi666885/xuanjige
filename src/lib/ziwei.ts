@@ -786,16 +786,21 @@ export function predictZiWeiShiZhan(paiPan: ZiWeiPaiPan, currentYear?: number): 
       }
     }
 
-    // 流年关键年份
-    lines.push('  · 近5年流年财运提示：');
+    // 流年关键年份（精确到月）
+    lines.push('  · 近5年流年财运提示（精确到旺月）：');
+    const liuYueZhi = ['寅', '卯', '辰', '巳', '午', '未', '申', '酉', '戌', '亥', '子', '丑'];
     for (let y = now; y <= now + 4; y++) {
       const yearGanIdx = (y - 4) % 10;
-      const yearGan = TIANGAN[yearGanIdx];
+      const yearGan = TIANGAN[yearGanIdx >= 0 ? yearGanIdx : yearGanIdx + 10];
       const siHua = SI_HUA_TABLE[yearGan];
       if (siHua) {
         const luStar = siHua.lu;
         const jiStar = siHua.ji;
-        lines.push(`    - ${y}年（${yearGan}${DI_ZHI_YEAR[(y - 4) % 12]}年）：化禄星=${luStar} 化忌星=${jiStar}`);
+        // 找出化禄星所在宫位对应的月份最旺
+        const luGong = paiPan.gongs.find(g => g.stars.some(s => s.name === luStar));
+        const luMonth = luGong ? liuYueZhi.indexOf(luGong.diZhi) + 1 : -1;
+        const monthHint = luMonth > 0 ? `，化禄最旺月：约${luMonth}月` : '';
+        lines.push(`    - ${y}年（${yearGan}${DI_ZHI_YEAR[(y - 4) % 12 >= 0 ? (y - 4) % 12 : (y - 4) % 12 + 12]}年）：化禄星=${luStar} 化忌星=${jiStar}${monthHint}`);
       }
     }
   }
