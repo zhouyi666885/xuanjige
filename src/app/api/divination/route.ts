@@ -257,8 +257,10 @@ export async function POST(request: NextRequest) {
           controller.close();
         } catch (err) {
           console.error('Stream error:', err);
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: '生成内容出错' })}\n\n`));
-          controller.close();
+          try {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: '生成内容出错' })}\n\n`));
+          } catch { /* controller already closed */ }
+          try { controller.close(); } catch { /* already closed */ }
         }
       },
     });
