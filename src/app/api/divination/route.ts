@@ -1,13 +1,15 @@
 import { NextRequest } from 'next/server';
 import { LLMClient, Config, HeaderUtils } from 'coze-coding-dev-sdk';
 import { divinationPrompts } from '@/lib/knowledge';
-import { paiPan, formatPaiPanFull } from '@/lib/bazi';
+import { paiPan, formatPaiPanFull, formatShiZhanPrediction } from '@/lib/bazi';
 import { paiPan as ziweiPaiPan, formatPaiPan as ziweiFormatPaiPan, getMingGongLunDuan } from '@/lib/ziwei';
 import { matchKnowledge } from '@/lib/classic-knowledge';
+import { generateSanHeCanDuanPrompt, getSanHeCanDuanByTopic, SAN_HE_CAN_DUAN_GUIDE } from '@/lib/sanhe-canduan';
+import { generateMianXiangFramework, getMianXiangPredictionGuide } from '@/lib/xiangxue';
+import { generateShouXiangFramework, getShouXiangPredictionGuide } from '@/lib/shouxiang';
 
 export const dynamic = 'force-dynamic';
 
-/** divination type 到经典知识点类别的关键词（用于 matchKnowledge） */
 const typeToKeywords: Record<string, string> = {
   bazi: '八字命理 四柱排盘',
   ziwei: '紫微斗数 命盘',
@@ -42,7 +44,6 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // 注入该术数对应的经典知识点
     const keywords = typeToKeywords[type] || '';
     const classicKnowledgeStr = keywords ? matchKnowledge(keywords) : '';
     const systemPrompt = baseSystemPrompt + (classicKnowledgeStr ? '\n\n' + classicKnowledgeStr : '');
@@ -57,8 +58,9 @@ export async function POST(request: NextRequest) {
 
     let userInput = input;
     let paiPanAppend = '';
+    const currentYear = new Date().getFullYear();
 
-    // 对于八字和紫微，使用真实排盘数据
+    // 对于八字和紫微，使用真实排盘数据 + 三合参断
     if (birthInfo && (type === 'bazi' || type === 'ziwei')) {
       const { gender, birthYear, birthMonth, birthDay, birthHour, birthMinute, province, city, district } = birthInfo;
       const parts: string[] = [];
@@ -79,32 +81,31 @@ export async function POST(request: NextRequest) {
         userInput = parts.join('\n') + '\n\n' + input;
       }
 
-      // 计算八字排盘（含调候用神）
+      // 计算八字排盘
       let baziYearGan = '';
       let baziYearZhi = '';
+      let baziResult: ReturnType<typeof paiPan> | null = null;
       try {
         const g = gender === '男' ? 'male' : 'female';
-        const baziResult = paiPan(g, birthYear, birthMonth, birthDay, birthHour, birthMinute, province || '');
-        const baziText = formatPaiPanFull(baziResult, new Date().getFullYear());
+        baziResult = paiPan(g, birthYear, birthMonth, birthDay, birthHour, birthMinute, province || '');
+        const baziText = formatPaiPanFull(baziResult, currentYear);
         paiPanAppend = `\n\n【八字精确排盘结果（代码计算，非AI脑补）】\n${baziText}`;
+        paiPanAppend += `\n\n【八字实战预测】\n${formatShiZhanPrediction(baziResult, currentYear)}`;
         baziYearGan = baziResult.yearPillar.gan;
         baziYearZhi = baziResult.yearPillar.zhi;
       } catch (e) {
         paiPanAppend = '\n\n[八字排盘计算出错]';
       }
 
-      // 如果是紫微斗数，额外计算紫微排盘
-      if (type === 'ziwei') {
+      // 计算紫微斗数排盘
+      let ziweiResult: ReturnType<typeof ziweiPaiPan> | null = null;
+      if (baziYearGan && baziResult) {
         try {
-          const ziweiResult = ziweiPaiPan({
-            year: birthYear,
-            month: birthMonth,
-            day: birthDay,
-            hour: birthHour,
-            minute: birthMinute,
+          ziweiResult = ziweiPaiPan({
+            year: birthYear, month: birthMonth, day: birthDay,
+            hour: birthHour, minute: birthMinute,
             gender: gender === '男' ? '男' : '女',
-            yearGan: baziYearGan || '甲',
-            yearZhi: baziYearZhi || '子',
+            yearGan: baziYearGan, yearZhi: baziYearZhi,
           });
           paiPanAppend += `\n\n【紫微斗数精确排盘结果（代码计算，非AI脑补）】\n${ziweiFormatPaiPan(ziweiResult)}\n\n${getMingGongLunDuan(ziweiResult)}`;
         } catch (e) {
@@ -112,9 +113,16 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      paiPanAppend += '\n\n重要：以上排盘结果由代码精确计算得出，四柱、藏干、十神、五行统计、大运、调候用神、紫微斗数命盘等均为真实数据，请直接基于此排盘结果进行分析解读，不要再自行推算。分析时必须引经据典，尤其参考《渊海子平》《穷通宝鉴》《子平真诠》《滴天髓》《紫微斗数全书》等经典。';
+      // 三合参断框架
+      if (baziResult && ziweiResult) {
+        paiPanAppend += '\n\n' + SAN_HE_CAN_DUAN_GUIDE;
+        paiPanAppend += '\n\n' + generateMianXiangFramework(birthYear, currentYear, gender);
+        paiPanAppend += '\n\n' + generateShouXiangFramework(birthYear, currentYear, gender);
+        paiPanAppend += '\n\n' + getSanHeCanDuanByTopic(input);
+      }
+
+      paiPanAppend += '\n\n重要：以上排盘结果由代码精确计算得出。请基于此排盘结果进行三合参断（八字+紫微+面手相），给出多维度交叉验证的精准预测。时间、方位、人物类型全部精确到年、月。引经据典，尤其参考《渊海子平》《穷通宝鉴》《子平真诠》《滴天髓》《紫微斗数全书》《麻衣神相》《冰鉴》《手相大全》等经典。';
     } else if (birthInfo) {
-      // 其他术数类型，仅拼接出生信息
       const { gender, birthYear, birthMonth, birthDay, birthHour, birthMinute, province, city, district } = birthInfo;
       const parts: string[] = [];
       if (gender) parts.push(`性别：${gender}`);
@@ -159,7 +167,7 @@ export async function POST(request: NextRequest) {
           controller.close();
         } catch (err) {
           console.error('Stream error:', err);
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: '生成内容时出错' })}\n\n`));
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: '生成内容出错' })}\n\n`));
           controller.close();
         }
       },
@@ -169,7 +177,7 @@ export async function POST(request: NextRequest) {
       headers: {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
+        Connection: 'keep-alive',
       },
     });
   } catch (error) {

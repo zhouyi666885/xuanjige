@@ -1,12 +1,16 @@
 import { NextRequest } from 'next/server';
 import { LLMClient, Config, HeaderUtils } from 'coze-coding-dev-sdk';
 import { palmReadingPrompt } from '@/lib/knowledge';
+import { generateShouXiangFramework, getShouXiangPredictionGuide } from '@/lib/shouxiang';
+import { paiPan, formatPaiPanFull, formatShiZhanPrediction } from '@/lib/bazi';
+import { paiPan as ziweiPaiPan } from '@/lib/ziwei';
+import { generateSanHeCanDuanPrompt } from '@/lib/sanhe-canduan';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
   try {
-    const { image, mode = 'casual', birthDate, birthHour, gender } = await request.json();
+    const { image, mode = 'casual', birthDate, birthHour, gender, birthMinute, province } = await request.json();
 
     if (!image) {
       return new Response(JSON.stringify({ error: '请提供手掌照片' }), {
@@ -23,20 +27,66 @@ export async function POST(request: NextRequest) {
       ? '请用专业术语和经典引文进行手相分析，标注出处。'
       : '请用通俗易懂的语言进行手相分析，像朋友聊天一样，偶尔引用经典原文并附白话翻译。';
 
-    // 三合参断：如有出生信息，提示AI结合八字紫微进行交叉验证
-    const birthInfo = birthDate && birthHour && gender
-      ? `\n\n三合参断指令：用户提供了出生信息（出生日期：${birthDate}，时辰：${birthHour}，性别：${gender}），请结合八字命理与紫微斗数进行三合参断。手相印证命盘，命盘验证手相，给出多维度交叉验证的精准预测。时间、方位、人物类型全部精确到年、月。`
-      : '';
+    const currentYear = new Date().getFullYear();
+    let shouXiangFramework = '';
+
+    if (birthDate && gender) {
+      const [yearStr] = (birthDate as string).split('-');
+      const bYear = parseInt(yearStr);
+      shouXiangFramework = generateShouXiangFramework(bYear, currentYear, gender as string);
+    }
+
+    const shouXiangGuide = getShouXiangPredictionGuide();
+
+    let sanHeCanDuanPrompt = '';
+    if (birthDate && birthHour && gender) {
+      const [yearStr, monthStr, dayStr] = (birthDate as string).split('-');
+      const bYear = parseInt(yearStr);
+      const bMonth = parseInt(monthStr);
+      const bDay = parseInt(dayStr);
+      const bHour = parseInt(String(birthHour));
+      const bMinute = birthMinute ? parseInt(String(birthMinute)) : 0;
+      const genderText = gender as string;
+      const g = genderText === '男' ? 'male' : 'female';
+
+      try {
+        const baziResult = paiPan(g, bYear, bMonth, bDay, bHour, bMinute, (province as string) || '');
+        const baziYearGan = baziResult.yearPillar.gan;
+        const baziYearZhi = baziResult.yearPillar.zhi;
+
+        try {
+          const ziweiResult = ziweiPaiPan({
+            year: bYear, month: bMonth, day: bDay,
+            hour: bHour, minute: bMinute,
+            gender: genderText === '男' ? '男' : '女',
+            yearGan: baziYearGan, yearZhi: baziYearZhi,
+          });
+
+          // 三合参断（有手相照片，无面相照片）
+          sanHeCanDuanPrompt = generateSanHeCanDuanPrompt(baziResult, ziweiResult, currentYear, false, true);
+        } catch (_e) {
+          sanHeCanDuanPrompt = '\n\n【八字排盘数据】\n' + formatPaiPanFull(baziResult, currentYear) + '\n\n' + formatShiZhanPrediction(baziResult, currentYear);
+        }
+      } catch (_e) {
+        // 八字排盘失败，仅手相
+      }
+    }
+
+    const systemPrompt = palmReadingPrompt
+      + '\n\n' + modeInstruction
+      + (shouXiangFramework ? '\n\n' + shouXiangFramework : '')
+      + '\n\n' + shouXiangGuide
+      + (sanHeCanDuanPrompt ? '\n\n' + sanHeCanDuanPrompt : '');
 
     const messages = [
       {
         role: 'system' as const,
-        content: palmReadingPrompt + '\n\n' + modeInstruction + birthInfo,
+        content: systemPrompt,
       },
       {
         role: 'user' as const,
         content: [
-          { type: 'text' as const, text: '请分析我的手相，详细解读各个方面，包括流年应期预测。' },
+          { type: 'text' as const, text: '请分析我的手相，详细解读五大主线、九大丘位、特殊纹路、流年应期，并结合命盘进行三合参断。必须给出具体的结婚年龄、事业高峰期、财运年份、健康注意年份等预测。' },
           {
             type: 'image_url' as const,
             image_url: {
