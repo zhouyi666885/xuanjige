@@ -457,10 +457,11 @@ interface BirthInfo {
 interface BirthInfoFormProps {
   value: BirthInfo | null;
   onChange: (info: BirthInfo | null) => void;
+  onConfirm?: () => void;
   compact?: boolean;
 }
 
-export function BirthInfoForm({ value: valueProp, onChange, compact }: BirthInfoFormProps) {
+export function BirthInfoForm({ value: valueProp, onChange, onConfirm, compact }: BirthInfoFormProps) {
   const defaultValue: BirthInfo = { year: '', month: '', day: '', hour: '', minute: '', gender: '', province: '', city: '', district: '' };
   const value = valueProp ?? defaultValue;
   const provinces = useMemo(() => Object.keys(regionData), []);
@@ -589,6 +590,20 @@ export function BirthInfoForm({ value: valueProp, onChange, compact }: BirthInfo
           </select>
         </div>
       </div>
+
+      {/* Confirm Button */}
+      {value.gender && value.year && value.month && value.day && value.hour && value.province && value.city && value.district && (
+        <button
+          type="button"
+          onClick={() => {
+            onChange(value);
+            onConfirm?.();
+          }}
+          className="w-full py-2.5 rounded-lg bg-gold/20 border border-gold/40 text-gold text-sm font-medium hover:bg-gold/30 transition-colors"
+        >
+          ✓ 确认生辰信息
+        </button>
+      )}
     </div>
   );
 }

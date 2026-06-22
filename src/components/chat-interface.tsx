@@ -189,8 +189,8 @@ export function ChatInterface({ open, onClose }: ChatInterfaceProps) {
               value={birthInfo}
               onChange={(info: BirthInfo | null) => {
                 setBirthInfo(info);
-                if (info) setShowBirthForm(false);
               }}
+              onConfirm={() => setShowBirthForm(false)}
               compact
             />
           </div>
