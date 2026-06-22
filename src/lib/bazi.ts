@@ -1981,7 +1981,7 @@ export function predictHunYin(paiPan: BaZiPaiPan, currentYear?: number): string 
   // 配偶星五行：男命=财星，女命=官杀
   const caiWXMap: Record<string, string> = { '木': '土', '火': '金', '土': '水', '金': '木', '水': '火' };
   const guanWXMap: Record<string, string> = { '木': '金', '火': '水', '土': '木', '金': '火', '水': '土' };
-  const peiOuWX = gender === 'male' ? (caiWXMap[dayWX] || '土') : (guanWXMap[dayWX] || '金');
+  const peiOuWX = gender === '男' ? (caiWXMap[dayWX] || '土') : (guanWXMap[dayWX] || '金');
 
   // 四柱中找配偶星
   const allZhi = [paiPan.yearPillar.zhi, paiPan.monthPillar.zhi, paiPan.dayPillar.zhi, paiPan.hourPillar.zhi];
@@ -2006,7 +2006,7 @@ export function predictHunYin(paiPan: BaZiPaiPan, currentYear?: number): string 
   const tianXiZhi = TIAN_XI[yearZhi];
 
   let text = '\n\n===== 婚姻预测 =====\n';
-  text += `【配偶星分析】${gender === 'male' ? '男命以财星为妻' : '女命以官杀为夫'}，配偶星五行=${peiOuWX}\n`;
+  text += `【配偶星分析】${gender === '男' ? '男命以财星为妻' : '女命以官杀为夫'}，配偶星五行=${peiOuWX}\n`;
   text += hasPeiOuXingGan ? '✅ 天干透配偶星，姻缘明显\n' : '';
   text += hasPeiOuXingZhi ? '✅ 地支藏配偶星，有暗缘\n' : '';
   if (!hasPeiOuXingGan && !hasPeiOuXingZhi) {
@@ -2025,7 +2025,7 @@ export function predictHunYin(paiPan: BaZiPaiPan, currentYear?: number): string 
 
   // 《八字婚姻预测学》经典论断
   text += '【婚姻经典论断】\n';
-  if (gender === 'female') {
+  if (gender === '女') {
     text += '《子平命理婚恋》：女命以官杀为夫，官星得位（年月）主早婚，官星在时柱主晚婚。官星混杂（正偏官同现）主感情复杂。\n';
   } else {
     text += '《子平命理婚恋》：男命以财星为妻，正财主正妻贤惠，偏财主偏缘或再婚。财星一位最贞，多见则感情不稳。\n';
@@ -2045,7 +2045,7 @@ export function predictHunYin(paiPan: BaZiPaiPan, currentYear?: number): string 
     // 天喜引动
     else if (yearZhi2 === tianXiZhi) label = '🎉 天喜星动！此年添喜，利婚利子';
     // 配偶星引动
-    else if (yearWX === peiOuWX) label = `💘 配偶星年！${gender === 'male' ? '财星' : '官星'}当值，感情有实质进展`;
+    else if (yearWX === peiOuWX) label = `💘 配偶星年！${gender === '男' ? '财星' : '官星'}当值，感情有实质进展`;
     // 配偶宫引动（流年地支与日支合）
     else if (isLiuHe(yearZhi2, peiOuGong.zhi)) label = '💍 流年合配偶宫，感情稳定或定婚';
     else {
