@@ -148,16 +148,18 @@ export const divinationCategories: KnowledgeCategory[] = [
       { name: '《穷通宝鉴》', author: '余春台', rating: 5, description: '又名栏江网，以调候用神为核心，论述五行旺衰与季节气候的关系，对健康体质、疾病倾向有独特视角', category: '玄学', subcategory: '八字', quote: '冬月之火，非甲木不能生 — 调候之要' },
       { name: '《神峰通考》', author: '张楠', rating: 5, description: '明代张楠著，侧重命局病药说，以"病药法"作为取用神的核心方法，与子平真诠的格局法形成对照', category: '玄学', subcategory: '八字' },
       { name: '《星平会海》', rating: 5, description: '综合八字与星命学，对婚姻嫁娶、六亲缘分散布有详细论述，涵盖命主一生人际关系网络的判断方法', category: '玄学', subcategory: '八字' },
-      { name: '《千里命稿》', author: '韦千里', rating: 5, description: '民国大师经典', category: '玄学', subcategory: '八字' },
-      { name: '《命理探源》', author: '袁树珊', rating: 5, description: '民国大师，中西合璧', category: '玄学', subcategory: '八字' },
+      { name: '《千里命稿》', author: '韦千里', rating: 5, description: '民国时期韦千里著作，汇集数万例实战经验，古代理论向现代实战转化的桥梁性著作', category: '玄学', subcategory: '八字' },
+      { name: '《命理探源》', author: '袁树珊', rating: 5, description: '民国袁树珊著，探讨论命原理与古籍校注，理解命理的哲学根基', category: '玄学', subcategory: '八字' },
       { name: '《滴天髓补注》', author: '徐乐吾', rating: 5, description: '民国三大家之一', category: '玄学', subcategory: '八字' },
       { name: '《滴天髓阐微》', rating: 5, description: '滴天髓深度阐发，旺衰用神进阶解读', category: '玄学', subcategory: '八字' },
       { name: '《栏江网》', rating: 5, description: '八字格局论命秘本，实战断法精要', category: '玄学', subcategory: '八字' },
-      { name: '《造化元钥》', rating: 5, description: '调候用神详解，与穷通宝鉴互参', category: '玄学', subcategory: '八字', quote: '造化之机，在于阴阳调停 — 调候之要' },
+      { name: '《造化元钥》', rating: 5, description: '穷通宝鉴的重要版本分支，对五行调候有更细致论述，尤其适合判断体质倾向和疾病预测', category: '玄学', subcategory: '八字', quote: '造化之机，在于阴阳调停 — 调候之要' },
       { name: '《喜忌篇》', rating: 4, description: '八字喜忌用神论断经典', category: '玄学', subcategory: '八字' },
       { name: '《五行大义》', author: '萧吉', rating: 5, description: '隋代五行学集大成，命理五行理论基础', category: '玄学', subcategory: '八字', quote: '五行者，造化之根源，人伦之资始 — 五行为命理之本' },
       { name: '《星学大成》', author: '万民英', rating: 5, description: '星命学集大成，七政四余与八字合参', category: '玄学', subcategory: '八字' },
-      { name: '《御定子部集成》', rating: 4, description: '清廷御编术数集成，收录历代命理文献', category: '玄学', subcategory: '八字' },
+      { name: '《御定子部集成》', rating: 5, description: '清代雍正年间编纂的官方命理文献，收录历代经典论命案例，正史级别的命理参考', category: '玄学', subcategory: '八字' },
+      { name: '《河洛理数》', rating: 5, description: '以河图洛书解读八字，将易理与命理融合，对判断人生重大抉择时机有独特方法', category: '玄学', subcategory: '八字' },
+      { name: '《易隐》', author: '曹九锡', rating: 5, description: '六爻与命理结合的著作，对问事类预测（问病、问财、问官）有系统性论述', category: '玄学', subcategory: '八字' },
       { name: '《四柱预测学》', author: '邵伟华', rating: 4, description: '当代八字入门经典，推广命理功不可没', category: '玄学', subcategory: '八字' },
       { name: '《李顺祥四柱玄机》', author: '李顺祥', rating: 4, description: '当代实战派四柱命理', category: '玄学', subcategory: '八字' },
       { name: '《徐伟刚四柱真经》', author: '徐伟刚', rating: 4, description: '当代四柱命理实战经典', category: '玄学', subcategory: '八字' },
@@ -283,7 +285,7 @@ export const divinationCategories: KnowledgeCategory[] = [
       { name: '《梅花易数》', author: '邵雍', rating: 5, description: '易数最高成就之一', category: '玄学', subcategory: '梅花', quote: '心动即占，法于自然 — 不必拘于形式，心有所感即可起卦' },
       { name: '《皇极经世书》', author: '邵雍', rating: 5, description: '先天易学总纲', category: '玄学', subcategory: '梅花', quote: '元会运世，129600年为一元 — 宇宙周期' },
       { name: '《邵子易数》', author: '邵雍', rating: 4, description: '邵雍易数体系', category: '玄学', subcategory: '梅花' },
-      { name: '《河洛理数》', rating: 5, description: '河图洛书推命体系，象数理合一', category: '玄学', subcategory: '梅花' },
+      { name: '《河洛理数》', rating: 5, description: '以河图洛书解读八字，将易理与命理融合，对判断人生重大抉择时机有独特方法', category: '玄学', subcategory: '梅花' },
       { name: '《皇极经世》', author: '邵雍', rating: 5, description: '元会运世推算宇宙兴衰', category: '玄学', subcategory: '梅花' },
       { name: '《梅花易数入门到精通》', rating: 5, description: '系统化学习路径，从起卦到断卦完整体系', category: '玄学', subcategory: '梅花' },
       { name: '《梅花易数实战技法》', rating: 4, description: '实战断卦经验汇总，应期判断与流月推算', category: '玄学', subcategory: '梅花' },
@@ -557,18 +559,21 @@ export function buildSystemPromptProfessional(birthInfo?: string): string {
 《滴天髓阐微》 — 滴天髓深度阐发，旺衰用神进阶
 《子平真诠》沈孝瞻 — 清代，格局论命经典，重点论格局正官七杀财官等体系，对判断事业层次官运仕途有重要参考价值，"八字用神专求月令"
 《穷通宝鉴》余春台 — 又名栏江网，调候用神为核心，论述五行旺衰与季节气候关系，对健康体质疾病倾向有独特视角，"冬月之火非甲木不能生"
-《造化元钥》 — 调候用神详解，与穷通宝鉴互参
+《造化元钥》 — 穷通宝鉴重要版本分支，五行调候更细致论述，尤其适合判断体质倾向和疾病预测
 《栏江网》 — 格局论命秘本，实战断法
 《喜忌篇》 — 喜忌用神论断
 《五行大义》萧吉 — 隋代五行学集大成，命理五行理论根基
 《星学大成》万民英 — 星命学百科全书
 《神峰通考》张楠 — 明代，病药说，以"病药法"为取用神核心方法，与子平真诠格局法形成对照
 《星平会海》 — 综合八字与星命学，对婚姻嫁娶、六亲缘分散布有详细论述，涵盖命主一生人际关系网络判断
+《御定子部集成》 — 清代雍正年间编纂，收录历代经典论命案例，正史级别命理参考
+《河洛理数》 — 河图洛书解读八字，易理与命理融合，判断人生重大抉择时机
+《易隐》曹九锡 — 六爻与命理结合，问事类预测（问病问财问官）系统论述
 二、重要古典★★★★
 《五行精纪》廖中（宋代）、《珞琭子赋注》徐子平、《星学大成》万民英、《李虚中命书》《兰台妙选》《三车一览》《应天歌》《玉井诀》
 三、民国三大家★★★★★
-韦千里：《千里命稿》《命运谈屑》《命理寻源》《韦氏命学》— 文雅精炼引经据典
-袁树珊：《命理探源》《命谱》《中西命理通鉴》— 中西结合条理清晰
+韦千里：《千里命稿》《命运谈屑》《命理寻源》《韦氏命学》— 汇集数万例实战经验，古代理论向现代实战转化的桥梁
+袁树珊：《命理探源》《命谱》《中西命理通鉴》— 探讨论命原理与古籍校注，理解命理哲学根基
 徐乐吾：《滴天髓补注》《子平真诠评注》《造化元钥评注》— 重实战案例丰富
 其他民国大师100+部
 四、当代大家★★★★★
@@ -1081,7 +1086,7 @@ export function buildSystemPromptCasual(birthInfo?: string): string {
 你的知识库包括全部经典书房内容：
 
 【八字命理1300+部】
-核心经典：《渊海子平》（算八字的祖师爷写的）、《滴天髓》《滴天髓阐微》（看五行旺衰的巅峰）、《子平真诠》（学格局必读）、《穷通宝鉴》《造化元钥》（看气候调候）、《三命通会》（百科全书）、《神峰通考》（病药说）、《栏江网》（实战秘本）、《五行大义》（五行理论根基）
+核心经典：《渊海子平》（算八字的祖师爷写的）、《滴天髓》《滴天髓阐微》（看五行旺衰的巅峰）、《子平真诠》（学格局必读）、《穷通宝鉴》《造化元钥》（看气候调候）、《三命通会》（百科全书）、《神峰通考》（病药说）、《星平会海》（六亲婚姻论断）、《御定子部集成》（正史级案例）、《栏江网》（实战秘本）、《五行大义》（五行理论根基）、《河洛理数》（易理命理融合判重大抉择时机）、《易隐》（六爻命理结合问事预测）、《千里命稿》（数万实战案例桥梁）、《命理探源》（论命原理哲学根基）
 民国三大家：韦千里（文雅）、袁树珊（中西结合）、徐乐吾（实战）
 当代大家：梁湘润（体系最全50多本）、王亭之（中州派30多本）
 现代实战派：祥品君五部曲（从零开始学八字/实战断事课/财富预测学/婚恋预测学/事业人生预测学）、邓玄易系列（贵人预测学/婚姻预测学/学业预测学/职业选择预测）、段建业盲派命理、邵伟华四柱预测学、李顺祥四柱玄机、徐伟刚四柱真经
