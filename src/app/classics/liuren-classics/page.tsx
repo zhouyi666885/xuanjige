@@ -25,6 +25,10 @@ export default function LiurenClassicsPage() {
           { title: '《壬学琐记》', author: '程树勋', rating: 4, desc: '壬学心得' },
         ]},
         { title: '现代六壬', rating: '★★★ 进阶', books: [
+          { title: '《大六壬心源》', rating: 5, desc: '六壬深层心法，课体精微断法' },
+          { title: '《大六壬预测学》', rating: 4, desc: '系统化预测方法论，分类预测框架' },
+          { title: '《大六壬实战》', rating: 4, desc: '应期判断与流月推算' },
+          { title: '《大六壬精解》', rating: 5, desc: '课体断法详解，千案精析' },
           { title: '梁湘润六壬系列', author: '梁湘润', rating: 4, desc: '约10+部' },
           { title: '秦新星六壬系列', author: '秦新星', rating: 4, desc: '约10+部' },
         ]},

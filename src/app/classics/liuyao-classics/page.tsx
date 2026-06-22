@@ -21,6 +21,11 @@ export default function LiuyaoClassicsPage() {
           { title: '《易冒》', author: '程良玉', rating: 4, desc: '清代重要著作' },
         ]},
         { title: '现代六爻', rating: '★★★ 进阶', books: [
+          { title: '《金钱卦真解》', rating: 5, desc: '铜钱起卦法正统详解，三字三背精密算法' },
+          { title: '《六爻预测学》', rating: 4, desc: '系统化断卦方法论，财/官/父/兄/子五类预测框架' },
+          { title: '《六爻实例解析》', rating: 4, desc: '千案验证断卦经验' },
+          { title: '《六爻实战技法》', rating: 4, desc: '应期判断与流月推算法' },
+          { title: '《六爻高级断法》', rating: 5, desc: '多卦合断、时空卦、终身卦法' },
           { title: '邵伟华六爻系列', author: '邵伟华', rating: 4, desc: '约10+部' },
           { title: '王虎应六爻系列', author: '王虎应', rating: 4, desc: '约15+部' },
           { title: '朱辰彬六爻系列', author: '朱辰彬', rating: 4, desc: '约10+部' },

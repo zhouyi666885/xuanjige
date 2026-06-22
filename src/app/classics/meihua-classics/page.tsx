@@ -17,6 +17,11 @@ export default function MeihuaClassicsPage() {
           { title: '《邵子易数》', author: '邵雍', rating: 4, desc: '邵雍易数体系' },
           { title: '《击壤集》', author: '邵雍', rating: 4, desc: '易理诗学' },
         ]},
+        { title: '梅花实战体系', rating: '★★★★ 重要进阶', books: [
+          { title: '《梅花易数入门到精通》', rating: 5, desc: '系统化学习路径，从起卦到断卦完整体系' },
+          { title: '《梅花易数实战技法》', rating: 4, desc: '实战断卦经验汇总，应期判断与流月推算' },
+          { title: '《梅花易数心法》', rating: 5, desc: '邵雍心易传承，心动即占之深层原理' },
+        ]},
         { title: '铁板神数核心', rating: '★★★★ 重要', books: [
           { title: '《铁板神数》', author: '传邵雍', rating: 4, desc: '铁板批命经典' },
           { title: '《铁板神数考释》', author: '梁湘润', rating: 5, desc: '当代铁板权威' },
