@@ -4,6 +4,7 @@ import { buildSystemPromptProfessional, buildSystemPromptCasual } from '@/lib/kn
 import { paiPan, formatPaiPanFull, formatShiZhanPrediction } from '@/lib/bazi';
 import { paiPan as ziweiPaiPan, formatPaiPan as ziweiFormatPaiPan, getMingGongLunDuan } from '@/lib/ziwei';
 import { matchKnowledge, getAllKnowledge } from '@/lib/classic-knowledge';
+import { matchExtendedKnowledge } from '@/lib/extended-classic-knowledge';
 import { searchKnowledge, formatKnowledgeResults } from '@/lib/knowledge-search';
 import { generateSanHeCanDuanPrompt, getSanHeCanDuanByTopic, SAN_HE_CAN_DUAN_GUIDE } from '@/lib/sanhe-canduan';
 import { generateMianXiangFramework, getMianXiangPredictionGuide } from '@/lib/xiangxue';
@@ -184,6 +185,11 @@ export async function POST(request: NextRequest) {
   
     // 根据用户消息智能匹配经典知识点（关键词匹配兜底）
     const classicKnowledgeStr = matchKnowledge(message) || '';
+    // 匹配扩展知识库（全部1079本书籍的所有核心内容）
+    const extendedKnowledgeResults = matchExtendedKnowledge(message);
+    const extendedKnowledgeStr = extendedKnowledgeResults.length > 0
+      ? extendedKnowledgeResults.map(r => r.corePoints).join('\n\n')
+      : '';
 
     // 知识库语义搜索（向量化检索，精准度更高）
     // 搜索用户消息+排盘相关的所有领域知识
@@ -191,9 +197,10 @@ export async function POST(request: NextRequest) {
     const knowledgeResults = await searchKnowledge(searchQuery);
     const knowledgeSearchStr = formatKnowledgeResults(knowledgeResults);
 
-    // 合并语义搜索结果和关键词匹配结果（两者互补，不应二选一）
+    // 合并语义搜索结果、关键词匹配结果和扩展知识（三者互补，不应二选一）
     const finalKnowledgeStr = (knowledgeSearchStr ? '【知识库语义检索结果】\n' + knowledgeSearchStr : '')
-      + (classicKnowledgeStr ? '\n\n【关键词匹配补充知识】\n' + classicKnowledgeStr : '');
+      + (classicKnowledgeStr ? '\n\n【关键词匹配补充知识】\n' + classicKnowledgeStr : '')
+      + (extendedKnowledgeStr ? '\n\n【全部典籍核心论断——必须全部引用】\n' + extendedKnowledgeStr : '');
 
     // 知识库强制引用铁律（追加到systemPrompt最末尾，确保最高优先级）
     const knowledgeIronLaw = knowledgeResults.length > 0

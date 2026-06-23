@@ -2992,3 +2992,30 @@ export function getAllKnowledge(): string {
 
   return result;
 }
+
+// 导入扩展知识库（全部1079本书籍的所有内容）
+import { EXTENDED_BOOK_KNOWLEDGE, matchExtendedKnowledge } from './extended-classic-knowledge';
+
+/** 匹配扩展知识（全部书籍内容）- 用于回答问题时引用全部典籍论断 */
+export { matchExtendedKnowledge };
+
+/** 获取扩展知识中匹配的分类内容 */
+export function getExtendedBookKnowledge(question: string): string {
+  const matched = matchExtendedKnowledge(question);
+  if (!matched || matched.length === 0) return '';
+  
+  let result = '';
+  for (const category of matched) {
+    result += `\n\n===== ${category.name} =====\n${category.corePoints}`;
+  }
+  return result;
+}
+
+/** 获取全部扩展知识（所有书籍的所有内容） */
+export function getAllExtendedBookKnowledge(): string {
+  let result = '';
+  for (const [, knowledge] of Object.entries(EXTENDED_BOOK_KNOWLEDGE)) {
+    result += `\n\n===== ${knowledge.name} =====\n${knowledge.corePoints}`;
+  }
+  return result;
+}

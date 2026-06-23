@@ -4,6 +4,7 @@ import { divinationPrompts } from '@/lib/knowledge';
 import { paiPan, formatPaiPanFull, formatShiZhanPrediction } from '@/lib/bazi';
 import { paiPan as ziweiPaiPan, formatPaiPan as ziweiFormatPaiPan, getMingGongLunDuan } from '@/lib/ziwei';
 import { matchKnowledge } from '@/lib/classic-knowledge';
+import { matchExtendedKnowledge } from '@/lib/extended-classic-knowledge';
 import { searchKnowledge, formatKnowledgeResults } from '@/lib/knowledge-search';
 import { generateSanHeCanDuanPrompt, getSanHeCanDuanByTopic, SAN_HE_CAN_DUAN_GUIDE } from '@/lib/sanhe-canduan';
 import { generateMianXiangFramework, getMianXiangPredictionGuide } from '@/lib/xiangxue';
@@ -58,7 +59,10 @@ export async function POST(request: NextRequest) {
     const knowledgeSearchStr = formatKnowledgeResults(knowledgeResults);
     // 关键词匹配兜底
     const classicKnowledgeStr = keywords ? matchKnowledge(keywords) : '';
-    const finalKnowledgeStr = knowledgeSearchStr || (classicKnowledgeStr ? '\n\n' + classicKnowledgeStr : '');
+    // 扩展知识库匹配——全部典籍内容
+    const extendedKnowledgeResults = matchExtendedKnowledge(searchQuery);
+    const extendedKnowledgeStr = extendedKnowledgeResults.map(r => r.corePoints).join('\n\n');
+    const finalKnowledgeStr = knowledgeSearchStr || (classicKnowledgeStr ? '\n\n' + classicKnowledgeStr : '') || (extendedKnowledgeStr ? '\n\n' + extendedKnowledgeStr : '');
     
     // 知识库强制引用铁律
     const knowledgeIronLaw = knowledgeResults.length > 0
