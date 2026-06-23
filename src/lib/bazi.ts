@@ -1734,17 +1734,102 @@ export function predictGuiRen(paiPanResult: BaZiPaiPan, currentYear?: number): s
 export function predictCaiYun(paiPanResult: BaZiPaiPan, currentYear?: number): string {
   const now = currentYear || new Date().getFullYear();
   const dayGan = paiPanResult.dayPillar.gan;
-  const dayWuXingMap: Record<string, string> = {
-    '甲': '木', '乙': '木', '丙': '火', '丁': '火', '戊': '土',
-    '己': '土', '庚': '金', '辛': '金', '壬': '水', '癸': '水',
-  };
-  const dayWX = dayWuXingMap[dayGan] || '土';
+  const dayWX = WUXING_GAN[dayGan];
+  const allZhi = [paiPanResult.yearPillar.zhi, paiPanResult.monthPillar.zhi, paiPanResult.dayPillar.zhi, paiPanResult.hourPillar.zhi];
+  const allGan = [paiPanResult.yearPillar.gan, paiPanResult.monthPillar.gan, paiPanResult.dayPillar.gan, paiPanResult.hourPillar.gan];
 
   // 日主所克的五行为正财/偏财
   const keMap: Record<string, string> = { '木': '土', '火': '金', '土': '水', '金': '木', '水': '火' };
   const caiWX = keMap[dayWX] || '土'; // 正偏财五行
+  // 比劫五行（争夺财星）
+  const biJieWX = dayWX;
+  // 食伤五行（生财）
+  const shengMap: Record<string, string> = { '木': '火', '火': '土', '土': '金', '金': '水', '水': '木' };
+  const shiShangWX = shengMap[dayWX] || '火';
+  // 印星五行（克食伤=断财源）
+  const yinWXMap: Record<string, string> = { '木': '水', '火': '木', '土': '火', '金': '土', '水': '金' };
+  const yinWX = yinWXMap[dayWX] || '木';
+  // 官杀五行
+  const guanWX = keMap[dayWX] || '金';
+
+  // 用神忌神判断
+  const wangShuai = judgeWangShuai(paiPanResult);
+  const isCaiYong = wangShuai.yongShen.includes('财星');
+  const isCaiJi = wangShuai.jiShen.includes('财星');
+
+  // 财星数量
+  const caiGanCount = allGan.filter(g => WUXING_GAN[g] === caiWX).length;
+  const caiZhiCount = allZhi.filter(z => (CANGGAN[z] || []).some(cg => WUXING_GAN[cg] === caiWX)).length;
+  const caiTotal = caiGanCount + caiZhiCount;
+  // 比劫数量
+  const biJieGanCount = allGan.filter(g => WUXING_GAN[g] === biJieWX).length;
+  const biJieZhiCount = allZhi.filter(z => (CANGGAN[z] || []).some(cg => WUXING_GAN[cg] === biJieWX)).length;
+  const biJieTotal = biJieGanCount + biJieZhiCount;
 
   let text = '\n\n【财运+行业+方位预测】（祥品君实战法）\n';
+
+  // ═══════ 铁律级规则检测 ═══════
+  text += '\n【财运铁律级规则检测】\n';
+
+  // 铁律一：身旺财旺=发财 vs 身弱财旺=为财所困
+  const isStrong = wangShuai.riZhuQiangRuo.includes('旺') || wangShuai.riZhuQiangRuo.includes('偏旺');
+  if (isStrong && caiTotal >= 2) {
+    text += '✅ 铁律一【身旺财旺】：《滴天髓》"身旺能任财，财旺必发财"。日主旺+财星旺，如虎添翼，求财顺遂，财运亨通。\n';
+  } else if (isStrong && caiTotal === 0) {
+    text += '⚠️ 铁律一【身旺无财】：《滴天髓》"身旺无财，虽有志难伸"。日主旺但财星不显，有能力但缺财运，需等财星流年方有进财之机。\n';
+  } else if (!isStrong && caiTotal >= 3) {
+    text += '🚨 铁律一【身弱财旺】：《滴天髓》"财多身弱，反为财所困"。日主弱+财星太多，看到机会但抓不住，求财辛苦，为财奔波反受其累。须印比帮身方能担财。\n';
+  } else if (!isStrong && caiTotal >= 1) {
+    text += '⚠️ 铁律一【身弱财有】：日主偏弱但有财星，求财需量力而行，不宜贪大。行印比运时财运最佳。\n';
+  } else {
+    text += '🔄 铁律一【财星中性】：财星数量适中，财运看大运流年配合。\n';
+  }
+
+  // 铁律二：财星被劫=破财信号
+  if (biJieTotal >= 3 && caiTotal <= 1) {
+    text += '🚨 铁律二【比劫夺财】：《三命通会》"比劫争财，财必被夺"。比劫多（' + biJieTotal + '个）而财星少（' + caiTotal + '个），钱财易被他人分走，破财、投资失败、被人借钱不还。流年比劫旺时破财最凶。\n';
+  } else if (biJieTotal >= 2 && caiTotal <= 1) {
+    text += '⚠️ 铁律二【比劫扰财】：比劫较多而财星少，求财过程中有竞争者，合伙投资需谨慎，防被人截胡。\n';
+  } else {
+    text += '✅ 铁律二【财星不受劫】：比劫不夺财，钱财守得住，投资合伙风险小。\n';
+  }
+
+  // 铁律三：财库判断
+  const caiKuMap: Record<string, string> = { '金': '丑', '木': '未', '水': '辰', '火': '戌', '土': '辰' };
+  const caiKuZhi = caiKuMap[caiWX] || '辰';
+  const hasCaiKu = allZhi.includes(caiKuZhi);
+  const chongMap: Record<string, string> = {'子':'午','丑':'未','寅':'申','卯':'酉','辰':'戌','巳':'亥','午':'子','未':'丑','申':'寅','酉':'卯','戌':'辰','亥':'巳'};
+  const caiKuChongFromYear = chongMap[paiPanResult.yearPillar.zhi] === caiKuZhi;
+  const caiKuChongFromMonth = chongMap[paiPanResult.monthPillar.zhi] === caiKuZhi;
+  if (hasCaiKu) {
+    text += '✅ 铁律三【命带财库】：《子平真诠》"财入库，财不外泄"。命带财库（' + caiKuZhi + '），能存住钱，积蓄能力强。\n';
+    if (caiKuChongFromYear || caiKuChongFromMonth) {
+      text += '⚠️ 但财库被' + (caiKuChongFromYear ? '年支' : '月支') + '冲！《滴天髓》"财库逢冲，先得后失"。能赚钱但存不住，须防大额支出或投资亏损。\n';
+    }
+  } else {
+    text += '⚠️ 铁律三【命无财库】：命局无财库（' + caiKuZhi + '），钱财进出频繁，理财需注意储蓄，不宜大手大脚。\n';
+  }
+
+  // 铁律四：食伤生财=财源广进
+  const shiShangGanCount = allGan.filter(g => WUXING_GAN[g] === shiShangWX).length;
+  const shiShangZhiCount = allZhi.filter(z => (CANGGAN[z] || []).some(cg => WUXING_GAN[cg] === shiShangWX)).length;
+  const shiShangTotal = shiShangGanCount + shiShangZhiCount;
+  if (shiShangTotal >= 2 && caiTotal >= 1) {
+    text += '✅ 铁律四【食伤生财】：《穷通宝鉴》"食伤生财，富贵自来"。食伤旺+有财星，财源广进，适合靠才华、技术、创意赚钱。\n';
+  } else if (shiShangTotal === 0 && caiTotal === 0) {
+    text += '⚠️ 铁律四【食伤财星皆无】：命局食伤和财星都不显，财运需完全靠大运流年引动，不宜冒险投资。\n';
+  } else {
+    text += '🔄 铁律四【财运流通】：食伤与财星配合一般，财运有进有出，需行食伤运或财星运时财运最佳。\n';
+  }
+
+  // 铁律五：财星为用/忌判断
+  if (isCaiYong) {
+    text += '✅ 铁律五【财星为用神】：财星为命局用神！求财是命中正途，行财星运/食伤运时财运最旺。身弱者需行印比运帮身后方能担财。\n';
+  } else if (isCaiJi) {
+    text += '⚠️ 铁律五【财星为忌神】：财星为忌！求财反增烦恼。《滴天髓》"忌神旺则生灾"。财为忌时，贪财反被财累，不宜过度追求金钱，知足常乐方吉。\n';
+  } else {
+    text += '🔄 铁律五【财星中性】：财星非命局关键用忌，财运取决于大运流年配合。\n';
+  }
 
   // 有利行业（日主五行适合的行业）
   text += `\n【适合你的行业】（日主${dayGan}${dayWX}行）\n`;
@@ -1763,37 +1848,76 @@ export function predictCaiYun(paiPanResult: BaZiPaiPan, currentYear?: number): s
   text += `  事业发展方位：${WUXING_FANGWEI[dayWX]}\n`;
   text += `  求财方位：${WUXING_FANGWEI[caiWX]}\n`;
 
-  // 流年财运（精确到月）
-  text += `\n【近十年财运流年】\n`;
+  // 破财风险流年检测（铁律级）
+  text += '\n【破财风险流年】\n';
+  for (let i = -3; i <= 7; i++) {
+    const year = now + i;
+    const yearGanZhi = getYearGanZhi(year);
+    const yearGanWX = WUXING_GAN[yearGanZhi.gan];
+    const yearZhiWX = WUXING_ZHI[yearGanZhi.zhi];
+    let label = '';
+    let isRisk = false;
+
+    // 破财信号一：比劫年夺财
+    if (yearGanWX === biJieWX && caiTotal <= 1) {
+      label = '🚨 比劫年夺财！《三命通会》"比劫运中财被劫"——此年钱财易被分走，不宜合伙/借贷/大额投资';
+      isRisk = true;
+    }
+    // 破财信号二：财库被冲
+    else if (hasCaiKu && chongMap[yearGanZhi.zhi] === caiKuZhi) {
+      label = '🚨 财库被冲！《滴天髓》"财库逢冲，先得后失"——此年能赚但存不住，须防大额意外支出';
+      isRisk = true;
+    }
+    // 破财信号三：印星克食伤（断财源）
+    else if (yearGanWX === yinWX && shiShangTotal >= 1) {
+      label = '⚠️ 印星克食伤年，财源受阻，赚钱渠道变窄，需开拓新路';
+      isRisk = true;
+    }
+    // 破财信号四：官杀年+身弱=破财消灾
+    else if (yearGanWX === guanWX && !isStrong) {
+      label = '⚠️ 官杀年+身弱，可能因是非/法律/罚款破财，需谨慎';
+      isRisk = true;
+    }
+
+    if (isRisk) {
+      text += `  ${year}年（${yearGanZhi.gan}${yearGanZhi.zhi}）：${label}\n`;
+    }
+  }
+
+  // 流年财运
+  text += '\n【近十年财运流年】\n';
   const zhiList = ['子', '丑', '寅', '卯', '辰', '巳', '午', '未', '申', '酉', '戌', '亥'];
-  const shengMap: Record<string, string> = { '木': '火', '火': '土', '土': '金', '金': '水', '水': '木' };
-  const yinWX = shengMap[dayWX] || '火'; // 印星五行（生我的）
-  const guanWX = keMap[dayWX] || '金'; // 官杀五行（克我的）
   const liuYueZhi = ['寅', '卯', '辰', '巳', '午', '未', '申', '酉', '戌', '亥', '子', '丑'];
 
   for (let offset = 0; offset <= 10; offset++) {
     const year = now + offset;
     const zhiIdx = (year - 4) % 12;
     const zhi = zhiList[zhiIdx >= 0 ? zhiIdx : zhiIdx + 12];
-    const zhiWX: Record<string, string> = {
-      '子': '水', '丑': '土', '寅': '木', '卯': '木',
-      '辰': '土', '巳': '火', '午': '火', '未': '土',
-      '申': '金', '酉': '金', '戌': '土', '亥': '水',
-    };
-    const yearWX = zhiWX[zhi] || '土';
+    const yearWX = WUXING_ZHI[zhi] || '土';
 
     let label = '';
-    if (yearWX === caiWX) label = '💰 财星年，财运亨通，适合投资';
-    else if (yearWX === dayWX) label = '💪 比劫年，竞争大但人脉旺';
-    else if (yearWX === yinWX) label = '📚 印星年，学习进修好，有贵人';
-    else if (yearWX === guanWX) label = '⚖️ 官杀年，事业压力但可能晋升';
-    else if (shengMap[yearWX] === dayWX) label = '🍽️ 食伤年，才华展现，适合创业';
-    else label = '🔄 平稳年';
+    if (yearWX === caiWX) {
+      if (isCaiJi) {
+        label = '💰 财星年（为忌），求财反增烦恼，不宜贪大';
+      } else {
+        label = '💰 财星年，财运亨通，适合投资';
+      }
+    } else if (yearWX === biJieWX) {
+      label = '💪 比劫年，竞争大但人脉旺';
+    } else if (yearWX === yinWX) {
+      label = '📚 印星年，学习进修好，有贵人';
+    } else if (yearWX === guanWX) {
+      label = '⚖️ 官杀年，事业压力但可能晋升';
+    } else if (shengMap[yearWX] === dayWX) {
+      label = '🍽️ 食伤年，才华展现，适合创业';
+    } else {
+      label = '🔄 平稳年';
+    }
 
     // 找出该年财运最旺的月份
     const caiMonths: string[] = [];
     for (let m = 0; m < 12; m++) {
-      const mWX = zhiWX[liuYueZhi[m]] || '土';
+      const mWX = WUXING_ZHI[liuYueZhi[m]] || '土';
       if (mWX === caiWX) caiMonths.push(`${m + 1}月（${liuYueZhi[m]}月）`);
     }
     const monthHint = caiMonths.length > 0 ? `，求财旺月：${caiMonths.join('、')}` : '';
@@ -1801,19 +1925,407 @@ export function predictCaiYun(paiPanResult: BaZiPaiPan, currentYear?: number): s
     text += `  ${year}年（属${ZHI_SHUXIANG[zhi]}）${label}${monthHint}\n`;
   }
 
+  // 财运恢复期判断
+  text += '\n【财运恢复期判断】\n';
+  const poCaiYears: number[] = [];
+  for (let i = -10; i <= 0; i++) {
+    const year = now + i;
+    const yearGZ = getYearGanZhi(year);
+    if (WUXING_GAN[yearGZ.gan] === biJieWX && caiTotal <= 1) {
+      poCaiYears.push(year);
+    }
+  }
+  if (poCaiYears.length === 0) {
+    text += '  近年无比劫夺财信号，财运运势平稳。\n';
+  } else {
+    text += `  比劫夺财年份：${poCaiYears.join('、')}\n`;
+    // 找未来食伤生财/财星流年=恢复之机
+    for (let i = 1; i <= 5; i++) {
+      const year = now + i;
+      const yearGZ = getYearGanZhi(year);
+      const yearGanWX = WUXING_GAN[yearGZ.gan];
+      if (yearGanWX === caiWX || yearGanWX === shiShangWX) {
+        text += `  ✅ ${year}年（${yearGZ.gan}${yearGZ.zhi}）${yearGanWX === caiWX ? '财星年' : '食伤生财年'}，财运恢复之机，适合投资/创业/加薪。\n`;
+        break;
+      }
+    }
+  }
+
+  return text;
+}
+
+// ============ 事业预测算法 ============
+// 依据：《八字事业预测学》《滴天髓》《子平真诠》
+// 官杀=事业/权力，食伤=才华/技术，印星=学历/贵人
+// 铁律级规则：官星受伤=事业受阻、食伤生财=适合技术创业、印星为用=适合学术、格局成格+大运配合=事业亨通
+
+/** 事业预测（含铁律级规则判断） */
+export function predictShiYe(paiPan: BaZiPaiPan, currentYear?: number): string {
+  const now = currentYear || new Date().getFullYear();
+  const dayGan = paiPan.dayPillar.gan;
+  const dayWX = WUXING_GAN[dayGan];
+  const allZhi = [paiPan.yearPillar.zhi, paiPan.monthPillar.zhi, paiPan.dayPillar.zhi, paiPan.hourPillar.zhi];
+  const allGan = [paiPan.yearPillar.gan, paiPan.monthPillar.gan, paiPan.dayPillar.gan, paiPan.hourPillar.gan];
+
+  // 十神五行
+  const caiWXMap: Record<string, string> = { '木': '土', '火': '金', '土': '水', '金': '木', '水': '火' };
+  const guanWXMap: Record<string, string> = { '木': '金', '火': '水', '土': '木', '金': '火', '水': '土' };
+  const shiShangWXMap: Record<string, string> = { '木': '火', '火': '土', '土': '金', '金': '水', '水': '木' };
+  const yinWXMap: Record<string, string> = { '木': '水', '火': '木', '土': '火', '金': '土', '水': '金' };
+  const guanWX = guanWXMap[dayWX] || '金';
+  const caiWX = caiWXMap[dayWX] || '土';
+  const shiShangWX = shiShangWXMap[dayWX] || '火';
+  const yinWX = yinWXMap[dayWX] || '木';
+  const biJieWX = dayWX;
+
+  // 用神忌神判断
+  const wangShuai = judgeWangShuai(paiPan);
+  const isStrong = wangShuai.riZhuQiangRuo.includes('旺') || wangShuai.riZhuQiangRuo.includes('偏旺');
+
+  // 官星数量
+  const guanGanCount = allGan.filter(g => WUXING_GAN[g] === guanWX).length;
+  const guanZhiCount = allZhi.filter(z => (CANGGAN[z] || []).some(cg => WUXING_GAN[cg] === guanWX)).length;
+  const guanTotal = guanGanCount + guanZhiCount;
+  // 食伤数量
+  const shiShangGanCount = allGan.filter(g => WUXING_GAN[g] === shiShangWX).length;
+  const shiShangZhiCount = allZhi.filter(z => (CANGGAN[z] || []).some(cg => WUXING_GAN[cg] === shiShangWX)).length;
+  const shiShangTotal = shiShangGanCount + shiShangZhiCount;
+  // 印星数量
+  const yinGanCount = allGan.filter(g => WUXING_GAN[g] === yinWX).length;
+  const yinZhiCount = allZhi.filter(z => (CANGGAN[z] || []).some(cg => WUXING_GAN[cg] === yinWX)).length;
+  const yinTotal = yinGanCount + yinZhiCount;
+  // 比劫数量
+  const biJieGanCount = allGan.filter(g => WUXING_GAN[g] === biJieWX).length;
+  const biJieZhiCount = allZhi.filter(z => (CANGGAN[z] || []).some(cg => WUXING_GAN[cg] === biJieWX)).length;
+  const biJieTotal = biJieGanCount + biJieZhiCount;
+  // 财星数量
+  const caiGanCount = allGan.filter(g => WUXING_GAN[g] === caiWX).length;
+  const caiZhiCount = allZhi.filter(z => (CANGGAN[z] || []).some(cg => WUXING_GAN[cg] === caiWX)).length;
+  const caiTotal = caiGanCount + caiZhiCount;
+
+  // 六冲表
+  const chongMap: Record<string, string> = {'子':'午','丑':'未','寅':'申','卯':'酉','辰':'戌','巳':'亥','午':'子','未':'丑','申':'寅','酉':'卯','戌':'辰','亥':'巳'};
+
+  let text = '\n\n===== 事业预测 =====\n';
+
+  // ═══════ 铁律级规则检测 ═══════
+  text += '【事业铁律级规则检测】\n';
+
+  // 铁律一：官杀为用=事业有成，官杀为忌=事业压力
+  const isGuanYong = wangShuai.yongShen.includes('官杀');
+  const isGuanJi = wangShuai.jiShen.includes('官杀');
+  if (isGuanYong && guanTotal >= 1) {
+    text += '✅ 铁律一【官杀为用得力】：《滴天髓》"官星为用，主权柄富贵"。官杀为用神且命局有官杀，事业运极佳，有掌权之机，适合从政/管理/体制内发展。\n';
+  } else if (isGuanYong && guanTotal === 0) {
+    text += '⚠️ 铁律一【官杀为用但不显】：官杀为用神但命局不显，事业需待大运流年引动官星方有升迁之机。\n';
+  } else if (isGuanJi && guanTotal >= 2) {
+    text += '🚨 铁律一【官杀为忌且旺】：《滴天髓》"官杀为忌，反为官鬼"。官杀为忌且旺，事业压力大、上司打压、是非纠纷多，不适合体制内，宜自主创业或技术路线。\n';
+  } else if (isGuanJi) {
+    text += '⚠️ 铁律一【官杀为忌】：官杀为忌，事业压力偏大，选择自由度高的职业更佳。\n';
+  } else {
+    text += '🔄 铁律一【官杀中性】：官杀非命局关键用忌，事业看大运配合。\n';
+  }
+
+  // 铁律二：食伤生财=适合技术创业
+  if (shiShangTotal >= 2 && caiTotal >= 1) {
+    text += '✅ 铁律二【食伤生财】：《穷通宝鉴》"食伤生财，富贵自来"。命局食伤旺+有财星，适合靠才华、技术、创意创业，不需要依赖体制，凭本事吃饭。\n';
+  } else if (shiShangTotal >= 2 && caiTotal === 0) {
+    text += '⚠️ 铁律二【食伤旺但无财星】：有才华但缺乏变现渠道，需行财运或找合伙人互补。\n';
+  } else {
+    text += '🔄 铁律二【食伤财星配合一般】：技术创业运势一般，适合稳步发展。\n';
+  }
+
+  // 铁律三：印星为用=适合学术/教育/文职
+  const isYinYong = wangShuai.yongShen.includes('印星');
+  if (isYinYong && yinTotal >= 1) {
+    text += '✅ 铁律三【印星为用得力】：《子平真诠》"印星为用，主学术文贵"。印星为用且得力，适合学术、教育、文职、科研等需要深厚学识的职业，越老越吃香。\n';
+  } else if (isYinYong && yinTotal === 0) {
+    text += '⚠️ 铁律三【印星为用但不显】：适合学术路线但命局印星不显，需后天努力补足学历。\n';
+  } else {
+    text += '🔄 铁律三【印星中性】：学术/教育非最优先路线，可作副线发展。\n';
+  }
+
+  // 铁律四：官星受伤=事业受阻
+  if (guanTotal >= 1 && shiShangTotal >= 2) {
+    text += '🚨 铁律四【伤官克官】：《子平真诠》"伤官见官，为祸百端"。命局食伤旺克官杀，事业容易受阻、频繁跳槽、与上司不合。宜选自由度高的职业，避免体制内。\n';
+  } else if (guanTotal >= 1 && biJieTotal >= 3) {
+    text += '⚠️ 铁律四【比劫争官】：比劫多争夺官杀，职场竞争激烈，升迁可能被截胡，需提升核心竞争力。\n';
+  } else if (guanTotal === 0 && shiShangTotal === 0) {
+    text += '⚠️ 铁律四【官杀食伤皆无】：命局官杀和食伤都不显，事业方向不明，需通过大运找到定位。\n';
+  } else {
+    text += '✅ 铁律四【事业星不受克】：官杀不受食伤克，事业稳定，升迁有望。\n';
+  }
+
+  // 铁律五：身旺能担官杀 vs 身弱怕官杀
+  if (isStrong && guanTotal >= 1) {
+    text += '✅ 铁律五【身旺能担官杀】：《滴天髓》"身旺能任官，官旺主升迁"。身旺+有官杀，能扛起事业压力，适合管理/领导岗，越忙越旺。\n';
+  } else if (!isStrong && guanTotal >= 2) {
+    text += '⚠️ 铁律五【身弱官杀重】：《滴天髓》"身弱官杀重，反被官压"。身弱+官杀多，事业压力太大反被压垮，不宜承担过重职务，需印比帮身。\n';
+  } else {
+    text += '🔄 铁律五【身官平衡】：身与官杀力量相当，事业能扛但有压力，属于正常状态。\n';
+  }
+
+  // 事业适合方向综合判断
+  text += '【事业方向综合判断】\n';
+  if (isGuanYong && guanTotal >= 1 && isStrong) {
+    text += '  🏛️ 最佳方向：体制内/管理/从政——官杀为用+身旺能担，天生领导命\n';
+  } else if (shiShangTotal >= 2 && caiTotal >= 1) {
+    text += '  💡 最佳方向：技术创业/自由职业/创意产业——食伤生财，凭本事吃饭\n';
+  } else if (isYinYong && yinTotal >= 1) {
+    text += '  📚 最佳方向：学术/教育/研究/文职——印星为用，越老越吃香\n';
+  } else if (caiTotal >= 2 && isStrong) {
+    text += '  💰 最佳方向：商业/投资/贸易——身旺财旺，经商有道\n';
+  } else {
+    text += '  🔄 综合方向：根据大运选择时机，身旺时求财求官，身弱时学习蓄力\n';
+  }
+
+  // 事业变动流年检测
+  text += '【事业变动流年】\n';
+  for (let i = -3; i <= 7; i++) {
+    const year = now + i;
+    const yearGanZhi = getYearGanZhi(year);
+    const yearGanWX = WUXING_GAN[yearGanZhi.gan];
+    let label = '';
+    let isChange = false;
+
+    // 升迁信号：官杀年+身旺
+    if (yearGanWX === guanWX && isStrong) {
+      label = '⚖️ 官杀年+身旺！此年有升迁/掌权/被提拔之机';
+      isChange = true;
+    }
+    // 事业受阻：食伤年克官杀
+    else if (yearGanWX === shiShangWX && guanTotal >= 1 && !isStrong) {
+      label = '⚠️ 食伤克官年，事业可能受阻/跳槽/与上司不合';
+      isChange = true;
+    }
+    // 创业良机：食伤年+有财星
+    else if (yearGanWX === shiShangWX && caiTotal >= 1) {
+      label = '💡 食伤年+有财星，适合启动创业/推出新项目';
+      isChange = true;
+    }
+    // 贵人助力：印星年
+    else if (yearGanWX === yinWX) {
+      label = '📚 印星年，有贵人提携/学习进修/获得资质';
+      isChange = true;
+    }
+
+    if (isChange) {
+      text += `  ${year}年（${yearGanZhi.gan}${yearGanZhi.zhi}）：${label}\n`;
+    }
+  }
+
+  return text;
+}
+
+// ============ 健康预测算法 ============
+// 依据：《黄帝内经》《八字与健康》《滴天髓》五行论
+// 五行对应脏腑：木=肝胆，火=心小肠，土=脾胃，金=肺大肠，水=肾膀胱
+// 铁律级规则：五行受克对应脏腑有灾、用神被克=对应部位有灾、忌神大运=对应系统易病
+
+/** 五行对应脏腑映射 */
+const WUXING_ZANGFU: Record<string, { zang: string; fu: string; xiGuan: string }> = {
+  '木': { zang: '肝', fu: '胆', xiGuan: '眼睛、筋骨、情绪' },
+  '火': { zang: '心', fu: '小肠', xiGuan: '血脉、舌、神志' },
+  '土': { zang: '脾', fu: '胃', xiGuan: '肌肉、口唇、消化' },
+  '金': { zang: '肺', fu: '大肠', xiGuan: '皮肤、鼻、呼吸' },
+  '水': { zang: '肾', fu: '膀胱', xiGuan: '骨骼、耳、生殖' },
+};
+
+/** 克的五行映射 */
+const KE_MAP: Record<string, string> = { '木': '土', '火': '金', '土': '水', '金': '木', '水': '火' };
+
+/** 健康预测（含铁律级规则判断） */
+export function predictJianKang(paiPan: BaZiPaiPan, currentYear?: number): string {
+  const now = currentYear || new Date().getFullYear();
+  const dayGan = paiPan.dayPillar.gan;
+  const dayWX = WUXING_GAN[dayGan];
+  const wuXing = paiPan.wuXingCount;
+
+  // 用神忌神判断
+  const wangShuai = judgeWangShuai(paiPan);
+  const isStrong = wangShuai.riZhuQiangRuo.includes('旺') || wangShuai.riZhuQiangRuo.includes('偏旺');
+
+  let text = '\n\n===== 健康预测 =====\n';
+
+  // ═══════ 铁律级规则检测 ═══════
+  text += '【健康铁律级规则检测】\n';
+
+  // 铁律一：五行受克对应脏腑有灾
+  // 找出命局中最弱和最旺的五行
+  const wxEntries = Object.entries(wuXing) as [string, number][];
+  const totalWX = wxEntries.reduce((a, b) => a + b[1], 0) || 1;
+  const wxSorted = wxEntries.sort((a, b) => a[1] - b[1]);
+  const weakestWX = wxSorted[0][0]; // 最弱五行
+  const weakestCount = wxSorted[0][1];
+  const strongestWX = wxSorted[wxSorted.length - 1][0]; // 最旺五行
+  const strongestCount = wxSorted[wxSorted.length - 1][1];
+
+  // 最弱五行被克→对应脏腑最易出问题
+  const keWeakestWX = KE_MAP[weakestWX] ? Object.entries(KE_MAP).filter(([k, v]) => v === weakestWX).map(([k]) => k)[0] : '';
+  if (weakestCount === 0) {
+    const zf = WUXING_ZANGFU[weakestWX];
+    if (zf) {
+      text += '🚨 铁律一【五行缺失】：《黄帝内经》五行缺' + weakestWX + '！' + zf.zang + '(' + zf.fu + ')系统先天薄弱，' + zf.xiGuan + '最易出问题。须后天重点保养，定期检查。\n';
+    }
+  } else if (weakestCount <= totalWX * 0.1) {
+    const zf = WUXING_ZANGFU[weakestWX];
+    if (zf) {
+      text += '⚠️ 铁律一【五行极弱】：' + weakestWX + '行极弱（仅' + weakestCount + '个），' + zf.zang + '(' + zf.fu + ')系统偏弱，' + zf.xiGuan + '需注意保养。\n';
+    }
+  } else {
+    text += '✅ 铁律一【五行无严重缺失】：命局五行分布相对均衡，无特别薄弱的脏腑系统。\n';
+  }
+
+  // 铁律二：最旺五行克最弱五行=对应脏腑相克冲突
+  if (KE_MAP[strongestWX] === weakestWX) {
+    const strongZF = WUXING_ZANGFU[strongestWX];
+    const weakZF = WUXING_ZANGFU[weakestWX];
+    if (strongZF && weakZF) {
+      text += '🚨 铁律二【五行相克冲突】：' + strongestWX + '(' + strongZF.zang + ')极旺克' + weakestWX + '(' + weakZF.zang + ')极弱！《黄帝内经》"亢则害，承乃制"。' + strongZF.zang + '火旺反克' + weakZF.zang + '，' + weakZF.xiGuan + '最易出问题。这是命局最大的健康隐患。\n';
+    }
+  } else if (weakestCount > 0) {
+    text += '✅ 铁律二【无严重五行冲突】：最旺与最弱五行无直接克制关系，脏腑冲突不严重。\n';
+  }
+
+  // 铁律三：用神被克=对应部位有灾
+  // 从用神中提取五行
+  const yongShenText = wangShuai.yongShen;
+  const yongShenWXList: string[] = [];
+  if (yongShenText.includes('官杀')) yongShenWXList.push(KE_MAP[dayWX] ? Object.entries(KE_MAP).filter(([k, v]) => v === dayWX).map(([k]) => k)[0] : '');
+  if (yongShenText.includes('财星')) yongShenWXList.push(KE_MAP[dayWX] || '');
+  if (yongShenText.includes('印星')) {
+    const shengWXMap: Record<string, string> = { '木': '水', '火': '木', '土': '火', '金': '土', '水': '金' };
+    yongShenWXList.push(shengWXMap[dayWX] || '');
+  }
+  if (yongShenText.includes('食伤')) {
+    const woShengWXMap: Record<string, string> = { '木': '火', '火': '土', '土': '金', '金': '水', '水': '木' };
+    yongShenWXList.push(woShengWXMap[dayWX] || '');
+  }
+  if (yongShenText.includes('比劫')) yongShenWXList.push(dayWX);
+
+  // 找出用神五行中最弱的
+  let yongShenWeakWX = '';
+  for (const wx of yongShenWXList) {
+    if (wx && (wuXing[wx as keyof WuXingCount] || 0) <= totalWX * 0.15) {
+      yongShenWeakWX = wx;
+      break;
+    }
+  }
+  if (yongShenWeakWX) {
+    const zf = WUXING_ZANGFU[yongShenWeakWX];
+    if (zf) {
+      text += '⚠️ 铁律三【用神五行偏弱】：用神' + yongShenWeakWX + '行偏弱，《滴天髓》"用神受伤，对应部位有灾"。' + zf.zang + '(' + zf.fu + ')系统是用神所在，偏弱时' + zf.xiGuan + '容易出问题。大运流年克制' + yongShenWeakWX + '行时，健康尤需注意。\n';
+    }
+  } else {
+    text += '✅ 铁律三【用神五行不弱】：用神对应五行力量适中，健康隐患不大。\n';
+  }
+
+  // 铁律四：忌神大运到来=对应系统易病
+  // 提取忌神五行
+  const jiShenText = wangShuai.jiShen;
+  const jiShenWXList: string[] = [];
+  if (jiShenText.includes('官杀')) jiShenWXList.push(KE_MAP[dayWX] ? Object.entries(KE_MAP).filter(([k, v]) => v === dayWX).map(([k]) => k)[0] : '');
+  if (jiShenText.includes('财星')) jiShenWXList.push(KE_MAP[dayWX] || '');
+  if (jiShenText.includes('印星')) {
+    const shengWXMap: Record<string, string> = { '木': '水', '火': '木', '土': '火', '金': '土', '水': '金' };
+    jiShenWXList.push(shengWXMap[dayWX] || '');
+  }
+  if (jiShenText.includes('比劫')) jiShenWXList.push(dayWX);
+  if (jiShenText.includes('食伤')) {
+    const woShengWXMap: Record<string, string> = { '木': '火', '火': '土', '土': '金', '金': '水', '水': '木' };
+    jiShenWXList.push(woShengWXMap[dayWX] || '');
+  }
+
+  let jiShenWXStr = jiShenWXList.filter(Boolean).join('、');
+  if (jiShenWXStr) {
+    text += '⚠️ 铁律四【忌神五行预警】：忌神五行为' + jiShenWXStr + '。《滴天髓》"忌神旺则生灾"。大运行忌神五行运时，对应脏腑系统易出问题。须提前预防，注意体检。\n';
+    for (const wx of jiShenWXList) {
+      if (wx) {
+        const zf = WUXING_ZANGFU[wx];
+        if (zf) {
+          text += '  - 忌神' + wx + '行→' + zf.zang + '(' + zf.fu + ')系统，' + zf.xiGuan + '需重点防护\n';
+        }
+      }
+    }
+  } else {
+    text += '✅ 铁律四【忌神不显】：忌神不明确，健康运势看大运流年配合。\n';
+  }
+
+  // 铁律五：日主五行对应脏腑=先天体质
+  const dayZF = WUXING_ZANGFU[dayWX];
+  if (dayZF) {
+    text += '✅ 铁律五【先天体质】：日干' + dayGan + '(' + dayWX + '行)，先天体质与' + dayZF.zang + '(' + dayZF.fu + ')系统相关。' + dayZF.xiGuan + '是体质敏感部位。\n';
+  }
+
+  // 健康风险流年检测
+  text += '【健康风险流年】\n';
+  const allZhi = [paiPan.yearPillar.zhi, paiPan.monthPillar.zhi, paiPan.dayPillar.zhi, paiPan.hourPillar.zhi];
+  for (let i = -3; i <= 7; i++) {
+    const year = now + i;
+    const yearGanZhi = getYearGanZhi(year);
+    const yearGanWX = WUXING_GAN[yearGanZhi.gan];
+    let label = '';
+    let isRisk = false;
+
+    // 健康风险：流年天干克用神五行
+    for (const ywx of yongShenWXList) {
+      if (ywx && KE_MAP[yearGanWX] === ywx) {
+        const zf = WUXING_ZANGFU[ywx];
+        label = '⚠️ 流年克用神' + ywx + '行！' + (zf ? zf.zang + '(' + zf.fu + ')系统' : '对应部位') + '此年易出问题，须注意体检和保养';
+        isRisk = true;
+        break;
+      }
+    }
+
+    // 健康风险：流年与日支冲（身体根基动摇）
+    if (!isRisk) {
+      const chongMap: Record<string, string> = {'子':'午','丑':'未','寅':'申','卯':'酉','辰':'戌','巳':'亥','午':'子','未':'丑','申':'寅','酉':'卯','戌':'辰','亥':'巳'};
+      if (chongMap[yearGanZhi.zhi] === allZhi[2]) {
+        label = '⚠️ 流年冲日支，身体根基动摇，此年须防意外/手术/住院';
+        isRisk = true;
+      }
+    }
+
+    if (isRisk) {
+      text += `  ${year}年（${yearGanZhi.gan}${yearGanZhi.zhi}）：${label}\n`;
+    }
+  }
+
+  // 五行养生建议
+  text += '【五行养生建议】\n';
+  // 最弱五行→需补
+  const wzf = WUXING_ZANGFU[weakestWX];
+  if (wzf) {
+    const yangShengMap: Record<string, string> = {
+      '木': '疏肝理气，避免熬夜生气，多食绿色蔬菜，春季养肝',
+      '火': '养心安神，避免过度兴奋，多食红色食物，夏季养心',
+      '土': '健脾养胃，饮食规律忌生冷，多食黄色食物，长夏养脾',
+      '金': '润肺防燥，避免吸烟空气污染，多食白色食物，秋季养肺',
+      '水': '补肾固元，避免过度劳累恐惧，多食黑色食物，冬季养肾',
+    };
+    text += '  最弱' + weakestWX + '行（' + wzf.zang + '/' + wzf.fu + '）：' + (yangShengMap[weakestWX] || '') + '\n';
+  }
+  // 最旺五行→需泄
+  const szf = WUXING_ZANGFU[strongestWX];
+  if (szf) {
+    text += '  最旺' + strongestWX + '行（' + szf.zang + '/' + szf.fu + '）：避免过度刺激此系统，保持平衡为宜\n';
+  }
+
   return text;
 }
 
 /**
- * 完整实战预测输出（贵人+财运+行业+方位+学业+婚姻+六亲）
+ * 完整实战预测输出（贵人+财运+事业+健康+学业+婚姻+六亲）
  */
 export function formatShiZhanPrediction(paiPanResult: BaZiPaiPan, currentYear?: number): string {
   let text = '===== 实战派具体预测 =====';
   text += predictGuiRen(paiPanResult, currentYear);
   text += predictCaiYun(paiPanResult, currentYear);
+  text += predictShiYe(paiPanResult, currentYear);
+  text += predictJianKang(paiPanResult, currentYear);
   text += predictXueYe(paiPanResult, currentYear);
   text += predictHunYin(paiPanResult, currentYear);
-  text += predictLiuQin(paiPanResult);
+  text += predictLiuQin(paiPanResult, currentYear);
   return text;
 }
 
@@ -2028,6 +2540,7 @@ export function predictXueYe(paiPan: BaZiPaiPan, currentYear?: number): string {
 // ============ 婚姻预测算法 ============
 // 依据：《八字婚姻预测学》《子平命理婚恋》《滴天髓婚恋篇》
 // 男命以财星为妻，女命以官杀为夫
+// 铁律级规则：官杀混杂、夫妻宫被冲/被合、配偶星被克/被劫、伤官克官（女命）
 
 /** 日支（配偶宫）信息 */
 function getPeiOuGong(paiPan: BaZiPaiPan): { zhi: string; wx: string; cangGan: string[] } {
@@ -2035,24 +2548,46 @@ function getPeiOuGong(paiPan: BaZiPaiPan): { zhi: string; wx: string; cangGan: s
   return { zhi, wx: WUXING_ZHI[zhi], cangGan: CANGGAN[zhi] || [] };
 }
 
-/** 婚姻预测 */
+/** 婚姻预测（含铁律级规则判断） */
 export function predictHunYin(paiPan: BaZiPaiPan, currentYear?: number): string {
   const now = currentYear || new Date().getFullYear();
   const dayGan = paiPan.dayPillar.gan;
   const dayWX = WUXING_GAN[dayGan];
   const gender = paiPan.birthInfo.gender;
   const peiOuGong = getPeiOuGong(paiPan);
+  const allZhi = [paiPan.yearPillar.zhi, paiPan.monthPillar.zhi, paiPan.dayPillar.zhi, paiPan.hourPillar.zhi];
+  const allGan = [paiPan.yearPillar.gan, paiPan.monthPillar.gan, paiPan.dayPillar.gan, paiPan.hourPillar.gan];
+
+  // 用神忌神判断
+  const wangShuai = judgeWangShuai(paiPan);
 
   // 配偶星五行：男命=财星，女命=官杀
   const caiWXMap: Record<string, string> = { '木': '土', '火': '金', '土': '水', '金': '木', '水': '火' };
   const guanWXMap: Record<string, string> = { '木': '金', '火': '水', '土': '木', '金': '火', '水': '土' };
   const peiOuWX = gender === '男' ? (caiWXMap[dayWX] || '土') : (guanWXMap[dayWX] || '金');
+  // 食伤五行（女命伤官克官=克夫星）
+  const shiShangWXMap: Record<string, string> = { '木': '火', '火': '土', '土': '金', '金': '水', '水': '木' };
+  const shiShangWX = shiShangWXMap[dayWX] || '火';
+  // 比劫五行（争夺配偶星）
+  const biJieWX = dayWX;
 
   // 四柱中找配偶星
-  const allZhi = [paiPan.yearPillar.zhi, paiPan.monthPillar.zhi, paiPan.dayPillar.zhi, paiPan.hourPillar.zhi];
-  const allGan = [paiPan.yearPillar.gan, paiPan.monthPillar.gan, paiPan.dayPillar.gan, paiPan.hourPillar.gan];
   const hasPeiOuXingGan = allGan.some(g => WUXING_GAN[g] === peiOuWX);
   const hasPeiOuXingZhi = allZhi.some(z => (CANGGAN[z] || []).some(cg => WUXING_GAN[cg] === peiOuWX));
+  // 配偶星数量（天干+地支藏干）
+  const peiOuXingGanCount = allGan.filter(g => WUXING_GAN[g] === peiOuWX).length;
+  const peiOuXingZhiCount = allZhi.filter(z => (CANGGAN[z] || []).some(cg => WUXING_GAN[cg] === peiOuWX)).length;
+  const peiOuXingTotal = peiOuXingGanCount + peiOuXingZhiCount;
+
+  // 比劫数量（争夺配偶星的力量）
+  const biJieGanCount = allGan.filter(g => WUXING_GAN[g] === biJieWX).length;
+  const biJieZhiCount = allZhi.filter(z => (CANGGAN[z] || []).some(cg => WUXING_GAN[cg] === biJieWX)).length;
+  const biJieTotal = biJieGanCount + biJieZhiCount;
+
+  // 食伤数量（女命克官杀的力量）
+  const shiShangGanCount = allGan.filter(g => WUXING_GAN[g] === shiShangWX).length;
+  const shiShangZhiCount = allZhi.filter(z => (CANGGAN[z] || []).some(cg => WUXING_GAN[cg] === shiShangWX)).length;
+  const shiShangTotal = shiShangGanCount + shiShangZhiCount;
 
   // 配偶方位（配偶星五行→方位）
   const wxFangWei: Record<string, string> = { '金': '正西/西北', '木': '正东/东南', '水': '正北', '火': '正南', '土': '中部/东北/西南' };
@@ -2070,6 +2605,11 @@ export function predictHunYin(paiPan: BaZiPaiPan, currentYear?: number): string 
   const hongLuanZhi = HONG_LUAN[yearZhi];
   const tianXiZhi = TIAN_XI[yearZhi];
 
+  // 六冲表
+  const chongMap: Record<string, string> = {'子':'午','丑':'未','寅':'申','卯':'酉','辰':'戌','巳':'亥','午':'子','未':'丑','申':'寅','酉':'卯','戌':'辰','亥':'巳'};
+  // 六合表
+  const liuHeMap: Record<string, string> = {'子':'丑','丑':'子','寅':'亥','亥':'寅','卯':'戌','戌':'卯','辰':'酉','酉':'辰','巳':'申','申':'巳','午':'未','未':'午'};
+
   let text = '\n\n===== 婚姻预测 =====\n';
   text += `【配偶星分析】${gender === '男' ? '男命以财星为妻' : '女命以官杀为夫'}，配偶星五行=${peiOuWX}\n`;
   text += hasPeiOuXingGan ? '✅ 天干透配偶星，姻缘明显\n' : '';
@@ -2079,7 +2619,6 @@ export function predictHunYin(paiPan: BaZiPaiPan, currentYear?: number): string 
   }
 
   text += `【配偶宫分析】日支=${peiOuGong.zhi}(${peiOuGong.wx})，藏干=${peiOuGong.cangGan.join('')}\n`;
-  // 日支合化论断
   if (peiOuGong.cangGan.some(cg => WUXING_GAN[cg] === peiOuWX)) {
     text += '✅ 配偶宫藏配偶星，婚姻稳定，配偶能干\n';
   }
@@ -2087,6 +2626,88 @@ export function predictHunYin(paiPan: BaZiPaiPan, currentYear?: number): string 
   text += `【配偶方位】${wxFangWei[peiOuWX]}\n`;
   text += `【红鸾星】${hongLuanZhi}（红鸾引动年≈婚期）\n`;
   text += `【天喜星】${tianXiZhi}（天喜引动年≈添喜）\n`;
+
+  // ═══════ 铁律级规则检测 ═══════
+  text += '\n【婚姻铁律级规则检测】\n';
+
+  // 铁律一：官杀混杂（女命）=感情复杂/多次婚姻信号
+  if (gender === '女') {
+    // 正官和偏官（七杀）同时出现在命局
+    const zhengGanWX = allGan.map(g => WUXING_GAN[g]);
+    const hasZhengGuan = zhengGanWX.includes(peiOuWX);
+    // 偏官=七杀，与正官同五行但阴阳不同（简化：只要配偶星五行出现多次=混杂）
+    if (peiOuXingTotal >= 3) {
+      text += '🚨 铁律一【官杀混杂】：女命配偶星（官杀）出现3次及以上！《三命通会》"官杀混杂，主感情复杂，婚姻多变"。正偏官同透，感情选择多但难以专一，极可能经历多次感情或婚姻。\n';
+    } else if (peiOuXingTotal >= 2) {
+      text += '⚠️ 铁律一【官杀偏杂】：女命配偶星出现2次，正偏官交集，感情路有波折，需择一而终方吉。\n';
+    } else {
+      text += '✅ 铁律一【官星纯一】：女命配偶星一位，婚姻感情专一稳定，为上品婚配。\n';
+    }
+  } else {
+    // 男命：财星混杂（正偏财同现）
+    if (peiOuXingTotal >= 3) {
+      text += '🚨 铁律一【财星混杂】：男命配偶星（财星）出现3次及以上！《子平真诠》"财多身弱，反为财所困；正偏财杂出，主感情不专"。正偏财同透，易有婚外情或再婚倾向。\n';
+    } else if (peiOuXingTotal >= 2) {
+      text += '⚠️ 铁律一【财星偏杂】：男命配偶星出现2次，感情需专一经营，防偏财扰正财。\n';
+    } else {
+      text += '✅ 铁律一【财星纯一】：男命配偶星一位，婚姻专一，为上品。\n';
+    }
+  }
+
+  // 铁律二：配偶宫被冲=婚变信号
+  const dayZhi = paiPan.dayPillar.zhi;
+  // 四柱内部冲（日支被年支或月支冲）
+  const chongDayFromYear = chongMap[paiPan.yearPillar.zhi] === dayZhi;
+  const chongDayFromMonth = chongMap[paiPan.monthPillar.zhi] === dayZhi;
+  if (chongDayFromYear && chongDayFromMonth) {
+    text += '🚨 铁律二【配偶宫被冲】：日支（配偶宫）被年支+月支同时冲！《滴天髓》"日支逢冲，婚姻必变"。双重冲配偶宫，婚姻极不稳定，大概率经历婚变或长期分居。\n';
+  } else if (chongDayFromYear || chongDayFromMonth) {
+    text += '⚠️ 铁律二【配偶宫被冲】：日支（配偶宫）被' + (chongDayFromYear ? '年支' : '月支') + '冲。《滴天髓》"日支逢冲，婚姻不稳"。配偶宫受冲，感情易有波折，需行合运化解。\n';
+  } else {
+    text += '✅ 铁律二【配偶宫稳定】：日支（配偶宫）无冲，婚姻根基稳固。\n';
+  }
+
+  // 铁律三：配偶宫被合=配偶外遇倾向/感情有争夺
+  const heDayFromYear = liuHeMap[paiPan.yearPillar.zhi] === dayZhi;
+  const heDayFromMonth = liuHeMap[paiPan.monthPillar.zhi] === dayZhi;
+  if (heDayFromYear || heDayFromMonth) {
+    const heFrom = heDayFromYear ? '年支' : '月支';
+    text += '⚠️ 铁律三【配偶宫被合】：日支（配偶宫）被' + heFrom + '合。《八字婚姻预测学》"配偶宫被合，配偶易有外心"。配偶宫逢合，配偶可能被他人吸引，需警惕感情第三者。\n';
+  } else {
+    text += '✅ 铁律三【配偶宫无外合】：配偶宫无被外合，配偶心性专一。\n';
+  }
+
+  // 铁律四：配偶星被克/被劫
+  if (gender === '女') {
+    // 女命：食伤克官杀=伤官克官
+    if (shiShangTotal >= 2 && peiOuXingTotal <= 1) {
+      text += '🚨 铁律四【伤官克官】：女命食伤旺（' + shiShangTotal + '个）而官杀弱（' + peiOuXingTotal + '个）！《子平真诠》"伤官见官，为祸百端"。女命伤官旺克官杀，克夫之象，婚姻极不顺，配偶易有灾或感情破裂。\n';
+    } else if (shiShangTotal >= 1 && peiOuXingTotal <= 1) {
+      text += '⚠️ 铁律四【食伤扰官】：女命食伤扰官杀，婚姻中容易对配偶不满，挑剔心重，需修心养性。\n';
+    } else {
+      text += '✅ 铁律四【官星不受克】：女命官杀不受食伤克，配偶地位稳固。\n';
+    }
+  } else {
+    // 男命：比劫克财星=争夺配偶
+    if (biJieTotal >= 3 && peiOuXingTotal <= 1) {
+      text += '🚨 铁律四【比劫夺财】：男命比劫旺（' + biJieTotal + '个）而财星弱（' + peiOuXingTotal + '个）！《三命通会》"比劫争财，妻必被夺"。男命比劫多而财星少，配偶易被争夺，极可能有第三者插足或配偶移情。\n';
+    } else if (biJieTotal >= 2 && peiOuXingTotal <= 1) {
+      text += '⚠️ 铁律四【比劫扰财】：男命比劫多而财星少，感情中有竞争者，需主动维护感情。\n';
+    } else {
+      text += '✅ 铁律四【财星不受劫】：男命财星不受比劫争夺，感情稳定。\n';
+    }
+  }
+
+  // 铁律五：配偶星为用神/忌神判断
+  const isPeiOuYong = gender === '男' ? wangShuai.yongShen.includes('财星') : wangShuai.yongShen.includes('官杀');
+  const isPeiOuJi = gender === '男' ? wangShuai.jiShen.includes('财星') : wangShuai.jiShen.includes('官杀');
+  if (isPeiOuYong) {
+    text += '✅ 铁律五【配偶星为用神】：配偶星为命局用神！配偶是命中贵人，婚姻有助运之功，得配偶则运开。配偶星越旺，配偶助力越大。\n';
+  } else if (isPeiOuJi) {
+    text += '⚠️ 铁律五【配偶星为忌神】：配偶星为命局忌神。《滴天髓》"忌神不宜旺，旺则生灾"。配偶星为忌时，配偶可能带来压力或拖累，但也不必过虑——流年用神到位时，婚姻仍可顺遂。\n';
+  } else {
+    text += '🔄 铁律五【配偶星中性】：配偶星非命局关键用忌，婚姻对运势影响中性，取决于大运流年配合。\n';
+  }
 
   // 《八字婚姻预测学》经典论断
   text += '【婚姻经典论断】\n';
@@ -2096,7 +2717,44 @@ export function predictHunYin(paiPan: BaZiPaiPan, currentYear?: number): string 
     text += '《子平命理婚恋》：男命以财星为妻，正财主正妻贤惠，偏财主偏缘或再婚。财星一位最贞，多见则感情不稳。\n';
   }
 
-  // 婚期流年（未来5年引动红鸾/天喜/配偶星的年份）
+  // 婚姻灾厄流年检测（铁律级）
+  text += '【婚姻风险流年】\n';
+  for (let i = -3; i <= 7; i++) {
+    const year = now + i;
+    const yearGanZhi = getYearGanZhi(year);
+    const yearGanWX = WUXING_GAN[yearGanZhi.gan];
+    const yearZhiWX = WUXING_ZHI[yearGanZhi.zhi];
+    const yearZhi2 = yearGanZhi.zhi;
+    let label = '';
+    let isRisk = false;
+
+    // 风险信号一：流年冲配偶宫
+    if (chongMap[yearZhi2] === dayZhi) {
+      label = '🚨 流年冲配偶宫！《滴天髓》"日支逢冲，此年婚姻必变"——感情危机、分手/离婚/分居风险极高';
+      isRisk = true;
+    }
+    // 风险信号二：女命流年食伤旺克官杀
+    else if (gender === '女' && yearGanWX === shiShangWX && peiOuXingTotal <= 1) {
+      label = '⚠️ 伤官年克官杀！女命此年对配偶挑剔、不满，感情易生矛盾';
+      isRisk = true;
+    }
+    // 风险信号三：男命流年比劫旺夺财
+    else if (gender === '男' && yearGanWX === biJieWX && peiOuXingTotal <= 1) {
+      label = '⚠️ 比劫年夺财！男命此年感情有竞争者，配偶可能被吸引';
+      isRisk = true;
+    }
+    // 风险信号四：配偶星被流年克制
+    else if (yearGanWX === guanWXMap[peiOuWX] || (CANGGAN[yearZhi2] || []).some(cg => WUXING_GAN[cg] === guanWXMap[peiOuWX])) {
+      label = '⚠️ 配偶星受克年，感情有压力，配偶可能不顺';
+      isRisk = true;
+    }
+
+    if (isRisk) {
+      text += `  ${year}年（${yearGanZhi.gan}${yearZhi2}）：${label}\n`;
+    }
+  }
+
+  // 婚恋引动流年
   text += '【婚恋引动流年】\n';
   const ZHI_SHUXIANG: Record<string, string> = { '子': '鼠', '丑': '牛', '寅': '虎', '卯': '兔', '辰': '龙', '巳': '蛇', '午': '马', '未': '羊', '申': '猴', '酉': '鸡', '戌': '狗', '亥': '猪' };
   for (let i = 0; i <= 7; i++) {
@@ -2139,6 +2797,30 @@ export function predictHunYin(paiPan: BaZiPaiPan, currentYear?: number): string 
   };
   text += `  五行${peiOuWX}型：${peiOuWXFeature[peiOuWX] || ''}\n`;
 
+  // 婚姻恢复/稳定期判断
+  text += '【婚姻稳定期判断】\n';
+  let recentChongYears = 0;
+  for (let i = -5; i <= 0; i++) {
+    const year = now + i;
+    const yearGZ = getYearGanZhi(year);
+    if (chongMap[yearGZ.zhi] === dayZhi) recentChongYears++;
+  }
+  if (recentChongYears === 0) {
+    text += '  近年配偶宫无冲，婚姻感情运势平稳。\n';
+  } else {
+    text += `  ⚠️ 近${recentChongYears}年配偶宫被冲！婚姻不稳定期，需耐心经营，等冲运过去自然转好。\n`;
+    text += '  《滴天髓》云：冲逢合解。等流年地支合配偶宫（与日支六合的年份），婚姻危机可化解。\n';
+    // 找出未来合配偶宫的年份
+    for (let i = 1; i <= 5; i++) {
+      const year = now + i;
+      const yearGZ = getYearGanZhi(year);
+      if (liuHeMap[yearGZ.zhi] === dayZhi) {
+        text += `  ✅ ${year}年（${yearGZ.gan}${yearGZ.zhi}）流年合配偶宫，婚姻危机化解之机，此年感情有望稳定/复合/结婚。\n`;
+        break;
+      }
+    }
+  }
+
   return text;
 }
 
@@ -2162,9 +2844,12 @@ function getYearGanZhi(year: number): { gan: string; zhi: string } {
 // ============ 六亲预测算法 ============
 // 依据：《八字六亲预测学》《三命通会》六亲论
 // 年柱=祖上/父母，月柱=父母/兄弟，日支=配偶，时柱=子女
+// 铁律级规则：用神在何宫该宫六亲最得力、忌神在何宫该宫六亲多拖累、
+//           父星被克破=父亲有灾、母星被克破=母亲有灾、子女星入库=子女缘晚
 
-/** 六亲预测 */
-export function predictLiuQin(paiPan: BaZiPaiPan): string {
+/** 六亲预测（含铁律级规则判断） */
+export function predictLiuQin(paiPan: BaZiPaiPan, currentYear?: number): string {
+  const now = currentYear || new Date().getFullYear();
   const dayGan = paiPan.dayPillar.gan;
   const dayWX = WUXING_GAN[dayGan];
   const allZhi = [paiPan.yearPillar.zhi, paiPan.monthPillar.zhi, paiPan.dayPillar.zhi, paiPan.hourPillar.zhi];
@@ -2181,7 +2866,112 @@ export function predictLiuQin(paiPan: BaZiPaiPan): string {
   const caiWX = caiWXMap[dayWX];
   const guanWX = guanWXMap[dayWX];
 
+  // 用神忌神判断
+  const wangShuai = judgeWangShuai(paiPan);
+
+  // 六冲表
+  const chongMap: Record<string, string> = {'子':'午','丑':'未','寅':'申','卯':'酉','辰':'戌','巳':'亥','午':'子','未':'丑','申':'寅','酉':'卯','戌':'辰','亥':'巳'};
+
   let text = '\n\n===== 六亲预测 =====\n';
+
+  // ═══════ 铁律级规则检测 ═══════
+  text += '【六亲铁律级规则检测】\n';
+
+  // 铁律一：用神在何宫，该宫六亲最得力
+  const yongShen = wangShuai.yongShen;
+  const pillarNames = ['年柱（祖上/父母）', '月柱（父母/兄弟）', '日支（配偶）', '时柱（子女）'];
+  const pillars = [
+    { gan: paiPan.yearPillar.gan, zhi: paiPan.yearPillar.zhi },
+    { gan: paiPan.monthPillar.gan, zhi: paiPan.monthPillar.zhi },
+    { gan: paiPan.dayPillar.gan, zhi: paiPan.dayPillar.zhi },
+    { gan: paiPan.hourPillar.gan, zhi: paiPan.hourPillar.zhi },
+  ];
+
+  let yongShenPillar = '';
+  for (let i = 0; i < 4; i++) {
+    const p = pillars[i];
+    const pWX = [WUXING_GAN[p.gan], WUXING_ZHI[p.zhi]];
+    // 检查该柱是否包含用神五行
+    if (yongShen.includes(pWX[0]) || yongShen.includes(pWX[1]) ||
+        (CANGGAN[p.zhi] || []).some(cg => yongShen.includes(WUXING_GAN[cg]))) {
+      yongShenPillar = pillarNames[i];
+      break;
+    }
+  }
+  if (yongShenPillar) {
+    text += '✅ 铁律一【用神得力宫位】：用神在' + yongShenPillar + '！《三命通会》"用神在何宫，该宫六亲最得力"。此宫位对应的六亲是命中贵人，对命主帮助最大。\n';
+  } else {
+    text += '⚠️ 铁律一【用神不显四柱】：用神未透四柱，六亲中无特别得力之人，需大运引动方有贵人。\n';
+  }
+
+  // 铁律二：忌神在何宫，该宫六亲多拖累
+  const jiShen = wangShuai.jiShen;
+  let jiShenPillars: string[] = [];
+  for (let i = 0; i < 4; i++) {
+    const p = pillars[i];
+    const pWX = [WUXING_GAN[p.gan], WUXING_ZHI[p.zhi]];
+    if (jiShen.includes(pWX[0]) || jiShen.includes(pWX[1]) ||
+        (CANGGAN[p.zhi] || []).some(cg => jiShen.includes(WUXING_GAN[cg]))) {
+      jiShenPillars.push(pillarNames[i]);
+    }
+  }
+  if (jiShenPillars.length > 0) {
+    text += '⚠️ 铁律二【忌神拖累宫位】：忌神在' + jiShenPillars.join('、') + '！《滴天髓》"忌神在何宫，该宫六亲多拖累"。这些宫位对应的六亲可能给命主带来压力或麻烦。\n';
+  } else {
+    text += '✅ 铁律二【忌神不显四柱】：忌神未透四柱，六亲中无特别拖累之人。\n';
+  }
+
+  // 铁律三：父星（财星）被克破=父亲有灾
+  const caiGanCount = allGan.filter(g => WUXING_GAN[g] === caiWX).length;
+  const caiZhiCount = allZhi.filter(z => (CANGGAN[z] || []).some(cg => WUXING_GAN[cg] === caiWX)).length;
+  const caiTotal = caiGanCount + caiZhiCount;
+  const biJieGanCount = allGan.filter(g => WUXING_GAN[g] === biJieWX).length;
+  const biJieZhiCount = allZhi.filter(z => (CANGGAN[z] || []).some(cg => WUXING_GAN[cg] === biJieWX)).length;
+  const biJieTotal = biJieGanCount + biJieZhiCount;
+
+  if (biJieTotal >= 3 && caiTotal <= 1) {
+    text += '🚨 铁律三【父星被克破】：《三命通会》"比劫重重，财星必破，父星有灾"。比劫旺而财星弱，父亲星被克破，父亲可能体弱、事业不顺或与命主缘薄。\n';
+  } else if (biJieTotal >= 2 && caiTotal === 0) {
+    text += '⚠️ 铁律三【父星不显+比劫旺】：命局无财星（父星）且比劫多，与父亲缘分薄，父亲可能常年不在身边或体弱。\n';
+  } else if (caiTotal >= 1) {
+    text += '✅ 铁律三【父星得力】：命局有财星（父星），与父亲有缘，父亲对命主有一定助力。\n';
+  } else {
+    text += '🔄 铁律三【父星中性】：财星不显，与父亲缘分一般，需看大运。\n';
+  }
+
+  // 铁律四：母星（印星）被克破=母亲有灾
+  const yinGanCount = allGan.filter(g => WUXING_GAN[g] === yinWX).length;
+  const yinZhiCount = allZhi.filter(z => (CANGGAN[z] || []).some(cg => WUXING_GAN[cg] === yinWX)).length;
+  const yinTotal = yinGanCount + yinZhiCount;
+  // 财克印=母星受克
+  if (caiTotal >= 3 && yinTotal <= 1) {
+    text += '🚨 铁律四【母星被克破】：《滴天髓》"财多坏印，母星有灾"。财星旺而印星弱，母亲星被克破，母亲可能体弱、操劳或与命主缘薄。\n';
+  } else if (caiTotal >= 2 && yinTotal === 0) {
+    text += '⚠️ 铁律四【母星不显+财星旺】：命局无印星（母星）且财星多，财克印，母亲可能辛苦操劳，与命主聚少离多。\n';
+  } else if (yinTotal >= 1) {
+    text += '✅ 铁律四【母星得力】：命局有印星（母星），与母亲有缘，母亲对命主有关爱。\n';
+  } else {
+    text += '🔄 铁律四【母星中性】：印星不显，与母亲缘分一般，需看大运。\n';
+  }
+
+  // 铁律五：子女星入库=子女缘晚
+  const shiShangGanCount = allGan.filter(g => WUXING_GAN[g] === shiShangWX).length;
+  const shiShangZhiCount = allZhi.filter(z => (CANGGAN[z] || []).some(cg => WUXING_GAN[cg] === shiShangWX)).length;
+  const shiShangTotal = shiShangGanCount + shiShangZhiCount;
+  // 库的地支
+  const kuMap: Record<string, string> = { '金': '丑', '木': '未', '水': '辰', '火': '戌', '土': '辰' };
+  const shiShangKu = kuMap[shiShangWX] || '辰';
+  const hasShiShangRuKu = allZhi.includes(shiShangKu) && shiShangTotal === 0;
+
+  if (hasShiShangRuKu) {
+    text += '⚠️ 铁律五【子女星入库】：《子平真诠》"食伤入库，子女缘迟"。子女星（食伤）入库不透，子女缘来得晚，可能晚育或子女较难管教。需冲开库的流年方有子女之喜。\n';
+  } else if (shiShangTotal >= 2) {
+    text += '✅ 铁律五【子女星旺】：子女星（食伤）旺，子女有才华、有出息，子女缘厚。\n';
+  } else if (shiShangTotal === 0) {
+    text += '⚠️ 铁律五【子女星不显】：子女星（食伤）不显，子女缘需待流年引动，可能晚育。\n';
+  } else {
+    text += '🔄 铁律五【子女星中性】：子女星数量适中，子女缘一般，需看大运流年配合。\n';
+  }
 
   // 1. 父母（印星=母，财星=父）
   text += '【父母】\n';
@@ -2208,11 +2998,9 @@ export function predictLiuQin(paiPan: BaZiPaiPan): string {
 
   // 2. 兄弟姐妹（比劫=兄弟）
   text += '【兄弟姐妹】\n';
-  const biJieCount = allGan.filter(g => WUXING_GAN[g] === biJieWX).length +
-    allZhi.filter(z => (CANGGAN[z] || []).some(cg => WUXING_GAN[cg] === biJieWX)).length;
-  if (biJieCount >= 3) {
+  if (biJieTotal >= 3) {
     text += '  比劫多，兄弟姐妹缘厚，但竞争也大\n';
-  } else if (biJieCount >= 1) {
+  } else if (biJieTotal >= 1) {
     text += '  比劫适中，有兄弟姐妹助力\n';
   } else {
     text += '  比劫少，兄弟姐妹缘薄，多独立奋斗\n';
@@ -2244,6 +3032,36 @@ export function predictLiuQin(paiPan: BaZiPaiPan): string {
     text += '  ✅ 时柱带食伤，子女聪明有才华，子女缘厚\n';
   } else {
     text += '  ⚠️ 时柱食伤不显，子女缘需待流年引动\n';
+  }
+
+  // 5. 六亲灾厄流年检测（铁律级）
+  text += '【六亲灾厄风险流年】\n';
+  for (let i = -3; i <= 7; i++) {
+    const year = now + i;
+    const yearGanZhi = getYearGanZhi(year);
+    const yearGanWX = WUXING_GAN[yearGanZhi.gan];
+    let label = '';
+    let isRisk = false;
+
+    // 父亲灾厄：比劫年夺财星（父星）
+    if (yearGanWX === biJieWX && caiTotal <= 1) {
+      label = '⚠️ 比劫年夺财星（父星），父亲此年可能不顺或健康有忧';
+      isRisk = true;
+    }
+    // 母亲灾厄：财星年克印星（母星）
+    else if (yearGanWX === caiWX && yinTotal <= 1) {
+      label = '⚠️ 财星年克印星（母星），母亲此年可能辛苦操劳或健康有忧';
+      isRisk = true;
+    }
+    // 配偶灾厄：流年冲日支（配偶宫）
+    else if (chongMap[yearGanZhi.zhi] === dayZhi) {
+      label = '⚠️ 流年冲配偶宫，配偶此年可能不顺或感情有波折';
+      isRisk = true;
+    }
+
+    if (isRisk) {
+      text += `  ${year}年（${yearGanZhi.gan}${yearGanZhi.zhi}）：${label}\n`;
+    }
   }
 
   // 5. 六亲关系总论
