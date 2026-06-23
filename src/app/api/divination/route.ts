@@ -251,10 +251,19 @@ export async function POST(request: NextRequest) {
       { role: 'user' as const, content: userInput },
     ];
 
-    const stream = client.stream(messages, {
-      model: 'doubao-seed-2-0-pro-260215',
-      temperature: mode === 'professional' ? 0.4 : 0.7,
-    });
+    let stream;
+    try {
+      stream = client.stream(messages, {
+        model: 'doubao-seed-2-0-pro-260215',
+        temperature: mode === 'professional' ? 0.4 : 0.7,
+      });
+    } catch (e) {
+      console.error('Stream creation error:', e);
+      return new Response(JSON.stringify({ error: '创建流失败' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
 
     const encoder = new TextEncoder();
     const readable = new ReadableStream({
