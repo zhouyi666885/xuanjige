@@ -6,7 +6,7 @@
 
 import { KnowledgeClient, Config } from 'coze-coding-dev-sdk';
 
-// 13个领域知识库名称（与导入脚本一致）
+// 16个知识库名称（13领域+书籍体系+方法论+盲派命理）
 const ALL_DATASETS = [
   'xueye_knowledge',       // 学业
   'hunyin_knowledge',      // 婚姻
@@ -21,6 +21,9 @@ const ALL_DATASETS = [
   'meihua_knowledge',      // 梅花易数
   'fengshui_knowledge',    // 风水地理
   'xiangxue_knowledge',    // 面相手相
+  'book_system_knowledge', // 约400本书籍完整体系
+  'methodology_knowledge', // 方法论（26步学习路径/已验证规则/权重/四维分析/五域分析/映射表/关键词/要点/禁止事项/14个局限与改进）
+  'mangpai_knowledge',     // 盲派命理（盲派秘典/郝圣鸽/北方秘本/断事口诀）
 ];
 
 // 领域关键词→数据集映射（精准搜索时使用）
@@ -75,6 +78,26 @@ const DOMAIN_DATASET_MAP: Record<string, string[]> = {
   '面相': ['xiangxue_knowledge'],
   '手相': ['xiangxue_knowledge'],
   '面容': ['xiangxue_knowledge'],
+  // 补充：书籍体系和方法论
+  '书籍': ['book_system_knowledge', 'methodology_knowledge'],
+  '典籍': ['book_system_knowledge', 'methodology_knowledge'],
+  '书目': ['book_system_knowledge'],
+  '盲派': ['mangpai_knowledge', 'book_system_knowledge'],
+  '口诀': ['mangpai_knowledge', 'methodology_knowledge'],
+  '铁律': ['methodology_knowledge'],
+  '已验证': ['methodology_knowledge'],
+  '局限': ['methodology_knowledge'],
+  '权重': ['methodology_knowledge'],
+  '四维': ['methodology_knowledge'],
+  '映射': ['methodology_knowledge'],
+  '检索关键词': ['methodology_knowledge'],
+  '学习路径': ['methodology_knowledge'],
+  '改进': ['methodology_knowledge'],
+  // 多领域交叉搜索
+  '命盘': ['xueye_knowledge', 'hunyin_knowledge', 'shiye_knowledge', 'caiyun_knowledge', 'jiankang_knowledge', 'liuqin_knowledge', 'dayun_knowledge', 'geju_knowledge', 'methodology_knowledge'],
+  '运势': ['dayun_knowledge', 'shiye_knowledge', 'caiyun_knowledge'],
+  '整体': ['dayun_knowledge', 'geju_knowledge', 'methodology_knowledge'],
+  '全面': ['dayun_knowledge', 'geju_knowledge', 'methodology_knowledge'],
 };
 
 /**
