@@ -140,8 +140,8 @@ export interface KnowledgeSearchResult {
  */
 export async function searchKnowledge(
   query: string,
-  topK: number = 8,
-  minScore: number = 0.2
+  topK: number = 15,
+  minScore: number = 0.15
 ): Promise<KnowledgeSearchResult[]> {
   try {
     const client = getKnowledgeClient();
@@ -150,13 +150,25 @@ export async function searchKnowledge(
     const targetDatasets = resolveDatasets(query);
     const preciseResults = await doSearch(client, query, targetDatasets, topK, minScore);
     
-    // 如果精准搜索结果不足3条，扩大到全量搜索
-    if (preciseResults.length < 3) {
-      const broadResults = await doSearch(client, query, undefined, topK, minScore);
-      // 合并去重（优先精准搜索的结果）
+    // 第二轮：用更宽泛的关键词再搜索一次，补充更多相关论断
+    const broadQuery = simplifyQuery(query);
+    if (broadQuery !== query) {
+      const broadResults = await doSearch(client, broadQuery, targetDatasets, topK, minScore);
       const existingContents = new Set(preciseResults.map(r => r.content));
       for (const r of broadResults) {
-        if (!existingContents.has(r.content) && preciseResults.length < topK) {
+        if (!existingContents.has(r.content)) {
+          preciseResults.push(r);
+          existingContents.add(r.content);
+        }
+      }
+    }
+    
+    // 第三轮：如果精准搜索结果不足5条，扩大到全量搜索
+    if (preciseResults.length < 5) {
+      const fullResults = await doSearch(client, query, undefined, topK, minScore);
+      const existingContents = new Set(preciseResults.map(r => r.content));
+      for (const r of fullResults) {
+        if (!existingContents.has(r.content)) {
           preciseResults.push(r);
           existingContents.add(r.content);
         }
@@ -168,6 +180,20 @@ export async function searchKnowledge(
     console.error('Knowledge search error:', error);
     return [];
   }
+}
+
+/**
+ * 简化查询——提取核心关键词，用于第二轮更宽泛的搜索
+ * 例如"我的学业什么时候能恢复"→"学业恢复"
+ */
+function simplifyQuery(query: string): string {
+  // 去掉常见无关词
+  const stopWords = ['我的', '我', '的', '什么时候', '什么', '时候', '能', '会', '可以', '吗', '呢', '了', '是', '有', '在', '和', '与', '跟', '都', '也', '还', '又', '就', '才', '要', '想', '请', '帮', '分析', '看看', '说一下', '告诉'];
+  let simplified = query;
+  for (const w of stopWords) {
+    simplified = simplified.replace(new RegExp(w, 'g'), '');
+  }
+  return simplified.trim() || query;
 }
 
 async function doSearch(
@@ -204,22 +230,28 @@ export function formatKnowledgeResults(results: KnowledgeSearchResult[]): string
   if (results.length === 0) return '';
 
   let text = '\n\n==========【知识库强制检索结果】==========\n';
-  text += '⚠️ 铁律：你的回答必须引用以下知识库内容！不引用知识库内容直接回答的判断视为无效！\n';
-  text += '⚠️ 你必须先列出从以下检索结果中找到的相关论断，再结合命盘特征分析，最后给出判断。\n';
-  text += `⚠️ 本次检索到 ${results.length} 条相关典籍论断：\n`;
+  text += '🔴🔴🔴【知识库铁律——永久生效】🔴🔴🔴\n';
+  text += '1. 你必须把以下所有检索到的典籍论断全部列出，一条都不能漏！\n';
+  text += '2. 不允许只挑一两条就回答，必须把所有相关论断都引用出来\n';
+  text += '3. 每条论断都要标注出处（如"《三命通会》云..."）\n';
+  text += '4. 列完所有论断后，再结合命盘特征交叉验证\n';
+  text += '5. 最后给出综合判断时，说明综合了哪些典籍的哪些论断\n';
+  text += '6. 不引用知识库内容就直接回答的判断视为无效\n';
+  text += '7. 不允许编造知识库中没有的典籍内容或论断\n';
+  text += `本次检索到 ${results.length} 条相关典籍论断，必须全部引用：\n`;
 
   for (let i = 0; i < results.length; i++) {
     const r = results[i];
     const scorePct = (r.score * 100).toFixed(1);
-    text += `\n【典籍论断 ${i + 1}】（相关度: ${scorePct}%）\n${r.content}\n`;
+    text += `\n【典籍论断 ${i + 1}/${results.length}】（相关度: ${scorePct}%）\n${r.content}\n`;
   }
 
   text += '\n==========【知识库检索结束】==========\n';
-  text += '\n回答要求：';
-  text += '\n1. 先引用上述知识库中的具体论断（标注出处如"《三命通会》云..."）';
-  text += '\n2. 再结合用户命盘特征交叉验证';
-  text += '\n3. 最后给出综合判断，说明引用了哪些典籍的哪些知识点';
-  text += '\n4. 禁止不引用知识库内容就直接给出结论';
+  text += '\n回答格式要求：';
+  text += '\n1. 先逐条列出上述所有典籍论断（标注书名和论断内容）';
+  text += '\n2. 再结合命盘特征，对每条论断进行交叉验证';
+  text += '\n3. 最后给出综合判断，说明引用了哪些典籍的哪些论断';
+  text += '\n4. 禁止只摘一两条论断就回答，必须全部引用';
 
   return text;
 }
