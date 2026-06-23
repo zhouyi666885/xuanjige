@@ -73,15 +73,19 @@ export async function POST(request: NextRequest) {
     }
 
     // 知识库语义搜索面相相关经典
-    const knowledgeResults = await searchKnowledge('面相手相五官三停十二宫', 3, 0.3);
+    const knowledgeResults = await searchKnowledge('面相手相五官三停十二宫', 5, 0.2);
     const knowledgeSearchStr = formatKnowledgeResults(knowledgeResults);
+    const knowledgeIronLaw = knowledgeResults.length > 0
+      ? '\n\n🔴🔴🔴【知识库铁律——永久生效】🔴🔴🔴\n你的知识库中已有上述检索到的典籍论断。你的回答必须：\n1. 先从知识库检索结果中找出与面相分析相关的论断\n2. 结合面相特征，对每条论断进行交叉验证\n3. 给出判断时必须说明引用了哪本典籍的论断\n4. 不引用知识库内容就直接回答的判断，视为无效'
+      : '';
 
     const systemPrompt = faceReadingPrompt
       + '\n\n' + modeInstruction
       + (mianXiangFramework ? '\n\n' + mianXiangFramework : '')
       + '\n\n' + mianXiangGuide
       + (sanHeCanDuanPrompt ? '\n\n' + sanHeCanDuanPrompt : '')
-      + knowledgeSearchStr;
+      + knowledgeSearchStr
+      + knowledgeIronLaw;
 
     const userMessage = hasBirthInfo
       ? `请分析我的面相，详细解读五官十二宫、三停六府、流年气色，并结合命盘进行三合参断。必须给出具体的贵人方位/属相/时间、财运年份、姻缘时机等预测。出生信息：${birthInfo.gender}，${birthInfo.birthYear}年${birthInfo.birthMonth}月${birthInfo.birthDay}日${birthInfo.birthHour || ''}时${birthInfo.province ? '，' + birthInfo.province + birthInfo.city + birthInfo.district : ''}。`

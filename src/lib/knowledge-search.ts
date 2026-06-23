@@ -111,20 +111,51 @@ export interface KnowledgeSearchResult {
 /**
  * 语义搜索知识库
  * @param query 搜索查询文本
- * @param topK 返回结果数量（默认5）
- * @param minScore 最小相似度阈值（默认0.3）
+ * @param topK 返回结果数量（默认8）
+ * @param minScore 最小相似度阈值（默认0.2，更低以获取更多相关结果）
  * @returns 匹配的知识片段列表
  */
 export async function searchKnowledge(
   query: string,
-  topK: number = 5,
-  minScore: number = 0.3
+  topK: number = 8,
+  minScore: number = 0.2
 ): Promise<KnowledgeSearchResult[]> {
   try {
     const client = getKnowledgeClient();
-    const tableNames = resolveDatasets(query);
-    const response = await client.search(query, tableNames, topK, minScore);
+    
+    // 第一轮：精准搜索（只搜索相关领域数据集）
+    const targetDatasets = resolveDatasets(query);
+    const preciseResults = await doSearch(client, query, targetDatasets, topK, minScore);
+    
+    // 如果精准搜索结果不足3条，扩大到全量搜索
+    if (preciseResults.length < 3) {
+      const broadResults = await doSearch(client, query, undefined, topK, minScore);
+      // 合并去重（优先精准搜索的结果）
+      const existingContents = new Set(preciseResults.map(r => r.content));
+      for (const r of broadResults) {
+        if (!existingContents.has(r.content) && preciseResults.length < topK) {
+          preciseResults.push(r);
+          existingContents.add(r.content);
+        }
+      }
+    }
+    
+    return preciseResults;
+  } catch (error) {
+    console.error('Knowledge search error:', error);
+    return [];
+  }
+}
 
+async function doSearch(
+  client: KnowledgeClient,
+  query: string,
+  tableNames: string[] | undefined,
+  topK: number,
+  minScore: number
+): Promise<KnowledgeSearchResult[]> {
+  try {
+    const response = await client.search(query, tableNames, topK, minScore);
     if (response.code === 0 && response.chunks) {
       return response.chunks
         .filter((chunk) => chunk.doc_id !== undefined)
@@ -134,10 +165,9 @@ export async function searchKnowledge(
           docId: chunk.doc_id ?? '',
         }));
     }
-
     return [];
   } catch (error) {
-    console.error('Knowledge search error:', error);
+    console.error('Knowledge doSearch error:', error);
     return [];
   }
 }
@@ -150,14 +180,23 @@ export async function searchKnowledge(
 export function formatKnowledgeResults(results: KnowledgeSearchResult[]): string {
   if (results.length === 0) return '';
 
-  let text = '\n\n【知识库语义检索结果（以下为经典典籍中与用户问题最相关的核心论断）】\n';
+  let text = '\n\n==========【知识库强制检索结果】==========\n';
+  text += '⚠️ 铁律：你的回答必须引用以下知识库内容！不引用知识库内容直接回答的判断视为无效！\n';
+  text += '⚠️ 你必须先列出从以下检索结果中找到的相关论断，再结合命盘特征分析，最后给出判断。\n';
+  text += `⚠️ 本次检索到 ${results.length} 条相关典籍论断：\n`;
 
   for (let i = 0; i < results.length; i++) {
     const r = results[i];
-    text += `\n--- 相关度: ${(r.score * 100).toFixed(1)}% ---\n${r.content}\n`;
+    const scorePct = (r.score * 100).toFixed(1);
+    text += `\n【典籍论断 ${i + 1}】（相关度: ${scorePct}%）\n${r.content}\n`;
   }
 
-  text += '\n请以上述经典论断为依据，结合你的专业知识回答用户问题。引经据典时请注明出处。';
+  text += '\n==========【知识库检索结束】==========\n';
+  text += '\n回答要求：';
+  text += '\n1. 先引用上述知识库中的具体论断（标注出处如"《三命通会》云..."）';
+  text += '\n2. 再结合用户命盘特征交叉验证';
+  text += '\n3. 最后给出综合判断，说明引用了哪些典籍的哪些知识点';
+  text += '\n4. 禁止不引用知识库内容就直接给出结论';
 
   return text;
 }

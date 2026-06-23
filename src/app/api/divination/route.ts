@@ -53,12 +53,19 @@ export async function POST(request: NextRequest) {
 
     const keywords = typeToKeywords[type] || '';
     // 知识库语义搜索（向量化检索，精准度更高）
-    const knowledgeResults = await searchKnowledge(input || keywords, 5, 0.3);
+    const searchQuery = (input || keywords) + ' 命理八字紫微面相手相';
+    const knowledgeResults = await searchKnowledge(searchQuery, 8, 0.2);
     const knowledgeSearchStr = formatKnowledgeResults(knowledgeResults);
     // 关键词匹配兜底
     const classicKnowledgeStr = keywords ? matchKnowledge(keywords) : '';
     const finalKnowledgeStr = knowledgeSearchStr || (classicKnowledgeStr ? '\n\n' + classicKnowledgeStr : '');
-    const systemPrompt = baseSystemPrompt + finalKnowledgeStr;
+    
+    // 知识库强制引用铁律
+    const knowledgeIronLaw = knowledgeResults.length > 0
+      ? '\n\n🔴🔴🔴【知识库铁律——永久生效】🔴🔴🔴\n你的知识库中已有上述检索到的典籍论断。你的回答必须遵循：\n1. 先从知识库检索结果中找出与用户问题相关的论断，逐条列出\n2. 结合用户命盘特征，对每条论断进行交叉验证\n3. 给出最终判断时，必须说明"本判断引用了《某某》中关于某某的论断"\n4. 不引用知识库内容就直接回答的判断，视为无效\n5. 每个领域的判断至少引用2本不同典籍的论断进行交叉验证'
+      : '';
+    
+    const systemPrompt = baseSystemPrompt + finalKnowledgeStr + knowledgeIronLaw;
 
     const modeInstruction = mode === 'professional'
       ? '请用专业术语和经典引文进行解读，标注出处。'

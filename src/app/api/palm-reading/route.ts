@@ -72,15 +72,19 @@ export async function POST(request: NextRequest) {
     }
 
     // 知识库语义搜索手相相关经典
-    const knowledgeResults = await searchKnowledge('手相掌纹生命线感情线智慧线九大丘位', 3, 0.3);
+    const knowledgeResults = await searchKnowledge('手相掌纹生命线感情线智慧线九大丘位', 5, 0.2);
     const knowledgeSearchStr = formatKnowledgeResults(knowledgeResults);
+    const knowledgeIronLaw = knowledgeResults.length > 0
+      ? '\n\n🔴🔴🔴【知识库铁律——永久生效】🔴🔴🔴\n你的知识库中已有上述检索到的典籍论断。你的回答必须：\n1. 先从知识库检索结果中找出与手相分析相关的论断\n2. 结合手相特征，对每条论断进行交叉验证\n3. 给出判断时必须说明引用了哪本典籍的论断\n4. 不引用知识库内容就直接回答的判断，视为无效'
+      : '';
 
     const systemPrompt = palmReadingPrompt
       + '\n\n' + modeInstruction
       + (shouXiangFramework ? '\n\n' + shouXiangFramework : '')
       + '\n\n' + shouXiangGuide
       + (sanHeCanDuanPrompt ? '\n\n' + sanHeCanDuanPrompt : '')
-      + knowledgeSearchStr;
+      + knowledgeSearchStr
+      + knowledgeIronLaw;
 
     const userMessage = hasBirthInfo
       ? `请分析我的手相，详细解读五大主线、九大丘位、特殊纹路、流年应期，并结合命盘进行三合参断。必须给出具体的结婚年龄、事业高峰期、财运年份、健康注意年份等预测。出生信息：${birthInfo.gender}，${birthInfo.birthYear}年${birthInfo.birthMonth}月${birthInfo.birthDay}日${birthInfo.birthHour || ''}时${birthInfo.province ? '，' + birthInfo.province + birthInfo.city + birthInfo.district : ''}。`

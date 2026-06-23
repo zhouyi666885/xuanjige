@@ -186,11 +186,19 @@ export async function POST(request: NextRequest) {
     const classicKnowledgeStr = matchKnowledge(message) || '';
 
     // 知识库语义搜索（向量化检索，精准度更高）
-    const knowledgeResults = await searchKnowledge(message, 5, 0.3);
+    // 搜索用户消息+排盘相关的所有领域知识
+    const searchQuery = message + (birthInfoStr ? ' 命理八字紫微面相手相' : '');
+    const knowledgeResults = await searchKnowledge(searchQuery, 8, 0.2);
     const knowledgeSearchStr = formatKnowledgeResults(knowledgeResults);
 
-    // 如果语义搜索无结果且关键词匹配也为空，则使用全量知识兜底
-    const finalKnowledgeStr = knowledgeSearchStr || classicKnowledgeStr || getAllKnowledge();
+    // 合并语义搜索结果和关键词匹配结果（两者互补，不应二选一）
+    const finalKnowledgeStr = (knowledgeSearchStr ? '【知识库语义检索结果】\n' + knowledgeSearchStr : '')
+      + (classicKnowledgeStr ? '\n\n【关键词匹配补充知识】\n' + classicKnowledgeStr : '');
+
+    // 知识库强制引用铁律（追加到systemPrompt最末尾，确保最高优先级）
+    const knowledgeIronLaw = knowledgeResults.length > 0
+      ? '\n\n🔴🔴🔴【知识库铁律——永久生效】🔴🔴🔴\n你的知识库中已有上述检索到的典籍论断。你的回答必须遵循：\n1. 先从知识库检索结果中找出与用户问题相关的论断，逐条列出\n2. 结合用户命盘特征，对每条论断进行交叉验证\n3. 给出最终判断时，必须说明"本判断引用了《某某》中关于某某的论断"\n4. 不引用知识库内容就直接回答的判断，视为无效\n5. 每个领域的判断至少引用2本不同典籍的论断进行交叉验证'
+      : '';
 
     const basePrompt = mode === 'professional'
       ? buildSystemPromptProfessional(birthInfoStr)
@@ -201,7 +209,7 @@ export async function POST(request: NextRequest) {
     // 加入自动起卦/排盘
     const autoQiGuaResult = autoQiGua(message, birthInfo ? (birthInfo as BirthInfo) : null);
     const contextStr = context ? `\n\n【前置分析结果】\n${context}\n请在以上分析结果基础上，继续深入回答用户的问题。` : '';
-    const systemPrompt = basePrompt + '\n\n' + finalKnowledgeStr + '\n\n' + topicGuide + autoQiGuaResult + contextStr;
+    const systemPrompt = basePrompt + '\n\n' + finalKnowledgeStr + '\n\n' + topicGuide + autoQiGuaResult + contextStr + knowledgeIronLaw;
 
     const messages = [
       { role: 'system' as const, content: systemPrompt },
