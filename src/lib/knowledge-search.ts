@@ -134,48 +134,68 @@ export interface KnowledgeSearchResult {
 /**
  * 语义搜索知识库
  * @param query 搜索查询文本
- * @param topK 返回结果数量（默认8）
- * @param minScore 最小相似度阈值（默认0.2，更低以获取更多相关结果）
+ * @param topK 返回结果数量（默认50，尽可能多）
+ * @param minScore 最小相似度阈值（默认0.01，尽可能多）
  * @returns 匹配的知识片段列表
  */
 export async function searchKnowledge(
   query: string,
-  topK: number = 15,
-  minScore: number = 0.15
+  topK: number = 50,
+  minScore: number = 0.01
 ): Promise<KnowledgeSearchResult[]> {
   try {
     const client = getKnowledgeClient();
+    const allResults: KnowledgeSearchResult[] = [];
+    const seenContents = new Set<string>();
     
-    // 第一轮：精准搜索（只搜索相关领域数据集）
+    // 第一步：识别用户问题属于哪些领域
     const targetDatasets = resolveDatasets(query);
-    const preciseResults = await doSearch(client, query, targetDatasets, topK, minScore);
     
-    // 第二轮：用更宽泛的关键词再搜索一次，补充更多相关论断
-    const broadQuery = simplifyQuery(query);
-    if (broadQuery !== query) {
-      const broadResults = await doSearch(client, broadQuery, targetDatasets, topK, minScore);
-      const existingContents = new Set(preciseResults.map(r => r.content));
-      for (const r of broadResults) {
-        if (!existingContents.has(r.content)) {
-          preciseResults.push(r);
-          existingContents.add(r.content);
+    // 第二步：全量搜索该领域的所有数据集（不加阈值限制，全部拉出来）
+    if (targetDatasets && targetDatasets.length > 0) {
+      for (const dataset of targetDatasets) {
+        const dsResults = await doSearch(client, query, [dataset], topK, 0.01);
+        for (const r of dsResults) {
+          if (!seenContents.has(r.content)) {
+            allResults.push(r);
+            seenContents.add(r.content);
+          }
+        }
+        // 再用更宽泛的关键词搜该数据集
+        const broadQuery = simplifyQuery(query);
+        if (broadQuery !== query) {
+          const broadResults = await doSearch(client, broadQuery, [dataset], topK, 0.01);
+          for (const r of broadResults) {
+            if (!seenContents.has(r.content)) {
+              allResults.push(r);
+              seenContents.add(r.content);
+            }
+          }
         }
       }
     }
     
-    // 第三轮：如果精准搜索结果不足5条，扩大到全量搜索
-    if (preciseResults.length < 5) {
+    // 第三步：再对相关领域做一次语义搜索（补充可能遗漏的跨领域内容）
+    const semanticResults = await doSearch(client, query, targetDatasets, topK, minScore);
+    for (const r of semanticResults) {
+      if (!seenContents.has(r.content)) {
+        allResults.push(r);
+        seenContents.add(r.content);
+      }
+    }
+    
+    // 第四步：如果结果不足，扩大到全量搜索
+    if (allResults.length < 5) {
       const fullResults = await doSearch(client, query, undefined, topK, minScore);
-      const existingContents = new Set(preciseResults.map(r => r.content));
       for (const r of fullResults) {
-        if (!existingContents.has(r.content)) {
-          preciseResults.push(r);
-          existingContents.add(r.content);
+        if (!seenContents.has(r.content)) {
+          allResults.push(r);
+          seenContents.add(r.content);
         }
       }
     }
     
-    return preciseResults;
+    return allResults;
   } catch (error) {
     console.error('Knowledge search error:', error);
     return [];
@@ -229,16 +249,16 @@ async function doSearch(
 export function formatKnowledgeResults(results: KnowledgeSearchResult[]): string {
   if (results.length === 0) return '';
 
-  let text = '\n\n==========【知识库强制检索结果】==========\n';
-  text += '🔴🔴🔴【知识库铁律——永久生效】🔴🔴🔴\n';
-  text += '1. 你必须把以下所有检索到的典籍论断全部列出，一条都不能漏！\n';
-  text += '2. 不允许只挑一两条就回答，必须把所有相关论断都引用出来\n';
-  text += '3. 每条论断都要标注出处（如"《三命通会》云..."）\n';
-  text += '4. 列完所有论断后，再结合命盘特征交叉验证\n';
-  text += '5. 最后给出综合判断时，说明综合了哪些典籍的哪些论断\n';
-  text += '6. 不引用知识库内容就直接回答的判断视为无效\n';
-  text += '7. 不允许编造知识库中没有的典籍内容或论断\n';
-  text += `本次检索到 ${results.length} 条相关典籍论断，必须全部引用：\n`;
+  let text = '\n\n==========【知识库强制检索结果——全部论断必须引用】==========\n';
+  text += '🔴🔴🔴🔴🔴【最高铁律——永久生效——违反即为无效回答】🔴🔴🔴🔴🔴\n';
+  text += '1. 你必须把以下【每一条】典籍论断全部列出来！一条都不能漏！\n';
+  text += '2. 禁止只挑其中几条就回答！必须把所有论断全部引用出来！\n';
+  text += '3. 每条论断必须标注出处（如"《三命通会》论断：..."）\n';
+  text += '4. 列完所有论断后，再结合命盘特征逐一交叉验证\n';
+  text += '5. 最终判断必须综合所有典籍论断，不能只依据其中几条\n';
+  text += '6. 不引用知识库内容就直接回答=无效！只引用部分论断=无效！\n';
+  text += '7. 禁止编造知识库中没有的典籍内容或论断\n';
+  text += `本次共检索到 ${results.length} 条典籍论断！以下 ${results.length} 条必须全部引用，一条不漏！\n`;
 
   for (let i = 0; i < results.length; i++) {
     const r = results[i];
@@ -248,10 +268,10 @@ export function formatKnowledgeResults(results: KnowledgeSearchResult[]): string
 
   text += '\n==========【知识库检索结束】==========\n';
   text += '\n回答格式要求：';
-  text += '\n1. 先逐条列出上述所有典籍论断（标注书名和论断内容）';
-  text += '\n2. 再结合命盘特征，对每条论断进行交叉验证';
+  text += '\n1. 先逐条列出上述所有典籍论断（标注书名和论断内容），一条都不能漏！';
+  text += '\n2. 再结合命盘特征，对每条论断逐一进行交叉验证';
   text += '\n3. 最后给出综合判断，说明引用了哪些典籍的哪些论断';
-  text += '\n4. 禁止只摘一两条论断就回答，必须全部引用';
+  text += '\n4. 禁止只摘部分论断就回答！必须全部引用！全部！';
 
   return text;
 }
