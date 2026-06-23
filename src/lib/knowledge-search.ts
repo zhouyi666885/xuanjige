@@ -134,13 +134,13 @@ export interface KnowledgeSearchResult {
 /**
  * 语义搜索知识库
  * @param query 搜索查询文本
- * @param topK 返回结果数量（默认50，尽可能多）
+ * @param topK 返回结果数量（默认200，无上限，尽可能多检索）
  * @param minScore 最小相似度阈值（默认0.01，尽可能多）
  * @returns 匹配的知识片段列表
  */
 export async function searchKnowledge(
   query: string,
-  topK: number = 50,
+  topK: number = 200,
   minScore: number = 0.01
 ): Promise<KnowledgeSearchResult[]> {
   try {
@@ -184,14 +184,12 @@ export async function searchKnowledge(
       }
     }
     
-    // 第四步：如果结果不足，扩大到全量搜索
-    if (allResults.length < 5) {
-      const fullResults = await doSearch(client, query, undefined, topK, minScore);
-      for (const r of fullResults) {
-        if (!seenContents.has(r.content)) {
-          allResults.push(r);
-          seenContents.add(r.content);
-        }
+    // 第四步：无论结果多少，都扩大到全量搜索（无上限，确保不遗漏任何相关内容）
+    const fullResults = await doSearch(client, query, undefined, topK, minScore);
+    for (const r of fullResults) {
+      if (!seenContents.has(r.content)) {
+        allResults.push(r);
+        seenContents.add(r.content);
       }
     }
     
@@ -249,8 +247,8 @@ async function doSearch(
 export function formatKnowledgeResults(results: KnowledgeSearchResult[]): string {
   if (results.length === 0) return '';
 
-  let text = '\n\n==========【知识库强制检索结果——全部论断必须引用】==========\n';
-  text += '🔴🔴🔴🔴🔴【最高铁律——永久生效——违反即为无效回答】🔴🔴🔴🔴🔴\n';
+  let text = '\n\n==========【知识库强制检索结果——全部论断必须引用——无上限】==========\n';
+  text += '🔴🔴🔴🔴🔴【最高铁律——永久生效——违反即为无效回答——无上限】🔴🔴🔴🔴🔴\n';
   text += '1. 你必须把以下【每一条】典籍论断全部列出来！一条都不能漏！\n';
   text += '2. 禁止只挑其中几条就回答！必须把所有论断全部引用出来！\n';
   text += '3. 每条论断必须标注出处（如"《三命通会》论断：..."）\n';
@@ -258,6 +256,7 @@ export function formatKnowledgeResults(results: KnowledgeSearchResult[]): string
   text += '5. 最终判断必须综合所有典籍论断，不能只依据其中几条\n';
   text += '6. 不引用知识库内容就直接回答=无效！只引用部分论断=无效！\n';
   text += '7. 禁止编造知识库中没有的典籍内容或论断\n';
+  text += '8. 🔴检索没有上限！引用没有上限！回答没有上限！有多少论断就引用多少论断，绝不允许省略！\n';
   text += `本次共检索到 ${results.length} 条典籍论断！以下 ${results.length} 条必须全部引用，一条不漏！\n`;
 
   for (let i = 0; i < results.length; i++) {
@@ -266,12 +265,12 @@ export function formatKnowledgeResults(results: KnowledgeSearchResult[]): string
     text += `\n【典籍论断 ${i + 1}/${results.length}】（相关度: ${scorePct}%）\n${r.content}\n`;
   }
 
-  text += '\n==========【知识库检索结束】==========\n';
-  text += '\n回答格式要求：';
+  text += '\n==========【知识库检索结束——无上限】==========\n';
+  text += '\n回答格式要求（无上限）：';
   text += '\n1. 先逐条列出上述所有典籍论断（标注书名和论断内容），一条都不能漏！';
   text += '\n2. 再结合命盘特征，对每条论断逐一进行交叉验证';
   text += '\n3. 最后给出综合判断，说明引用了哪些典籍的哪些论断';
-  text += '\n4. 禁止只摘部分论断就回答！必须全部引用！全部！';
+  text += '\n4. 禁止只摘部分论断就回答！必须全部引用！全部！没有上限！';
 
   return text;
 }
