@@ -185,11 +185,14 @@ export async function POST(request: NextRequest) {
   
     // 根据用户消息智能匹配经典知识点（关键词匹配兜底）
     const classicKnowledgeStr = matchKnowledge(message) || '';
-    // 匹配扩展知识库（全部1079本书籍的所有核心内容）
+    // 匹配扩展知识库（全部书籍的核心内容，截断至8000字符避免超限）
     const extendedKnowledgeResults = matchExtendedKnowledge(message);
-    const extendedKnowledgeStr = extendedKnowledgeResults.length > 0
+    let extendedKnowledgeStr = extendedKnowledgeResults.length > 0
       ? extendedKnowledgeResults.map(r => r.corePoints).join('\n\n')
       : '';
+    if (extendedKnowledgeStr.length > 8000) {
+      extendedKnowledgeStr = extendedKnowledgeStr.substring(0, 8000) + '\n\n[...更多典籍论断已截断，请基于以上内容回答]';
+    }
 
     // 知识库语义搜索（向量化检索，精准度更高）
     // 搜索用户消息+排盘相关的所有领域知识

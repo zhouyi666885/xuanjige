@@ -59,9 +59,12 @@ export async function POST(request: NextRequest) {
     const knowledgeSearchStr = formatKnowledgeResults(knowledgeResults);
     // 关键词匹配兜底
     const classicKnowledgeStr = keywords ? matchKnowledge(keywords) : '';
-    // 扩展知识库匹配——全部典籍内容
+    // 扩展知识库匹配——全部典籍内容（截断至8000字符避免超限）
     const extendedKnowledgeResults = matchExtendedKnowledge(searchQuery);
-    const extendedKnowledgeStr = extendedKnowledgeResults.map(r => r.corePoints).join('\n\n');
+    let extendedKnowledgeStr = extendedKnowledgeResults.map(r => r.corePoints).join('\n\n');
+    if (extendedKnowledgeStr.length > 8000) {
+      extendedKnowledgeStr = extendedKnowledgeStr.substring(0, 8000) + '\n\n[...更多典籍论断已截断，请基于以上内容回答]';
+    }
     const finalKnowledgeStr = knowledgeSearchStr || (classicKnowledgeStr ? '\n\n' + classicKnowledgeStr : '') || (extendedKnowledgeStr ? '\n\n' + extendedKnowledgeStr : '');
     
     // 知识库强制引用铁律
