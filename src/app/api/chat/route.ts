@@ -9,6 +9,7 @@ import { searchKnowledge, formatKnowledgeResults } from '@/lib/knowledge-search'
 import { generateSanHeCanDuanPrompt, getSanHeCanDuanByTopic, SAN_HE_CAN_DUAN_GUIDE } from '@/lib/sanhe-canduan';
 import { generateMianXiangFramework, getMianXiangPredictionGuide } from '@/lib/xiangxue';
 import { generateShouXiangFramework, getShouXiangPredictionGuide } from '@/lib/shouxiang';
+import { searchFullText, formatFullTextResults } from '@/lib/fulltext-search';
 import { tongQianQiGua, shiJianQiGua as liuyaoShiJian, formatLiuYaoPaiPan as liuyaoFormat } from '@/lib/liuyao';
 import { shiJianQiGua as meihuaShiJian, shuZiQiGua, wenZiQiGua, formatMeiHuaPaiPan as meihuaFormat } from '@/lib/meihua';
 import { paiPan as qimenPaiPan, formatQiMenPaiPan as qimenFormat } from '@/lib/qimen';
@@ -200,10 +201,15 @@ export async function POST(request: NextRequest) {
     const knowledgeResults = await searchKnowledge(searchQuery);
     const knowledgeSearchStr = formatKnowledgeResults(knowledgeResults);
 
-    // 合并语义搜索结果、关键词匹配结果和扩展知识（三者互补，不应二选一）
+    // 全文检索：从本地txt文件中搜索相关古籍原文段落
+    const fullTextPassages = searchFullText(message, 5, 3, 6000);
+    const fullTextStr = formatFullTextResults(fullTextPassages);
+
+    // 合并语义搜索结果、关键词匹配结果、扩展知识和全文检索结果（四者互补，不应二选一）
     const finalKnowledgeStr = (knowledgeSearchStr ? '【知识库语义检索结果】\n' + knowledgeSearchStr : '')
       + (classicKnowledgeStr ? '\n\n【关键词匹配补充知识】\n' + classicKnowledgeStr : '')
-      + (extendedKnowledgeStr ? '\n\n【全部典籍核心论断——必须全部引用】\n' + extendedKnowledgeStr : '');
+      + (extendedKnowledgeStr ? '\n\n【全部典籍核心论断——必须全部引用】\n' + extendedKnowledgeStr : '')
+      + (fullTextStr ? '\n\n【典籍原文摘录（来自知识库藏书全文）——优先引用原文】\n' + fullTextStr : '');
 
     // 知识库强制引用铁律（追加到systemPrompt最末尾，确保最高优先级）
     const knowledgeIronLaw = knowledgeResults.length > 0

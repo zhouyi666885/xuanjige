@@ -15,6 +15,7 @@ import { paiPan as qimenPaiPan, formatQiMenPaiPan as qimenFormat } from '@/lib/q
 import { paiPan as liurenPaiPan, formatLiuRenPaiPan as liurenFormat } from '@/lib/liuren';
 import { paiPan as fengshuiPaiPan, formatFengShuiPaiPan as fengshuiFormat } from '@/lib/fengshui';
 import { calculateXingMing as xingmingCalculate, formatXingMingPaiPan as xingmingFormat } from '@/lib/xingming';
+import { searchFullText, formatFullTextResults } from '@/lib/fulltext-search';
 
 export const dynamic = 'force-dynamic';
 
@@ -65,7 +66,12 @@ export async function POST(request: NextRequest) {
     if (extendedKnowledgeStr.length > 8000) {
       extendedKnowledgeStr = extendedKnowledgeStr.substring(0, 8000) + '\n\n[...更多典籍论断已截断，请基于以上内容回答]';
     }
-    const finalKnowledgeStr = knowledgeSearchStr || (classicKnowledgeStr ? '\n\n' + classicKnowledgeStr : '') || (extendedKnowledgeStr ? '\n\n' + extendedKnowledgeStr : '');
+    // 全文检索：从本地txt文件中搜索相关古籍原文段落
+    const fullTextPassages = searchFullText(searchQuery, 5, 3, 6000);
+    const fullTextStr = formatFullTextResults(fullTextPassages);
+
+    const finalKnowledgeStr = knowledgeSearchStr || (classicKnowledgeStr ? '\n\n' + classicKnowledgeStr : '') || (extendedKnowledgeStr ? '\n\n' + extendedKnowledgeStr : '')
+      + (fullTextStr ? '\n\n' + fullTextStr : '');
     
     // 知识库强制引用铁律
     const knowledgeIronLaw = knowledgeResults.length > 0
