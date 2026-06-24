@@ -8,6 +8,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { saveBook as saveBookToS3, getBookContent as getBookFromS3 } from './book-storage';
 
 // 书籍内容缓存
 let bookCache: Map<string, string> | null = null;
@@ -404,6 +405,20 @@ export function getBookFullText(bookName: string): string | null {
     }
   }
   
+  // 本地未命中 → 异步从S3获取（同步返回null，下次请求时缓存已就绪）
+  getBookFromS3(bookName).then((content: string | null) => {
+    if (content) {
+      // 加入缓存，下次可直接命中
+      bookCache?.set(bookName, content);
+      if (bookNameList && !bookNameList.includes(bookName)) {
+        bookNameList.push(bookName);
+      }
+      console.log(`[S3] 从云存储获取《${bookName}》成功，已加入本地缓存`);
+    }
+  }).catch((err: unknown) => {
+    console.error(`[S3] 从云存储获取《${bookName}》失败:`, err);
+  });
+  
   return null;
 }
 
@@ -518,6 +533,13 @@ export function addBookToKnowledgeBase(bookName: string, content: string): strin
   bookCache = null;
   bookNameList = null;
   loadBookCache();
+  
+  // 异步上传到S3（不阻塞主流程）
+  saveBookToS3(bookName, content).then(() => {
+    console.log(`[S3] 书籍《${bookName}》已同步到云存储`);
+  }).catch((err: unknown) => {
+    console.error(`[S3] 书籍《${bookName}》上传云存储失败:`, err);
+  });
   
   return filePath;
 }
