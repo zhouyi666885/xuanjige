@@ -2,13 +2,15 @@
  * 全文检索模块
  * 从本地 book-content/ 目录中的txt文件搜索相关段落
  * 用于将古籍原文注入AI提示词，提供更精准的引用依据
+ * 
+ * 核心原则：书籍从第一个字到最后一个字完整收录，绝不截断！
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
 
 // 书籍内容缓存
-let bookCache: Map<string, string[]> | null = null;
+let bookCache: Map<string, string> | null = null;
 let bookNameList: string[] | null = null;
 
 // 书籍文件目录（生产环境使用/tmp，开发环境使用public）
@@ -17,7 +19,6 @@ function getBookContentDir(): string {
   const prodDir = '/tmp/book-content';
   
   if (process.env.COZE_PROJECT_ENV === 'PROD') {
-    // 生产环境：优先检查/tmp，回退到public
     if (fs.existsSync(prodDir)) return prodDir;
   }
   
@@ -121,15 +122,37 @@ const TOPIC_BOOK_MAP: Record<string, string[]> = {
   '战争': ['孙子兵法', '六韬', '三略'],
   '谋略': ['孙子兵法', '三十六计', '鬼谷子'],
   
-  // 史书
-  '史': ['史记', '汉书', '资治通鉴', '三国志'],
-  '历史': ['史记', '资治通鉴'],
-  
   // 诸子百家
   '墨': ['墨子'],
   '法': ['韩非子', '商君书'],
   '名': ['公孙龙子'],
   '纵横': ['鬼谷子'],
+  
+  // 占卜/灵棋
+  '灵棋': ['灵棋经'],
+  '占卜': ['灵棋经', '增删卜易', '卜筮正宗'],
+  '卜筮': ['灵棋经', '增删卜易', '卜筮正宗'],
+  
+  // 相术
+  '相术': ['神相全编', '麻衣神相', '冰鉴', '月波洞中记', '柳庄相法'],
+  '相法': ['神相全编', '麻衣神相', '柳庄相法'],
+  
+  // 神煞
+  '神煞': ['三命通会', '星学大成', '协纪辨方'],
+  '择日': ['协纪辨方', '钦定协纪辨方'],
+  '择吉': ['协纪辨方', '钦定协纪辨方'],
+  
+  // 太乙
+  '太乙': ['太乙金镜式'],
+  
+  // 堪舆
+  '堪舆': ['撼龙经', '疑龙经', '天玉经', '葬书', '青囊经'],
+  '地理': ['撼龙经', '疑龙经', '天玉经', '葬书', '青囊经', '雪心赋'],
+  
+  // 灵学/玄学
+  '玄学': ['老子', '庄子', '周易', '列子'],
+  '阴阳': ['阴阳'],
+  '五行': ['五行'],
 };
 
 // 搜索结果中的段落
@@ -141,7 +164,7 @@ export interface BookPassage {
 }
 
 /**
- * 加载所有书籍内容到缓存
+ * 加载所有书籍内容到缓存（完整全文，不截断）
  */
 function loadBookCache(): void {
   if (bookCache) return;
@@ -160,9 +183,8 @@ function loadBookCache(): void {
     
     try {
       const content = fs.readFileSync(filePath, 'utf-8');
-      // 按章节分割（=== 标题 === 格式）
-      const chapters = content.split(/\n=== .+? ===\n/).filter(s => s.trim().length > 0);
-      bookCache.set(bookName, chapters);
+      // 完整全文存储，不做任何截断！
+      bookCache.set(bookName, content);
       bookNameList.push(bookName);
     } catch {
       // Skip unreadable files
@@ -171,15 +193,22 @@ function loadBookCache(): void {
 }
 
 /**
- * 根据用户消息确定要搜索的书籍
+ * 根据用户消息确定要搜索的书籍（多层级匹配）
  */
 function getRelevantBooks(message: string): string[] {
   const relevantBooks = new Set<string>();
   
+  // 第一层：关键词精确匹配 TOPIC_BOOK_MAP
   for (const [keyword, books] of Object.entries(TOPIC_BOOK_MAP)) {
     if (message.includes(keyword)) {
-      for (const book of books) {
-        relevantBooks.add(book);
+      const bookList = Array.isArray(books) ? books : [books];
+      for (const book of bookList) {
+        // 模糊匹配：书名包含关键词或关键词包含书名
+        for (const cachedName of bookNameList || []) {
+          if (cachedName.includes(book) || book.includes(cachedName)) {
+            relevantBooks.add(cachedName);
+          }
+        }
       }
     }
   }
@@ -189,8 +218,11 @@ function getRelevantBooks(message: string): string[] {
 
 /**
  * 在文本中搜索关键词，返回包含关键词的段落
+ * @param text 完整文本
+ * @param keywords 搜索关键词
+ * @param maxPassages 最大返回段落数（0=不限制，返回全部）
  */
-function searchInText(text: string, keywords: string[], maxPassages: number): string[] {
+function searchInText(text: string, keywords: string[], maxPassages: number = 0): string[] {
   const paragraphs = text.split(/\n{2,}/);
   const results: { text: string; score: number }[] = [];
   
@@ -199,8 +231,12 @@ function searchInText(text: string, keywords: string[], maxPassages: number): st
     
     let score = 0;
     for (const kw of keywords) {
-      const count = (para.match(new RegExp(kw, 'g')) || []).length;
-      score += count;
+      try {
+        const count = (para.match(new RegExp(kw, 'g')) || []).length;
+        score += count;
+      } catch {
+        // Skip invalid regex
+      }
     }
     
     if (score > 0) {
@@ -211,21 +247,71 @@ function searchInText(text: string, keywords: string[], maxPassages: number): st
   // 按相关度排序
   results.sort((a, b) => b.score - a.score);
   
-  return results.slice(0, maxPassages).map(r => r.text);
+  // maxPassages=0 表示不限制，返回全部
+  if (maxPassages > 0) {
+    return results.slice(0, maxPassages).map(r => r.text);
+  }
+  return results.map(r => r.text);
+}
+
+/**
+ * 从用户消息中提取搜索关键词（更全面）
+ */
+function extractSearchKeywords(message: string): string[] {
+  const keywords: string[] = [];
+  
+  // 命理核心术语
+  const terms = [
+    '日主', '旺衰', '用神', '格局', '正官', '偏官', '正印', '偏印', '正财', '偏财',
+    '食神', '伤官', '比肩', '劫财', '羊刃', '禄', '墓', '绝', '长生', '帝旺',
+    '甲', '乙', '丙', '丁', '戊', '己', '庚', '辛', '壬', '癸',
+    '子', '丑', '寅', '卯', '辰', '巳', '午', '未', '申', '酉', '戌', '亥',
+    '天干', '地支', '藏干', '五行', '金木水火土',
+    '冲', '合', '刑', '害', '破', '会', '化',
+    '太极', '紫微', '天府', '太阳', '太阴', '贪狼', '巨门', '相', '梁', '曲', '昌', '杀', '破',
+    '乾', '坤', '震', '巽', '坎', '离', '艮', '兑',
+    '八卦', '乾坤', '阴阳',
+    // 补充更多关键词
+    '命理', '八字', '四柱', '斗数', '六爻', '梅花', '奇门', '遁甲', '六壬',
+    '风水', '面相', '手相', '占卜', '起卦', '卦象', '爻辞',
+    '佛', '道', '禅', '儒', '易', '丹', '仙',
+    '修真', '内丹', '外丹', '金丹', '炼丹',
+    '符箓', '咒语', '法术',
+    '黄帝内经', '本草', '伤寒', '针灸',
+    '兵法', '谋略',
+  ];
+  
+  for (const term of terms) {
+    if (message.includes(term)) {
+      keywords.push(term);
+    }
+  }
+  
+  // 如果没有匹配到术语，用消息中的中文词组（2-4字）作为关键词
+  if (keywords.length === 0) {
+    const chineseWords = message.match(/[\u4e00-\u9fff]{2,4}/g) || [];
+    keywords.push(...chineseWords.slice(0, 8));
+  }
+  
+  return keywords;
 }
 
 /**
  * 全文检索：从本地txt文件中搜索相关段落
+ * 
+ * 重要：此函数不再对返回内容做任何字符数截断！
+ * 所有书籍从第一个字到最后一个字完整收录。
+ * 
  * @param message 用户消息
- * @param maxBooks 最多搜索多少本书
- * @param maxPassagesPerBook 每本书最多返回多少段落
- * @param maxTotalChars 返回内容的最大总字符数
+ * @param maxBooks 最多搜索多少本书（0=不限制）
+ * @param maxPassagesPerBook 每本书最多返回多少段落（0=不限制，返回全部相关段落）
+ * @param maxTotalChars 返回内容的最大总字符数（0=不限制）
  */
 export function searchFullText(
   message: string,
-  maxBooks: number = 5,
-  maxPassagesPerBook: number = 3,
-  maxTotalChars: number = 6000
+  maxBooks: number = 0,
+  maxPassagesPerBook: number = 0,
+  maxTotalChars: number = 0
 ): BookPassage[] {
   loadBookCache();
   
@@ -254,12 +340,12 @@ export function searchFullText(
           break;
         }
       }
-      if (availableBooks.length >= maxBooks) break;
+      if (maxBooks > 0 && availableBooks.length >= maxBooks) break;
     }
   }
   
-  // 限制搜索书籍数量
-  const booksToSearch = availableBooks.slice(0, maxBooks);
+  // 限制搜索书籍数量（0=不限制）
+  const booksToSearch = maxBooks > 0 ? availableBooks.slice(0, maxBooks) : availableBooks;
   
   // 从用户消息中提取搜索关键词
   const searchKeywords = extractSearchKeywords(message);
@@ -268,19 +354,19 @@ export function searchFullText(
   let totalChars = 0;
   
   for (const bookName of booksToSearch) {
-    const chapters = bookCache.get(bookName);
-    if (!chapters) continue;
+    const fullText = bookCache.get(bookName);
+    if (!fullText) continue;
     
-    // 拼接所有章节文本进行搜索
-    const fullText = chapters.join('\n\n');
+    // 搜索相关段落
     const passages = searchInText(fullText, searchKeywords, maxPassagesPerBook);
     
     for (const passage of passages) {
-      if (totalChars + passage.length > maxTotalChars) break;
+      // maxTotalChars=0 表示不限制字符数
+      if (maxTotalChars > 0 && totalChars + passage.length > maxTotalChars) break;
       
       allPassages.push({
         bookName,
-        chapter: '',  // 章节信息在段落分割时已丢失，后续可优化
+        chapter: '',
         content: passage,
         relevance: 1.0,
       });
@@ -288,48 +374,63 @@ export function searchFullText(
       totalChars += passage.length;
     }
     
-    if (totalChars >= maxTotalChars) break;
+    if (maxTotalChars > 0 && totalChars >= maxTotalChars) break;
   }
   
   return allPassages;
 }
 
 /**
- * 从用户消息中提取搜索关键词
+ * 获取指定书籍的完整全文
+ * 从第一个字到最后一个字，绝不截断！
+ * 
+ * @param bookName 书名（不含.txt后缀）
+ * @returns 完整书籍文本，如果书不存在返回null
  */
-function extractSearchKeywords(message: string): string[] {
-  const keywords: string[] = [];
+export function getBookFullText(bookName: string): string | null {
+  loadBookCache();
   
-  // 命理核心术语
-  const terms = [
-    '日主', '旺衰', '用神', '格局', '正官', '偏官', '正印', '偏印', '正财', '偏财',
-    '食神', '伤官', '比肩', '劫财', '羊刃', '禄', '墓', '绝', '长生', '帝旺',
-    '甲', '乙', '丙', '丁', '戊', '己', '庚', '辛', '壬', '癸',
-    '子', '丑', '寅', '卯', '辰', '巳', '午', '未', '申', '酉', '戌', '亥',
-    '天干', '地支', '藏干', '五行', '金木水火土',
-    '冲', '合', '刑', '害', '破', '会', '化',
-    '太极', '紫微', '天府', '太阳', '太阴', '贪狼', '巨门', '相', '梁', '曲', '昌', '杀', '破',
-    '乾', '坤', '震', '巽', '坎', '离', '艮', '兑',
-    '八卦', '乾坤', '阴阳',
-  ];
+  if (!bookCache) return null;
   
-  for (const term of terms) {
-    if (message.includes(term)) {
-      keywords.push(term);
+  // 精确匹配
+  if (bookCache.has(bookName)) {
+    return bookCache.get(bookName)!;
+  }
+  
+  // 模糊匹配：书名包含或被包含
+  for (const [name, content] of bookCache.entries()) {
+    if (name.includes(bookName) || bookName.includes(name)) {
+      return content;
     }
   }
   
-  // 如果没有匹配到术语，用消息中的中文词组（2-4字）作为关键词
-  if (keywords.length === 0) {
-    const chineseWords = message.match(/[\u4e00-\u9fff]{2,4}/g) || [];
-    keywords.push(...chineseWords.slice(0, 5));
-  }
-  
-  return keywords;
+  return null;
 }
 
 /**
- * 格式化全文检索结果为文本
+ * 搜索书籍：根据用户消息中的书名关键词，返回匹配的书籍列表
+ * 用于当用户问"帮我查XX书"时定位具体书籍
+ */
+export function findBooksByName(query: string): { name: string; size: number }[] {
+  loadBookCache();
+  
+  if (!bookCache || !bookNameList) return [];
+  
+  const results: { name: string; size: number }[] = [];
+  const queryLower = query.toLowerCase();
+  
+  for (const name of bookNameList) {
+    if (name.includes(query) || query.includes(name) || name.toLowerCase().includes(queryLower)) {
+      const content = bookCache.get(name) || '';
+      results.push({ name, size: content.length });
+    }
+  }
+  
+  return results;
+}
+
+/**
+ * 格式化全文检索结果为文本（不截断）
  */
 export function formatFullTextResults(passages: BookPassage[]): string {
   if (passages.length === 0) return '';
@@ -364,10 +465,8 @@ export function getBookStats(): { bookCount: number; totalChars: number; bookNam
   }
   
   let totalChars = 0;
-  for (const chapters of bookCache.values()) {
-    for (const ch of chapters) {
-      totalChars += ch.length;
-    }
+  for (const content of bookCache.values()) {
+    totalChars += content.length;
   }
   
   return {
