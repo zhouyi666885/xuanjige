@@ -135,7 +135,7 @@ ${text}`;
   );
 
   const translated = (response.content || '').trim();
-  const transParas = translated.split(/\n\n+/).filter(p => p.trim()).length;
+  const transParas = translated.split(/\n\n+/).filter((p: string) => p.trim()).length;
 
   if (transParas < paraCount && retries < MAX_RETRIES) {
     log(`  ⚠️ 段落不足: 译${transParas}段/原${paraCount}段，重试 ${retries + 1}/${MAX_RETRIES}`);

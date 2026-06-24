@@ -28,11 +28,13 @@
 │   │   ├── fengshui/page.tsx     # 风水地理
 │   │   ├── xingming/page.tsx     # 姓名测算
 │   │   ├── classics/page.tsx     # 经典书房
+│   │   ├── add-book/page.tsx     # 添加书籍（输入书名自动搜索入库）
 │   │   └── api/
 │   │       ├── chat/route.ts     # AI 问答（流式 SSE）
 │   │       ├── face-reading/route.ts  # 面相分析（流式 SSE）
 │   │       ├── palm-reading/route.ts  # 手相分析（流式 SSE）
 │   │       ├── divination/route.ts    # 通用测算（流式 SSE）
+│   │       ├── add-book/route.ts      # 添加书籍（搜索+下载+翻译+入库，SSE流式）
 │   │       └── feedback/route.ts     # 预测验证反馈
 │   ├── components/
 │   │   ├── camera-capture.tsx    # 拍照组件（相机/相册）
@@ -77,6 +79,8 @@
 4. POST /api/divination - 通用测算（SSE 流式，type 参数区分测算类型）
 5. POST /api/feedback - 预测验证反馈（JSON，收集用户验证结果用于AI进化）
 6. GET /api/feedback - 查询反馈统计（JSON，返回准确率统计）
+7. POST /api/add-book - 添加书籍到知识库（SSE流式，输入书名→搜索→下载→翻译→入库）
+8. GET /api/add-book - 查询知识库书籍数量
 
 ## 代码规范
 - 严格 TypeScript，禁止隐式 any

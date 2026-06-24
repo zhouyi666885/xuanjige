@@ -475,3 +475,56 @@ export function getBookStats(): { bookCount: number; totalChars: number; bookNam
     bookNames: bookNameList,
   };
 }
+
+/**
+ * 检查书籍是否已存在于知识库
+ */
+export function isBookExists(bookName: string): boolean {
+  loadBookCache();
+  if (!bookNameList) return false;
+  
+  const bookNameLower = bookName.toLowerCase();
+  return bookNameList.some(name => 
+    name === bookName || 
+    name.includes(bookName) || 
+    bookName.includes(name) ||
+    name.toLowerCase().includes(bookNameLower)
+  );
+}
+
+/**
+ * 添加书籍到知识库
+ * @param bookName 书名（作为文件名）
+ * @param content 完整书籍内容
+ * @returns 保存的文件路径
+ */
+export function addBookToKnowledgeBase(bookName: string, content: string): string {
+  const dir = getBookContentDir();
+  
+  // 确保目录存在
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  
+  // 清理文件名中的非法字符
+  const safeName = bookName.replace(/[<>:"/\\|?*]/g, '_').trim();
+  const fileName = `${safeName}.txt`;
+  const filePath = path.join(dir, fileName);
+  
+  // 写入完整内容，不做任何截断
+  fs.writeFileSync(filePath, content, 'utf-8');
+  
+  // 刷新缓存，让新书可被检索到
+  bookCache = null;
+  bookNameList = null;
+  loadBookCache();
+  
+  return filePath;
+}
+
+/**
+ * 获取书籍目录路径
+ */
+export function getBookDir(): string {
+  return getBookContentDir();
+}

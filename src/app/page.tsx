@@ -207,6 +207,17 @@ export default function Home() {
                 <span className="text-gold/30 text-sm">›</span>
               </Link>
             ))}
+            <Link
+              href="/add-book"
+              className="w-full flex items-center gap-4 p-3 bg-gradient-to-r from-gold/10 to-gold/5 border border-gold/20 rounded-xl hover:border-gold/40 hover:bg-gold/10 transition-all duration-300 group"
+            >
+              <span className="text-2xl group-hover:scale-110 transition-transform">➕</span>
+              <div className="flex-1 text-left">
+                <span className="text-gold text-sm font-bold">添加书籍</span>
+                <span className="text-muted-foreground text-xs ml-2">输入书名，自动搜索入库</span>
+              </div>
+              <span className="text-gold/30 text-sm">›</span>
+            </Link>
             <div className="text-center pt-2">
               <p className="text-muted-foreground text-xs">
                 全书共收录 <span className="text-gold font-bold">19,055</span> 部典籍
@@ -240,6 +251,10 @@ export default function Home() {
           <Link href="/classics" className="flex flex-col items-center gap-0.5 text-muted-foreground hover:text-gold py-1 px-4 transition-colors">
             <span className="text-xl">📚</span>
             <span className="text-[10px]">书房</span>
+          </Link>
+          <Link href="/add-book" className="flex flex-col items-center gap-0.5 text-muted-foreground hover:text-gold py-1 px-4 transition-colors">
+            <span className="text-xl">➕</span>
+            <span className="text-[10px]">添书</span>
           </Link>
         </div>
       </nav>
