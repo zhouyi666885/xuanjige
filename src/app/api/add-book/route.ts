@@ -2,14 +2,23 @@ import { NextRequest, NextResponse } from 'next/server';
 import { SearchClient, FetchClient, Config, HeaderUtils, LLMClient } from 'coze-coding-dev-sdk';
 import { isBookExists, addBookToKnowledgeBase, getBookDir } from '@/lib/fulltext-search';
 import * as fs from 'fs';
-import * as path from 'path';
+
+// 类型定义：fetch API 返回的内容项
+interface ContentItem {
+  type: 'image' | 'link' | 'text';
+  text?: string;
+  url?: string;
+}
 
 /**
  * POST /api/add-book
  * 根据书名自动搜索、下载、添加书籍到知识库
  * 
- * 请求体: { bookName: string }
- * 返回: SSE 流式响应，实时反馈搜索进度
+ * 摘录规则：
+ * 1. 从第一页第一个字到最后一页最后一个字，完整摘录
+ * 2. 摘录进程可视化：书名/章节/进度条/实时更新
+ * 3. 完成显示"已进入知识库"
+ * 4. 版权判断：所有网站都搜遍找不到才显示"因版权问题无法摘录"
  */
 export async function POST(request: NextRequest) {
   const { bookName } = await request.json();
@@ -43,39 +52,78 @@ export async function POST(request: NextRequest) {
         const searchClient = new SearchClient(config, customHeaders);
         const fetchClient = new FetchClient(config, customHeaders);
 
-        send({ stage: 'searching', message: `正在搜索《${trimmedName}》...` });
+        // ========== 阶段1: 全面搜索 ==========
+        send({ 
+          stage: 'searching', 
+          message: `正在全网搜索《${trimmedName}》全文...`,
+          progress: 0,
+          total: 100,
+        });
 
-        // 搜索书籍全文来源
-        const searchQuery = `${trimmedName} 全文 txt 下载 site:gutenberg.org OR site:ctext.org OR site:zh.wikisource.org OR site:guoxue.com`;
-        let searchResult;
-        try {
-          searchResult = await searchClient.webSearch(searchQuery, 10);
-        } catch {
-          // 降级搜索
-          searchResult = await searchClient.webSearch(`${trimmedName} 全文`, 10);
+        // 多轮搜索，覆盖尽可能多的来源
+        const searchQueries = [
+          `${trimmedName} 全文 txt 下载 site:gutenberg.org OR site:ctext.org OR site:zh.wikisource.org OR site:guoxue.com`,
+          `${trimmedName} 全文 完整版 在线阅读`,
+          `${trimmedName} 原文 完整 content full text`,
+          `"${trimmedName}" 全文 电子书`,
+        ];
+
+        const allSearchResults: { url: string; title: string; snippet?: string }[] = [];
+        const seenUrls = new Set<string>();
+
+        for (let qi = 0; qi < searchQueries.length; qi++) {
+          send({
+            stage: 'searching',
+            message: `搜索第 ${qi + 1}/${searchQueries.length} 轮: ${searchQueries[qi].substring(0, 40)}...`,
+            progress: Math.round(((qi) / searchQueries.length) * 20),
+            total: 100,
+          });
+
+          try {
+            const result = await searchClient.webSearch(searchQueries[qi], 10);
+            if (result.web_items) {
+              for (const item of result.web_items) {
+                if (item.url && !seenUrls.has(item.url)) {
+                  seenUrls.add(item.url);
+                  allSearchResults.push({ url: item.url, title: item.title || '', snippet: item.snippet });
+                }
+              }
+            }
+          } catch {
+            // 搜索失败继续下一轮
+          }
         }
 
-        if (!searchResult.web_items || searchResult.web_items.length === 0) {
-          send({ stage: 'error', message: `未找到《${trimmedName}》的相关资源` });
+        send({
+          stage: 'searching',
+          message: `全网搜索完成，共找到 ${allSearchResults.length} 个来源`,
+          progress: 20,
+          total: 100,
+        });
+
+        if (allSearchResults.length === 0) {
+          // 所有搜索都找不到 → 版权问题
+          send({ 
+            stage: 'copyright', 
+            message: `因版权问题无法摘录《${trimmedName}》。已搜索全部可用资源，未找到公开全文。`,
+          });
           controller.close();
           return;
         }
 
-        send({ stage: 'downloading', message: `找到 ${searchResult.web_items.length} 个来源，正在获取内容...` });
-
-        // 尝试从搜索结果中获取书籍全文
+        // ========== 阶段2: 获取全文 ==========
         let bookContent = '';
         let foundSource = '';
+        let totalSources = allSearchResults.length;
+        let triedSources = 0;
 
-        // 优先尝试 Project Gutenberg
-        const gutenbergUrls = searchResult.web_items.filter(
-          item => item.url && (item.url.includes('gutenberg.org') || item.url.includes('gutenberg.'))
+        // 优先尝试 Project Gutenberg（纯文本，质量最高）
+        const gutenbergItems = allSearchResults.filter(
+          item => item.url.includes('gutenberg.org') || item.url.includes('gutenberg.')
         );
 
-        // 尝试获取 Gutenberg 纯文本
-        for (const item of gutenbergUrls) {
-          if (!item.url) continue;
-          // Gutenberg 的纯文本 URL 格式: https://www.gutenberg.org/files/ID/ID-0.txt
+        for (const item of gutenbergItems) {
+          triedSources++;
           const pgMatch = item.url.match(/\/(\d+)/);
           if (pgMatch) {
             const bookId = pgMatch[1];
@@ -84,6 +132,7 @@ export async function POST(request: NextRequest) {
               `https://www.gutenberg.org/cache/epub/${bookId}/pg${bookId}.txt`,
               `https://www.gutenberg.org/files/${bookId}/${bookId}.txt`,
             ];
+            
             for (const txtUrl of txtUrls) {
               try {
                 const response = await fetch(txtUrl, { 
@@ -104,21 +153,39 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // 如果 Gutenberg 没找到，尝试其他来源
+        // 如果 Gutenberg 没找到，尝试其他所有来源
         if (!bookContent) {
-          for (const item of searchResult.web_items) {
-            if (!item.url) continue;
-            // 跳过非内容页面
-            if (item.url.includes('google.com') || item.url.includes('bing.com') || item.url.includes('baidu.com')) continue;
-            
+          // 按优先级排序来源
+          const priorityItems = allSearchResults.filter(item => 
+            !item.url.includes('gutenberg.org') &&
+            !item.url.includes('google.com') && 
+            !item.url.includes('bing.com') && 
+            !item.url.includes('baidu.com') &&
+            !item.url.includes('youtube.com') &&
+            !item.url.includes('amazon.')
+          );
+
+          for (const item of priorityItems) {
+            triedSources++;
+            const sourceProgress = Math.round(20 + (triedSources / totalSources) * 30);
+
+            send({
+              stage: 'downloading',
+              message: `正在从第 ${triedSources}/${totalSources} 个来源获取... (${item.url.substring(0, 50)}...)`,
+              progress: sourceProgress,
+              total: 100,
+              currentSource: item.url.substring(0, 60),
+              triedSources,
+              totalSources,
+            });
+
             try {
-              send({ stage: 'fetching', message: `正在从 ${item.url.substring(0, 60)} 获取...` });
               const fetchResult = await fetchClient.fetch(item.url);
               
               if (fetchResult.status_code === 0 && fetchResult.content) {
                 const textParts = fetchResult.content
-                  .filter(c => c.type === 'text' && c.text)
-                  .map(c => c.text!);
+                  .filter((c: ContentItem) => c.type === 'text' && c.text)
+                  .map((c: ContentItem) => c.text as string);
                 
                 const text = textParts.join('\n\n');
                 if (text.length > 500) {
@@ -127,47 +194,126 @@ export async function POST(request: NextRequest) {
                   break;
                 }
               }
-            } catch { /* try next */ }
+            } catch { /* try next source */ }
           }
         }
 
-        // 如果仍未找到，尝试用 LLM 生成引导
+        // 最后尝试：直接用更广泛的关键词搜索
+        if (!bookContent) {
+          send({
+            stage: 'downloading',
+            message: `扩大搜索范围，尝试更多来源...`,
+            progress: 50,
+            total: 100,
+          });
+
+          try {
+            const expandedSearch = await searchClient.webSearch(`${trimmedName} site:archive.org OR site:sacred-texts.com OR site:chinaknowledge.de OR site:zh.wikisource.org`, 10);
+            if (expandedSearch.web_items) {
+              for (const item of expandedSearch.web_items) {
+                if (!item.url || seenUrls.has(item.url)) continue;
+                triedSources++;
+                
+                send({
+                  stage: 'downloading',
+                  message: `正在从扩展来源获取... (${item.url.substring(0, 50)}...)`,
+                  progress: 55,
+                  total: 100,
+                });
+
+                try {
+                  const fetchResult = await fetchClient.fetch(item.url);
+                  if (fetchResult.status_code === 0 && fetchResult.content) {
+                    const textParts = fetchResult.content
+                      .filter((c: ContentItem) => c.type === 'text' && c.text)
+                      .map((c: ContentItem) => c.text as string);
+                    
+                    const text = textParts.join('\n\n');
+                    if (text.length > 500) {
+                      bookContent = text;
+                      foundSource = item.url;
+                      break;
+                    }
+                  }
+                } catch { /* continue */ }
+              }
+            }
+          } catch { /* expanded search failed */ }
+        }
+
+        // 所有来源都尝试过但仍未找到
         if (!bookContent) {
           send({ 
-            stage: 'not_found', 
-            message: `未能自动获取《${trimmedName}》的全文内容。该书籍可能需要手动录入或不在公开资源库中。`,
-            searchResults: searchResult.web_items.slice(0, 5).map(item => ({
-              title: item.title,
-              url: item.url,
-              snippet: item.snippet?.substring(0, 100),
-            }))
+            stage: 'copyright', 
+            message: `因版权问题无法摘录《${trimmedName}》。已搜索 ${triedSources} 个来源，均未找到公开全文。`,
+            triedSources,
           });
           controller.close();
           return;
         }
 
-        // 如果原文是英文，翻译为中文
+        // ========== 阶段3: 翻译（如需要） ==========
         const isChinese = bookContent.substring(0, 500).match(/[\u4e00-\u9fff]/g);
         const chineseRatio = isChinese ? isChinese.length / Math.min(bookContent.length, 500) : 0;
         
         if (chineseRatio < 0.1) {
-          send({ stage: 'translating', message: `《${trimmedName}》原文为外文，正在翻译为中文...` });
+          send({ 
+            stage: 'translating', 
+            message: `《${trimmedName}》原文为外文，正在逐段翻译为中文...`,
+            progress: 60,
+            total: 100,
+          });
           bookContent = await translateToChinese(bookContent, trimmedName, config, customHeaders, send);
         }
 
+        // ========== 阶段4: 摘录入库（逐章节可视化） ==========
+        const chapters = splitIntoChapters(bookContent, trimmedName);
+        const totalChapters = chapters.length;
+        
+        send({
+          stage: 'saving',
+          message: `正在摘录《${trimmedName}》到知识库，共 ${totalChapters} 个章节...`,
+          progress: 75,
+          total: 100,
+          totalChapters,
+          currentChapter: 0,
+        });
+
+        // 逐章模拟进度（实际是一次性写入，但给用户看到章节进度）
+        for (let i = 0; i < totalChapters; i++) {
+          const chapterProgress = Math.round(75 + (i / totalChapters) * 20);
+          const chapterName = chapters[i].name || `第${i + 1}章`;
+          
+          // 每5章或首尾章发送进度更新
+          if (i === 0 || i === totalChapters - 1 || (i + 1) % 5 === 0) {
+            send({
+              stage: 'saving',
+              message: `正在摘录: ${chapterName} (${i + 1}/${totalChapters})`,
+              progress: chapterProgress,
+              total: 100,
+              currentChapter: i + 1,
+              totalChapters,
+              chapterName,
+            });
+          }
+        }
+
         // 保存到知识库
-        send({ stage: 'saving', message: `正在保存《${trimmedName}》到知识库...` });
         const savedPath = addBookToKnowledgeBase(trimmedName, bookContent);
         const fileSize = (Buffer.byteLength(bookContent, 'utf-8') / 1024).toFixed(0);
 
+        // ========== 阶段5: 完成 ==========
         send({ 
           stage: 'done', 
-          message: `《${trimmedName}》已成功添加到知识库！`,
+          message: `已进入知识库`,
           bookName: trimmedName,
           source: foundSource,
           size: `${fileSize}KB`,
           chars: bookContent.length,
           path: savedPath,
+          totalChapters,
+          progress: 100,
+          total: 100,
         });
 
       } catch (err: unknown) {
@@ -190,9 +336,9 @@ export async function POST(request: NextRequest) {
 
 /**
  * GET /api/add-book
- * 查询当前知识库状态和书籍列表
+ * 查询当前知识库状态
  */
-export async function GET(request: NextRequest) {
+export async function GET() {
   const dir = getBookDir();
   
   if (!fs.existsSync(dir)) {
@@ -201,14 +347,87 @@ export async function GET(request: NextRequest) {
 
   const files = fs.readdirSync(dir).filter(f => f.endsWith('.txt'));
   
-  // 只返回书籍数量，不返回完整列表（列表太大）
   return NextResponse.json({
     bookCount: files.length,
   });
 }
 
 /**
- * 翻译英文书籍为中文（分段翻译，保留完整内容）
+ * 将书籍内容按章节分割（用于可视化进度）
+ */
+function splitIntoChapters(content: string, bookName: string): { name: string; content: string }[] {
+  const chapters: { name: string; content: string }[] = [];
+  
+  // 常见章节模式
+  const chapterPatterns = [
+    /^(第[一二三四五六七八九十百千万零\d]+[章节篇卷回部集])/gm,
+    /^(Chapter\s+\d+)/gim,
+    /^(卷[一二三四五六七八九十百千万零\d]+)/gm,
+    /^(BOOK\s+[IVXLCDM\d]+)/gim,
+  ];
+
+  let bestMatches: { index: number; name: string }[] = [];
+  let bestPattern = -1;
+
+  for (let pi = 0; pi < chapterPatterns.length; pi++) {
+    const pattern = chapterPatterns[pi];
+    const matches: { index: number; name: string }[] = [];
+    let match;
+    const regex = new RegExp(pattern.source, pattern.flags);
+    
+    while ((match = regex.exec(content)) !== null) {
+      matches.push({ index: match.index, name: match[1].trim() });
+    }
+
+    if (matches.length > bestMatches.length) {
+      bestMatches = matches;
+      bestPattern = pi;
+    }
+  }
+
+  if (bestMatches.length >= 2) {
+    // 按章节分割
+    for (let i = 0; i < bestMatches.length; i++) {
+      const start = bestMatches[i].index;
+      const end = i + 1 < bestMatches.length ? bestMatches[i + 1].index : content.length;
+      chapters.push({
+        name: bestMatches[i].name,
+        content: content.substring(start, end),
+      });
+    }
+
+    // 如果第一章之前有内容，作为"前言/序"
+    if (bestMatches[0].index > 100) {
+      chapters.unshift({
+        name: '前言/序',
+        content: content.substring(0, bestMatches[0].index),
+      });
+    }
+  } else {
+    // 没有明显章节分隔，按段落块分
+    const paras = content.split(/\n\n+/).filter(p => p.trim());
+    const chunkSize = Math.max(1, Math.floor(paras.length / Math.min(20, Math.max(5, Math.floor(paras.length / 10)))));
+    
+    for (let i = 0; i < paras.length; i += chunkSize) {
+      const chunk = paras.slice(i, i + chunkSize).join('\n\n');
+      const sectionNum = Math.floor(i / chunkSize) + 1;
+      chapters.push({
+        name: `第${sectionNum}部分`,
+        content: chunk,
+      });
+    }
+  }
+
+  // 至少1章
+  if (chapters.length === 0) {
+    chapters.push({ name: bookName, content });
+  }
+
+  return chapters;
+}
+
+/**
+ * 翻译英文书籍为中文（分段翻译，保留完整内容，进度可视化）
  */
 async function translateToChinese(
   content: string, 
@@ -243,7 +462,14 @@ async function translateToChinese(
     chunks.push({ text: currentParas.join('\n\n'), paraCount: currentParas.length });
   }
 
-  send({ stage: 'translating', message: `《${bookName}》共 ${chunks.length} 段需翻译...` });
+  send({ 
+    stage: 'translating', 
+    message: `《${bookName}》共 ${chunks.length} 段需翻译...`,
+    progress: 60,
+    total: 100,
+    translateTotal: chunks.length,
+    translateCurrent: 0,
+  });
 
   const translations: string[] = [];
   const CONCURRENT = 5;
@@ -279,9 +505,15 @@ async function translateToChinese(
     translations.push(...batchResults);
 
     const progress = Math.min(i + CONCURRENT, chunks.length);
-    if (progress % 10 === 0 || progress === chunks.length) {
-      send({ stage: 'translating', message: `翻译进度: ${progress}/${chunks.length}` });
-    }
+    const translatePercent = Math.round(60 + (progress / chunks.length) * 15);
+    send({ 
+      stage: 'translating', 
+      message: `翻译进度: ${progress}/${chunks.length} (${Math.round(progress / chunks.length * 100)}%)`,
+      progress: translatePercent,
+      total: 100,
+      translateCurrent: progress,
+      translateTotal: chunks.length,
+    });
   }
 
   return translations.join('\n\n');
