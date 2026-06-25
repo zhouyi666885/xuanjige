@@ -1013,10 +1013,10 @@ export function judgeWangShuai(result: BaZiPaiPan): WangShuaiResult {
     lunDuan = '《滴天髓》云：旺极宜泄不宜帮，身旺须用财官食伤耗泄。日主过旺，如水满则溢，须以官杀制之、财星耗之、食伤泄之。不宜再用印比帮身，帮之则过。身旺无依，纵有才能亦难施展。';
   } else if (ratio > 0.5) {
     riZhuQiangRuo = '日主偏旺';
-    yongShen = `克我之${keWo}（官杀）、我克之${woKe}（财星）`;
-    jiShen = `同我之${tongWo}（比劫）`;
-    xiShen = `${keWo}、${woKe}`;
-    lunDuan = '《滴天髓》云：身旺宜泄，取财官为用。日主偏旺，尚可担财官，以官制身、以财耗身为上。行财官运则发达，行比劫运则争财。';
+    yongShen = `克我之${keWo}（官杀）、我克之${woKe}（财星）、我生之${woSheng}（食伤）`;
+    jiShen = `同我之${tongWo}（比劫）、生我之${shengWo}（印星）`;
+    xiShen = `${keWo}、${woKe}、${woSheng}`;
+    lunDuan = '《滴天髓》云：身旺宜泄不宜帮，取财官食伤为用。日主偏旺，以官制身、以财耗身、以食伤泄身为上。印比帮身皆为忌——比劫增旺争财，印星生身亦加重旺势，均不利。行财官食伤运则发达，行印比运则滞塞。身旺之人，印多为患，学业尤为不利。';
   } else if (ratio > 0.35) {
     riZhuQiangRuo = '日主中和';
     yongShen = '随运而取，财官印食皆可为用';
@@ -2035,9 +2035,12 @@ export function predictShiYe(paiPan: BaZiPaiPan, currentYear?: number): string {
     text += '🔄 铁律二【食伤财星配合一般】：技术创业运势一般，适合稳步发展。\n';
   }
 
-  // 铁律三：印星为用=适合学术/教育/文职
+  // 铁律三：印星为用=适合学术/教育/文职，印星为忌=不宜学术路线
   const isYinYong = wangShuai.yongShen.includes('印星');
-  if (isYinYong && yinTotal >= 1) {
+  const isYinJi_shiye = wangShuai.jiShen.includes('印星');
+  if (isYinJi_shiye) {
+    text += '⚠️ 铁律三【印星为忌】：《滴天髓》"旺极宜泄不宜帮"。印星为忌，身旺不宜再帮，学术/教育非优先路线，越学越焦虑，宜走食伤生财/官杀制身的路线。\n';
+  } else if (isYinYong && yinTotal >= 1) {
     text += '✅ 铁律三【印星为用得力】：《子平真诠》"印星为用，主学术文贵"。印星为用且得力，适合学术、教育、文职、科研等需要深厚学识的职业，越老越吃香。\n';
   } else if (isYinYong && yinTotal === 0) {
     text += '⚠️ 铁律三【印星为用但不显】：适合学术路线但命局印星不显，需后天努力补足学历。\n';
@@ -2103,9 +2106,13 @@ export function predictShiYe(paiPan: BaZiPaiPan, currentYear?: number): string {
       label = '💡 食伤年+有财星，适合启动创业/推出新项目';
       isChange = true;
     }
-    // 贵人助力：印星年
+    // 贵人助力/印星为忌：印星年
     else if (yearGanWX === yinWX) {
-      label = '📚 印星年，有贵人提携/学习进修/获得资质';
+      if (isYinJi_shiye) {
+        label = '⚠️ 印星年为忌！身旺不宜再帮，此年事业多阻碍、想法多行动少、贵人反成拖累';
+      } else {
+        label = '📚 印星年，有贵人提携/学习进修/获得资质';
+      }
       isChange = true;
     }
 
@@ -2387,7 +2394,9 @@ export function predictXueYe(paiPan: BaZiPaiPan, currentYear?: number): string {
 
   // 《八字学业预测学》论断
   text += '【学业经典论断】\n';
-  if (hasYinXing && hasWenChang) {
+  if (isYinJi) {
+    text += '《滴天髓》：旺极宜泄不宜帮！身旺印多为忌，印星反而成为学业阻碍——想学但学不进去，注意力分散，印旺之年更甚。须行财官食伤运方利学业。\n';
+  } else if (hasYinXing && hasWenChang) {
     text += '《子平命理学业》：印星得力+文昌入命，学业有成，可考名校。印星代表记忆力、理解力，文昌代表考试运、文采。\n';
   } else if (hasYinXing) {
     text += '《八字学业预测学》：印星为用，根基好但需把握考试时机。大运走印运时，学业最顺。\n';
