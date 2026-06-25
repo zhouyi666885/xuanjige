@@ -436,16 +436,16 @@ export default function AddBookPage() {
                   </div>
                 )}
 
-                {/* 进度条 - AI学习（录入完成后显示） */}
+                {/* 进度条 - AI深度学习（录入完成后显示） */}
                 {(task.status === 'done' && task.learningStatus && task.learningStatus !== 'pending') && (
                   <div className="mb-1">
                     <div className="flex justify-between text-[10px] text-[#8a8070] mb-0.5">
-                      <span>AI学习进度</span>
+                      <span>AI深度学习进度</span>
                       <span>{task.learningProgress}%</span>
                     </div>
                     <div className="mb-2">
                       <div className="flex justify-between text-xs text-[#8a8070] mb-1">
-                        <span>{task.learningMessage || 'AI学习中...'}</span>
+                        <span>{task.learningMessage || 'AI深度学习中...'}</span>
                         <span>{task.learningProgress}%</span>
                       </div>
                       <div className="h-2 bg-[#0a0a0f] rounded-full overflow-hidden relative">
@@ -468,10 +468,41 @@ export default function AddBookPage() {
                           />
                         )}
                       </div>
-                      {task.learningTotalChunks > 0 && task.learningStatus === 'learning' && (
-                        <p className="text-[10px] text-[#5a5a6e] mt-0.5">
-                          {task.learningCurrentChunk}/{task.learningTotalChunks} 块内容
-                        </p>
+                      {/* 4层学习进度指示 */}
+                      {task.learningStatus === 'learning' && task.learningTotalChunks > 0 && (
+                        <div className="flex items-center gap-1 mt-1 flex-wrap">
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#1a1a2e] text-[#d4a853] border border-[#d4a853]/30">
+                            ①术语理解
+                          </span>
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#1a1a2e] text-[#d4a853] border border-[#d4a853]/30">
+                            ②逻辑掌握
+                          </span>
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#1a1a2e] text-[#d4a853] border border-[#d4a853]/30">
+                            ③知识关联
+                          </span>
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#1a1a2e] text-[#d4a853] border border-[#d4a853]/30">
+                            ④应用方法
+                          </span>
+                          <span className="text-[9px] text-[#5a5a6e] ml-1">
+                            {task.learningCurrentChunk}/{task.learningTotalChunks}块
+                          </span>
+                        </div>
+                      )}
+                      {task.learningStatus === 'done' && (
+                        <div className="flex items-center gap-1 mt-1">
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-green-900/30 text-green-400 border border-green-700/30">
+                            ✓ 术语已理解
+                          </span>
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-green-900/30 text-green-400 border border-green-700/30">
+                            ✓ 逻辑已掌握
+                          </span>
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-green-900/30 text-green-400 border border-green-700/30">
+                            ✓ 关联已建立
+                          </span>
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-green-900/30 text-green-400 border border-green-700/30">
+                            ✓ 应用已学会
+                          </span>
+                        </div>
                       )}
                     </div>
                   </div>

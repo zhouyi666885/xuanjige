@@ -698,9 +698,9 @@ async function processLearning(taskId: string, bookContent: string): Promise<voi
   updateTask(taskId, {
     learningStatus: 'learning',
     learningProgress: 0,
-    learningMessage: `AI正在学习《${task.bookName}》...`,
+    learningMessage: `AI开始学习《${task.bookName}》全部内容...`,
   });
-  addLog(taskId, '开始AI学习');
+  addLog(taskId, '开始AI深度学习阶段');
 
   try {
     const config = new Config();
@@ -709,11 +709,11 @@ async function processLearning(taskId: string, bookContent: string): Promise<voi
     // 根据书名智能选择知识库表名
     const tableName = selectDatasetForBook(task.bookName);
 
-    // 分块：每块约4000字符（约2000 tokens），适合向量检索
-    const CHUNK_SIZE = 4000;
+    // ======== 第一步：分块 ========
+    // 按段落边界分块，每块约3000字符，适合LLM理解+向量化
+    const CHUNK_SIZE = 3000;
     const chunks: string[] = [];
     
-    // 按段落边界分块，避免截断句子
     const paragraphs = bookContent.split(/\n{2,}/).filter((p: string) => p.trim().length > 0);
     let currentChunk = '';
     
@@ -733,21 +733,113 @@ async function processLearning(taskId: string, bookContent: string): Promise<voi
     updateTask(taskId, {
       learningTotalChunks: totalChunks,
       learningCurrentChunk: 0,
-      learningMessage: `AI学习中: 共${totalChunks}块内容...`,
+      learningMessage: `AI学习中: 共${totalChunks}块内容待学习...`,
     });
     addLog(taskId, `学习分块: ${totalChunks} 块, 目标表: ${tableName}`);
 
-    // 逐批写入向量知识库（每批5块，避免API限流）
-    const BATCH_SIZE = 5;
+    // ======== 第二步：逐块深度学习 ========
+    // 对每一块内容，AI进行4层理解：术语→逻辑→关联→应用
+    const llmClient = new LLMClient(config);
+    const learnedChunks: string[] = [];
     let processedChunks = 0;
 
-    for (let i = 0; i < totalChunks; i += BATCH_SIZE) {
+    for (let i = 0; i < totalChunks; i++) {
       if (!tasks.has(taskId)) {
         addLog(taskId, '学习被中断（任务被删除）');
         return;
       }
 
-      const batch = chunks.slice(i, Math.min(i + BATCH_SIZE, totalChunks));
+      const chunk = chunks[i];
+      const chunkLabel = `[第${i + 1}/${totalChunks}块]`;
+
+      // AI深度学习每块内容
+      const learnPrompt = `你是一位精通中国玄学的学者，正在逐字逐句学习古籍原文。请对以下内容进行深度学习，严格按照4个层次输出：
+
+【原始文本】
+${chunk}
+
+【学习要求】请按以下4层结构输出你的学习成果：
+
+一、专业术语与概念
+- 列出本段中出现的所有专业术语（如：日主旺衰、用神、十神、六亲、神煞、格局等）
+- 每个术语给出精确的定义和在本文语境中的具体含义
+
+二、分析逻辑与推断方法
+- 提炼本段中的分析推理链条（如：因何→推出何→结论为何）
+- 标注推理类型（铁律/或然/经验）及判断依据
+
+三、知识点关联关系
+- 本段知识点与哪些其他术数概念有关联（如：此格局与彼格局的区别、此神煞与彼神煞的组合效应）
+- 标注跨领域关联（如八字与紫微的对应、面相与八字的印证）
+
+四、实际应用方法
+- 本段知识如何应用到实际命理分析中
+- 给出具体的应用场景和判断步骤
+
+【重要】
+- 必须忠实于原文，不得编造原文中没有的内容
+- 如果某层在原文中确实没有涉及，写"本段未涉及"并说明原因
+- 学习要深入细致，不能浮于表面`;
+
+      let learnedContent = '';
+      try {
+        const stream = llmClient.stream(
+          [
+            { role: 'system', content: '你是一位严谨的玄学学者，逐字逐句学习古籍。你的学习必须忠实原文、深入理解、建立关联、学以致用。绝不允许编造原文没有的内容。' },
+            { role: 'user', content: learnPrompt },
+          ],
+          { model: 'doubao-seed-2-0-pro-260215' }
+        );
+
+        for await (const chunk of stream) {
+          if (chunk.content) {
+            learnedContent += chunk.content.toString();
+          }
+        }
+      } catch (e) {
+        const errMsg = e instanceof Error ? e.message : String(e);
+        addLog(taskId, `${chunkLabel} AI学习失败: ${errMsg}，使用原文`);
+        learnedContent = '';
+      }
+
+      // 如果AI学习成功，组装学习成果（原文+学习笔记）；如果失败，保留原文
+      if (learnedContent.trim()) {
+        learnedChunks.push(`========== 原文 ==========\n${chunk}\n========== AI学习笔记 ==========\n${learnedContent}`);
+      } else {
+        learnedChunks.push(chunk);
+      }
+
+      processedChunks = i + 1;
+      const progress = Math.floor((processedChunks / totalChunks) * 100);
+      updateTask(taskId, {
+        learningProgress: progress,
+        learningCurrentChunk: processedChunks,
+        learningMessage: `AI学习中: ${processedChunks}/${totalChunks}块 (${progress}%) - 正在理解术语/逻辑/关联/应用`,
+      });
+
+      // 块间短暂延迟
+      if (i + 1 < totalChunks) {
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+    }
+
+    // ======== 第三步：学习成果写入向量知识库 ========
+    updateTask(taskId, {
+      learningMessage: `正在将学习成果写入知识库...`,
+    });
+    addLog(taskId, `学习完成，开始写入向量知识库 ${tableName}`);
+
+    // 每批3块写入（学习成果比原文大，减少批次大小）
+    const BATCH_SIZE = 3;
+    let writtenChunks = 0;
+
+    for (let i = 0; i < totalChunks; i += BATCH_SIZE) {
+      if (!tasks.has(taskId)) {
+        addLog(taskId, '写入被中断（任务被删除）');
+        return;
+      }
+
+      const batch = learnedChunks.slice(i, Math.min(i + BATCH_SIZE, totalChunks));
       const documents = batch.map((chunk: string) => ({
         source: 0 as const, // DataSourceType.TEXT
         raw_data: chunk,
@@ -759,8 +851,7 @@ async function processLearning(taskId: string, bookContent: string): Promise<voi
           max_tokens: 2000,
         });
       } catch (e) {
-        addLog(taskId, `学习批次 ${Math.floor(i / BATCH_SIZE) + 1} 写入失败: ${e instanceof Error ? e.message : String(e)}`);
-        // 失败后重试一次
+        addLog(taskId, `写入批次 ${Math.floor(i / BATCH_SIZE) + 1} 失败: ${e instanceof Error ? e.message : String(e)}`);
         try {
           await new Promise(resolve => setTimeout(resolve, 2000));
           await knowledgeClient.addDocuments(documents, tableName, {
@@ -768,33 +859,31 @@ async function processLearning(taskId: string, bookContent: string): Promise<voi
             max_tokens: 2000,
           });
         } catch {
-          addLog(taskId, `学习批次 ${Math.floor(i / BATCH_SIZE) + 1} 重试也失败，跳过`);
+          addLog(taskId, `写入批次 ${Math.floor(i / BATCH_SIZE) + 1} 重试也失败，跳过`);
         }
       }
 
-      processedChunks = Math.min(i + BATCH_SIZE, totalChunks);
-      const progress = Math.floor((processedChunks / totalChunks) * 100);
+      writtenChunks = Math.min(i + BATCH_SIZE, totalChunks);
+      const writeProgress = 90 + Math.floor((writtenChunks / totalChunks) * 10); // 90%-100%
       updateTask(taskId, {
-        learningProgress: progress,
-        learningCurrentChunk: processedChunks,
-        learningMessage: `AI学习中: ${processedChunks}/${totalChunks}块 (${progress}%)`,
+        learningProgress: writeProgress,
+        learningMessage: `写入知识库: ${writtenChunks}/${totalChunks}块`,
       });
 
-      // 批次间短暂延迟，避免API限流
       if (i + BATCH_SIZE < totalChunks) {
         await new Promise(resolve => setTimeout(resolve, 300));
       }
     }
 
-    // 学习完成
+    // ======== 学习完成 ========
     updateTask(taskId, {
       learningStatus: 'done',
       learningProgress: 100,
       learningCurrentChunk: totalChunks,
       learningTotalChunks: totalChunks,
-      learningMessage: `AI已学完《${task.bookName}》全部内容`,
+      learningMessage: `AI已深度学完《${task.bookName}》全部内容 (${totalChunks}块, 含术语理解+逻辑掌握+知识关联+应用方法)`,
     });
-    addLog(taskId, `学习完成: ${totalChunks}块内容已写入${tableName}`);
+    addLog(taskId, `深度学习完成: ${totalChunks}块 → ${tableName} (含4层学习笔记)`);
 
   } catch (e) {
     const errMsg = e instanceof Error ? e.message : String(e);

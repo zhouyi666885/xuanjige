@@ -245,12 +245,12 @@ export default function KnowledgeBasePage() {
                       </h3>
                       {book.learningStatus === 'done' && (
                         <span className="text-[10px] bg-[#4ade80]/10 text-[#4ade80] px-1.5 py-0.5 rounded-full flex-shrink-0 border border-[#4ade80]/20">
-                          已学习
+                          已深度学习
                         </span>
                       )}
                       {book.learningStatus === 'learning' && (
                         <span className="text-[10px] bg-[#d4a853]/10 text-[#d4a853] px-1.5 py-0.5 rounded-full flex-shrink-0 border border-[#d4a853]/20 animate-pulse">
-                          学习中
+                          深度学习中
                         </span>
                       )}
                       {book.learningStatus === 'pending' && (
@@ -273,10 +273,10 @@ export default function KnowledgeBasePage() {
                     {book.learningStatus !== 'pending' && (
                       <div className="mt-1.5">
                         <div className="flex justify-between text-[9px] text-[#8a8070] mb-0.5">
-                          <span>{book.learningStatus === 'done' ? '学习完成' : (book.learningMessage || 'AI学习中...')}</span>
+                          <span>{book.learningStatus === 'done' ? '深度学习完成' : (book.learningMessage || 'AI深度学习中...')}</span>
                           <span>{book.learningProgress}%{book.learningTotalChunks > 0 ? ` (${book.learningCurrentChunk}/${book.learningTotalChunks})` : ''}</span>
                         </div>
-                        <div className="h-1 bg-[#0a0a0f] rounded-full overflow-hidden">
+                        <div className="h-1 bg-[#0a0a0f] rounded-full overflow-hidden relative">
                           <div 
                             className={`h-full rounded-full transition-all duration-700 ${
                               book.learningStatus === 'done' 
@@ -285,7 +285,34 @@ export default function KnowledgeBasePage() {
                             }`}
                             style={{ width: `${book.learningProgress}%` }}
                           />
+                          {book.learningStatus === 'learning' && book.learningProgress > 0 && (
+                            <div
+                              className="absolute top-0 left-0 h-full rounded-full opacity-50"
+                              style={{
+                                width: `${book.learningProgress}%`,
+                                background: 'linear-gradient(90deg, transparent 0%, rgba(212,168,83,0.4) 50%, transparent 100%)',
+                                animation: 'shimmer 2s infinite',
+                              }}
+                            />
+                          )}
                         </div>
+                        {/* 4层学习状态指示 */}
+                        {book.learningStatus === 'learning' && (
+                          <div className="flex items-center gap-1 mt-1 flex-wrap">
+                            <span className="text-[8px] px-1 py-0.5 rounded bg-[#0a0a0f] text-[#d4a853] border border-[#d4a853]/20">①术语</span>
+                            <span className="text-[8px] px-1 py-0.5 rounded bg-[#0a0a0f] text-[#d4a853] border border-[#d4a853]/20">②逻辑</span>
+                            <span className="text-[8px] px-1 py-0.5 rounded bg-[#0a0a0f] text-[#d4a853] border border-[#d4a853]/20">③关联</span>
+                            <span className="text-[8px] px-1 py-0.5 rounded bg-[#0a0a0f] text-[#d4a853] border border-[#d4a853]/20">④应用</span>
+                          </div>
+                        )}
+                        {book.learningStatus === 'done' && (
+                          <div className="flex items-center gap-1 mt-1 flex-wrap">
+                            <span className="text-[8px] px-1 py-0.5 rounded bg-green-900/20 text-green-400">✓术语</span>
+                            <span className="text-[8px] px-1 py-0.5 rounded bg-green-900/20 text-green-400">✓逻辑</span>
+                            <span className="text-[8px] px-1 py-0.5 rounded bg-green-900/20 text-green-400">✓关联</span>
+                            <span className="text-[8px] px-1 py-0.5 rounded bg-green-900/20 text-green-400">✓应用</span>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
