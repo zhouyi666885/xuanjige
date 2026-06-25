@@ -10,7 +10,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { Config, LLMClient, SearchClient, FetchClient } from 'coze-coding-dev-sdk';
+import { Config, LLMClient, SearchClient, FetchClient, FetchContentItem } from 'coze-coding-dev-sdk';
 import { isBookExists, addBookToKnowledgeBase, findBooksByName } from './fulltext-search';
 import { saveBook } from './book-storage';
 
@@ -104,6 +104,27 @@ function parseBookChapters(content: string): BookChapter[] {
   }
 
   return chapters;
+}
+
+/**
+ * 检测书籍的章节结构（用于确认原书章节数）
+ */
+function detectBookChapters(content: string): { totalChapters: number; structureType: string; chapterNames: string[] } {
+  const chapters = parseBookChapters(content);
+  if (chapters.length === 0) {
+    return { totalChapters: 0, structureType: '未知', chapterNames: [] };
+  }
+  // 取最多的章节类型作为结构类型
+  const typeCounts: Record<string, number> = {};
+  for (const ch of chapters) {
+    typeCounts[ch.type] = (typeCounts[ch.type] || 0) + 1;
+  }
+  const structureType = Object.entries(typeCounts).sort((a, b) => b[1] - a[1])[0][0];
+  return {
+    totalChapters: chapters.length,
+    structureType,
+    chapterNames: chapters.map(c => c.name),
+  };
 }
 
 /**
@@ -258,7 +279,53 @@ async function processTask(taskId: string): Promise<void> {
       return;
     }
 
-    // 3. 逐个来源尝试获取全文
+    // 3. 确认原书章节数（搜索"书名 目录"获取原书结构）
+    updateTask(taskId, {
+      status: 'searching',
+      message: `正在确认《${task.bookName}》原书章节结构...`,
+      progress: 3,
+    });
+
+    let confirmedChapterInfo: ConfirmedChapters | null = null;
+
+    try {
+      const tocResponse = await searchClient.search({ query: `${task.bookName} 目录 章节 全部` });
+      if (tocResponse?.web_items && tocResponse.web_items.length > 0) {
+        // 从搜索结果摘要中提取原书章节信息
+        const tocSnippets = tocResponse.web_items
+          .map((item: { snippet?: string; title?: string }) => `${item.title || ''} ${item.snippet || ''}`)
+          .join('\n');
+        
+        // 尝试获取前2个目录页面的完整内容
+        let fullTocContent = tocSnippets;
+        for (const item of tocResponse.web_items.slice(0, 2)) {
+          try {
+            const itemUrl = (item as { url?: string }).url;
+            if (!itemUrl) continue;
+            const tocFetch = await fetchClient.fetch(itemUrl);
+            if (tocFetch && Array.isArray(tocFetch.content)) {
+              const tocText = tocFetch.content
+                .filter((c: FetchContentItem): c is FetchContentItem & { text: string } => c.type === 'text' && typeof c.text === 'string')
+                .map((c: FetchContentItem & { text: string }) => c.text)
+                .join('\n');
+              fullTocContent += '\n' + tocText;
+            }
+          } catch { /* continue */ }
+        }
+
+        // 从目录内容中解析章节
+        const detected = detectBookChapters(fullTocContent);
+        if (detected.chapterNames.length > 0) {
+          confirmedChapterInfo = detected;
+          addLog(taskId, `确认原书章节: ${detected.structureType || '章'}, 共 ${detected.totalChapters} 章`);
+        }
+      }
+    } catch {
+      // 确认失败不影响后续流程
+      addLog(taskId, '无法确认原书章节数，将从内容中推断');
+    }
+
+    // 4. 逐个来源尝试获取全文
     let bookContent = '';
     let usedSource = '';
     let foundContent = false;
@@ -339,25 +406,37 @@ async function processTask(taskId: string): Promise<void> {
     });
     addLog(taskId, '开始分章摘录');
 
-    await saveWithProgress(taskId, bookContent);
+    await saveWithProgress(taskId, bookContent, confirmedChapterInfo);
 
     // 6. 完成
-    const chapters = bookContent.split(/\n{2,}/).filter((p: string) => p.trim().length > 0);
     const sizeKB = (Buffer.byteLength(bookContent, 'utf-8') / 1024).toFixed(1);
+    const detectedFromContent = detectBookChapters(bookContent);
+    const finalChapterInfo = confirmedChapterInfo || detectedFromContent;
+    const finalChapterCount = finalChapterInfo.totalChapters;
+    const finalChapterNames = finalChapterInfo.chapterNames.map((name: string, i: number) => ({
+      name,
+      index: i + 1,
+    }));
 
     updateTask(taskId, {
       status: 'done',
       message: `《${task.bookName}》已进入知识库`,
       progress: 100,
-      totalChapters: chapters.length,
-      currentChapter: chapters.length,
+      totalChapters: finalChapterCount,
+      currentChapter: finalChapterCount,
       remainingChapters: 0,
       source: usedSource,
       size: `${sizeKB}KB`,
       chars: bookContent.length,
       completedAt: Date.now(),
+      chapterStructure: finalChapterInfo.structureType,
+      chapters: finalChapterNames.map((ch: { name: string; index: number }, i: number) => ({
+        name: ch.name,
+        type: finalChapterInfo.structureType,
+        startIndex: i,
+      })),
     });
-    addLog(taskId, `摘录完成: ${chapters.length} 章, ${bookContent.length} 字`);
+    addLog(taskId, `摘录完成: ${finalChapterCount} ${finalChapterInfo.structureType}, ${bookContent.length} 字`);
 
   } catch (e) {
     const errMsg = e instanceof Error ? e.message : String(e);
@@ -439,22 +518,56 @@ async function translateContent(taskId: string, content: string): Promise<string
   return translatedChunks.join('\n\n');
 }
 
+// ==================== 类型定义 ====================
+
+interface ConfirmedChapters {
+  totalChapters: number;
+  structureType: string;
+  chapterNames: string[];
+}
+
 // ==================== 分章保存 ====================
 
-async function saveWithProgress(taskId: string, content: string): Promise<void> {
-  // 1. 先解析原书章节结构
-  const chapters = parseBookChapters(content);
+async function saveWithProgress(taskId: string, content: string, confirmedChapters: ConfirmedChapters | null): Promise<void> {
+  // 1. 优先使用确认的原书章节数，否则从内容解析
+  const contentChapters = parseBookChapters(content);
   const totalChars = content.length;
   
-  // 2. 如果解析到了真实章节结构，按章节进度更新
-  if (chapters.length >= 2) {
+  // 确定最终使用的章节数据：确认的 > 内容解析的
+  let finalChapters: { name: string; type: string }[];
+  let totalChapterCount: number;
+  let chapterType: string;
+  
+  if (confirmedChapters && confirmedChapters.chapterNames.length > 0) {
+    // 使用确认的原书章节结构
+    finalChapters = confirmedChapters.chapterNames.map((name: string, _i: number) => ({
+      name,
+      type: confirmedChapters.structureType || '章',
+    }));
+    totalChapterCount = confirmedChapters.totalChapters;
+    chapterType = confirmedChapters.structureType || '章';
+    addLog(taskId, `使用原书确认结构: 共${totalChapterCount}${chapterType}`);
+  } else if (contentChapters.length >= 2) {
+    // 回退到内容解析的章节
+    finalChapters = contentChapters.map(c => ({ name: c.name, type: c.type }));
+    totalChapterCount = contentChapters.length;
+    chapterType = contentChapters[0]?.type || '章';
+  } else {
+    // 无法识别章节结构
+    finalChapters = [];
+    totalChapterCount = 0;
+    chapterType = '段';
+  }
+  
+  // 2. 如果有章节结构，按章节进度更新
+  if (finalChapters.length >= 2) {
     updateTask(taskId, {
       progress: 50,
-      totalChapters: chapters.length,
+      totalChapters: totalChapterCount,
       currentChapter: 0,
-      remainingChapters: chapters.length,
+      remainingChapters: totalChapterCount,
       currentChapterName: '准备摘录...',
-      message: `发现原书结构: 共 ${chapters.length} ${chapters[0]?.type || '章'}`,
+      message: `原书结构: 共 ${totalChapterCount} ${chapterType}`,
     });
 
     // 按字符位置分段写入，以真实章节为进度单位
@@ -472,9 +585,10 @@ async function saveWithProgress(taskId: string, content: string): Promise<void> 
       const progress = 50 + Math.floor((writtenChars / totalChars) * 50);
       
       // 根据当前字符位置确定所在章节
-      const currentChapterInfo = getCurrentChapterAtPosition(chapters, writtenChars);
+      const currentChapterInfo = getCurrentChapterAtPosition(contentChapters, writtenChars);
       const currentChapterIdx = currentChapterInfo.index;
-      const currentChapterName = currentChapterInfo.name;
+      // 优先显示确认的章节名
+      const currentChapterName = (finalChapters[currentChapterIdx - 1] || currentChapterInfo).name;
 
       // 只在章节变化时更新章节信息
       if (currentChapterIdx !== lastChapterIdx || progress >= 99) {
@@ -482,10 +596,10 @@ async function saveWithProgress(taskId: string, content: string): Promise<void> 
         updateTask(taskId, {
           progress,
           currentChapter: currentChapterIdx,
-          totalChapters: chapters.length,
-          remainingChapters: chapters.length - currentChapterIdx,
+          totalChapters: totalChapterCount,
+          remainingChapters: totalChapterCount - currentChapterIdx,
           currentChapterName: currentChapterName,
-          message: `正在摘录: ${currentChapterName.substring(0, 20)} (${currentChapterIdx}/${chapters.length})`,
+          message: `正在摘录: ${currentChapterName.substring(0, 20)} (${currentChapterIdx}/${totalChapterCount})`,
         });
       }
 
@@ -526,8 +640,8 @@ async function saveWithProgress(taskId: string, content: string): Promise<void> 
   try {
     addBookToKnowledgeBase(task.bookName, content);
     saveBook(task.bookName, content);
-    const chapterCount = chapters.length >= 2 ? chapters.length : content.split(/\n{2,}/).filter((p: string) => p.trim().length > 0).length;
-    addLog(taskId, `保存完成: ${chapterCount} 章, ${content.length} 字`);
+    const chapterCount = totalChapterCount > 0 ? totalChapterCount : content.split(/\n{2,}/).filter((p: string) => p.trim().length > 0).length;
+    addLog(taskId, `保存完成: ${chapterCount} ${chapterType}, ${content.length} 字`);
   } catch (e) {
     addLog(taskId, `保存失败: ${e instanceof Error ? e.message : String(e)}`);
     throw e;
