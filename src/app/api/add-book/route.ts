@@ -3,10 +3,12 @@ import {
   initTaskManager,
   createTask,
   getAllTasks,
-  getTask,
   deleteTask,
   getTaskStats,
   forceSaveTasks,
+  pauseTask,
+  resumeTask,
+  cancelTask,
 } from '@/lib/book-task-manager';
 import { getLearningProgress } from '@/lib/fulltext-search';
 
@@ -31,9 +33,9 @@ export async function GET() {
     // 3. 退出APP再回来 → 失败记录也不显示，清空不保留
     // 4. 录入中途(还没完成但也没失败) → 继续显示，带进度条
 
-    // 活跃任务：正在录入中的（带进度条）
+    // 活跃任务：正在录入中的（带进度条），包括暂停状态
     const activeTasks = nonExistsTasks.filter(t =>
-      t.status !== 'done' && t.status !== 'copyright' && t.status !== 'failed' && t.status !== 'exists'
+      t.status !== 'done' && t.status !== 'copyright' && t.status !== 'failed' && t.status !== 'exists' && t.status !== 'cleared'
     );
 
     // 版权/失败通知：一次性提示，前端sessionStorage控制退出后消失
@@ -229,29 +231,52 @@ export async function DELETE(request: NextRequest) {
   }
 }
 
-// PATCH: 清除所有版权问题/失败的书籍条目（用户重新进入APP时调用）
-export async function PATCH() {
+// PATCH: 暂停/继续/取消任务，或清除版权/失败条目
+export async function PATCH(request: NextRequest) {
   try {
-    const tasks = getAllTasks();
-    const removedCount = tasks.filter(
-      (t) => t.status === 'copyright' || t.status === 'failed'
-    ).length;
+    const body = await request.json() as { taskId?: string; action?: 'pause' | 'resume' | 'cancel' | 'clear-copyright' };
+    const { taskId, action } = body;
 
-    // 将版权/失败任务标记为已清除
-    for (const task of tasks) {
-      if (task.status === 'copyright' || task.status === 'failed') {
-        task.status = 'cleared';
+    // 清除版权/失败条目（用户重新进入APP时调用）
+    if (action === 'clear-copyright') {
+      const tasks = getAllTasks();
+      const removedCount = tasks.filter(
+        (t) => t.status === 'copyright' || t.status === 'failed'
+      ).length;
+
+      for (const task of tasks) {
+        if (task.status === 'copyright' || task.status === 'failed') {
+          task.status = 'cleared';
+        }
       }
-    }
-    await import('@/lib/book-task-manager').then((m) => m.forceSaveTasks());
+      await import('@/lib/book-task-manager').then((m) => m.forceSaveTasks());
 
-    return NextResponse.json({
-      success: true,
-      removedCount,
-    });
+      return NextResponse.json({
+        success: true,
+        removedCount,
+      });
+    }
+
+    // 暂停/继续/取消指定任务
+    if (!taskId || !action) {
+      return NextResponse.json({ error: '缺少taskId或action参数' }, { status: 400 });
+    }
+
+    if (action === 'pause') {
+      const success = await pauseTask(taskId);
+      return NextResponse.json({ success, message: success ? '已暂停' : '暂停失败（任务状态不允许）' });
+    } else if (action === 'resume') {
+      const success = await resumeTask(taskId);
+      return NextResponse.json({ success, message: success ? '已继续' : '继续失败（任务状态不允许）' });
+    } else if (action === 'cancel') {
+      const success = await cancelTask(taskId);
+      return NextResponse.json({ success, message: success ? '已取消' : '取消失败' });
+    } else {
+      return NextResponse.json({ error: '无效的action参数' }, { status: 400 });
+    }
   } catch (error) {
     return NextResponse.json(
-      { error: '清除失败' },
+      { error: '操作失败' },
       { status: 500 }
     );
   }

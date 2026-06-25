@@ -23,9 +23,6 @@ interface TaskInfo {
   learningCurrentChunk: number;
   learningTotalChunks: number;
   learningMessage: string;
-  learningChapterStructure: string;
-  learningTotalChapters: number;
-  learningLearnedChapters: number;
   createdAt: number;
   updatedAt: number;
   completedAt: number | null;
@@ -89,6 +86,7 @@ function SmoothProgressBar({ progress, status, message }: {
       case 'done': return 'bg-green-500';
       case 'failed': return 'bg-red-500';
       case 'copyright': return 'bg-orange-500';
+      case 'paused': return 'bg-[#8a8070]';
       default: return 'bg-gradient-to-r from-[#d4a853] to-[#f0c674]';
     }
   };
@@ -142,7 +140,11 @@ export default function AddBookPage() {
     const cleared = sessionStorage.getItem('xuanjige_copyright_cleared');
     if (!cleared) {
       // 新会话，清除服务端的版权/失败任务
-      fetch('/api/add-book', { method: 'DELETE' }).catch(() => {});
+      fetch('/api/add-book', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'clear-copyright' }),
+      }).catch(() => {});
       sessionStorage.setItem('xuanjige_copyright_cleared', '1');
     }
   }, []);
@@ -166,7 +168,7 @@ export default function AddBookPage() {
   useEffect(() => {
     fetchTasks();
     const hasActive = tasks.some(t =>
-      ['pending', 'searching', 'downloading', 'translating', 'saving'].includes(t.status)
+      ['pending', 'searching', 'downloading', 'translating', 'saving', 'paused'].includes(t.status)
     );
     const interval = setInterval(fetchTasks, hasActive ? 2000 : 10000);
     return () => clearInterval(interval);
@@ -233,6 +235,48 @@ export default function AddBookPage() {
     }
   };
 
+  // 暂停任务
+  const handlePause = async (taskId: string) => {
+    try {
+      await fetch('/api/add-book', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ taskId, action: 'pause' }),
+      });
+      await fetchTasks();
+    } catch {
+      // 错误处理
+    }
+  };
+
+  // 继续任务
+  const handleResume = async (taskId: string) => {
+    try {
+      await fetch('/api/add-book', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ taskId, action: 'resume' }),
+      });
+      await fetchTasks();
+    } catch {
+      // 错误处理
+    }
+  };
+
+  // 取消任务
+  const handleCancel = async (taskId: string) => {
+    try {
+      await fetch('/api/add-book', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ taskId, action: 'cancel' }),
+      });
+      await fetchTasks();
+    } catch {
+      // 错误处理
+    }
+  };
+
   // 状态图标
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -241,6 +285,7 @@ export default function AddBookPage() {
       case 'downloading': return '📥';
       case 'translating': return '🌐';
       case 'saving': return '📝';
+      case 'paused': return '⏸️';
       case 'done': return '✅';
       case 'exists': return '📚';
       case 'failed': return '❌';
@@ -280,7 +325,7 @@ export default function AddBookPage() {
   };
 
   const isActive = (status: string) =>
-    ['pending', 'searching', 'downloading', 'translating', 'saving'].includes(status);
+    ['pending', 'searching', 'downloading', 'translating', 'saving', 'paused'].includes(status);
 
   return (
     <div className="min-h-screen bg-[#0a0a0f] text-[#e8e0d0]">
@@ -434,16 +479,35 @@ export default function AddBookPage() {
                          task.status === 'downloading' ? '获取中' :
                          task.status === 'translating' ? '翻译中' :
                          task.status === 'saving' ? '摘录中' :
+                         task.status === 'paused' ? '已暂停' :
                          task.status}
                       </span>
                     </div>
                   </div>
-                  <button
-                    onClick={() => handleDelete(task.id)}
-                    className="text-xs text-red-400 hover:text-red-300 border border-red-800/50 px-2 py-1 rounded hover:bg-red-900/30 transition-colors ml-2"
-                  >
-                    取消
-                  </button>
+                  {/* 操作按钮 */}
+                  <div className="flex items-center gap-1.5 ml-2">
+                    {task.status === 'paused' ? (
+                      <button
+                        onClick={() => handleResume(task.id)}
+                        className="text-xs text-green-400 hover:text-green-300 border border-green-800/50 px-2.5 py-1 rounded hover:bg-green-900/30 transition-colors"
+                      >
+                        继续
+                      </button>
+                    ) : isActive(task.status) && task.status !== 'pending' ? (
+                      <button
+                        onClick={() => handlePause(task.id)}
+                        className="text-xs text-[#d4a853] hover:text-[#f0c674] border border-[#d4a853]/30 px-2.5 py-1 rounded hover:bg-[#d4a853]/10 transition-colors"
+                      >
+                        暂停
+                      </button>
+                    ) : null}
+                    <button
+                      onClick={() => handleCancel(task.id)}
+                      className="text-xs text-red-400 hover:text-red-300 border border-red-800/50 px-2 py-1 rounded hover:bg-red-900/30 transition-colors"
+                    >
+                      取消
+                    </button>
+                  </div>
                 </div>
 
                 {/* 进度条1 - 录入进度 */}
@@ -453,7 +517,7 @@ export default function AddBookPage() {
                       <span>录入进度</span>
                       <span>
                         {task.totalChapters > 0
-                          ? `第${task.currentChapter}${task.chapterStructure || '章'}/共${task.totalChapters}${task.chapterStructure || '章'}`
+                          ? `${task.currentChapter}/${task.totalChapters}`
                           : `${task.progress}%`}
                       </span>
                     </div>
@@ -490,8 +554,8 @@ export default function AddBookPage() {
                     <div className="flex justify-between text-[10px] text-[#8a8070] mb-0.5">
                       <span>AI深度学习进度</span>
                       <span>
-                        {task.learningChapterStructure && task.learningTotalChapters > 0
-                          ? `第${task.learningLearnedChapters}${task.learningChapterStructure}/共${task.learningTotalChapters}${task.learningChapterStructure}`
+                        {task.learningTotalChunks > 0
+                          ? `${task.learningCurrentChunk}/${task.learningTotalChunks}块`
                           : `${task.learningProgress}%`}
                       </span>
                     </div>
@@ -499,8 +563,8 @@ export default function AddBookPage() {
                       <div className="flex justify-between text-xs text-[#8a8070] mb-1">
                         <span>
                           {task.learningStatus === 'done' ? '已学完全部内容' :
-                           task.learningChapterStructure && task.learningTotalChapters > 0
-                             ? `正在学习第${task.learningLearnedChapters}${task.learningChapterStructure}...`
+                           task.learningTotalChunks > 0
+                             ? `正在学习: ${task.learningCurrentChunk}/${task.learningTotalChunks}块...`
                              : (task.learningMessage || 'AI深度学习中...')}
                         </span>
                         <span>{task.learningProgress}%</span>
@@ -525,23 +589,6 @@ export default function AddBookPage() {
                           />
                         )}
                       </div>
-                      {/* 章节结构学习进度 */}
-                      {task.learningChapterStructure && task.learningTotalChapters > 0 && task.learningStatus === 'learning' && (
-                        <div className="grid grid-cols-3 gap-2 mt-1 text-xs">
-                          <div className="bg-[#0a0a0f] rounded-lg p-1.5 text-center">
-                            <p className="text-[#8a8070] text-[9px]">全书</p>
-                            <p className="text-[#4ade80] font-bold">{task.learningTotalChapters}{task.learningChapterStructure}</p>
-                          </div>
-                          <div className="bg-[#0a0a0f] rounded-lg p-1.5 text-center">
-                            <p className="text-[#8a8070] text-[9px]">已学到</p>
-                            <p className="text-[#4ade80] font-bold">第{task.learningLearnedChapters}{task.learningChapterStructure}</p>
-                          </div>
-                          <div className="bg-[#0a0a0f] rounded-lg p-1.5 text-center">
-                            <p className="text-[#8a8070] text-[9px]">剩余</p>
-                            <p className="text-[#4ade80] font-bold">{task.learningTotalChapters - task.learningLearnedChapters}{task.learningChapterStructure}</p>
-                          </div>
-                        </div>
-                      )}
                       {/* 4层学习进度指示 */}
                       {task.learningStatus === 'learning' && task.learningTotalChunks > 0 && (
                         <div className="flex items-center gap-1 mt-1 flex-wrap">

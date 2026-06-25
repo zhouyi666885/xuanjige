@@ -25,7 +25,7 @@ interface BookChapter {
 interface BookTask {
   id: string;
   bookName: string;
-  status: 'pending' | 'searching' | 'downloading' | 'translating' | 'saving' | 'done' | 'failed' | 'copyright' | 'exists' | 'cleared';
+  status: 'pending' | 'searching' | 'downloading' | 'translating' | 'saving' | 'done' | 'failed' | 'copyright' | 'exists' | 'cleared' | 'paused';
   progress: number; // 0-100 录入进度
   currentChapter: number;
   totalChapters: number;
@@ -191,6 +191,61 @@ export function forceSaveTasks(): void {
   saveTasks();
 }
 
+// ==================== 暂停/继续/取消操作 ====================
+
+const pausedTasks = new Set<string>(); // 暂停的任务ID集合
+const cancelledTasks = new Set<string>(); // 取消的任务ID集合
+
+export function pauseTask(taskId: string): boolean {
+  const task = tasks.get(taskId);
+  if (!task || !['pending', 'searching', 'downloading', 'translating', 'saving'].includes(task.status)) {
+    return false;
+  }
+  pausedTasks.add(taskId);
+  const prevStatus = task.status;
+  updateTask(taskId, {
+    status: 'paused',
+    message: `已暂停录入（之前状态：${prevStatus}），点击"继续"恢复`,
+  });
+  return true;
+}
+
+export function resumeTask(taskId: string): boolean {
+  const task = tasks.get(taskId);
+  if (!task || task.status !== 'paused') {
+    return false;
+  }
+  pausedTasks.delete(taskId);
+  // 恢复之前的运行状态（waitForResume会检测到状态变化并解除阻塞）
+  // 不需要重新调用processTask，原有的processTask会通过waitForResume自动继续
+  const prevStatus = task.message?.match(/之前状态：(\w+)/)?.[1] || 'searching';
+  updateTask(taskId, {
+    status: prevStatus as BookTask['status'],
+    message: '正在恢复录入...',
+  });
+  return true;
+}
+
+export function cancelTask(taskId: string): boolean {
+  const task = tasks.get(taskId);
+  if (!task) {
+    return false;
+  }
+  cancelledTasks.add(taskId);
+  pausedTasks.delete(taskId);
+  tasks.delete(taskId);
+  saveTasks();
+  return true;
+}
+
+export function isTaskPaused(taskId: string): boolean {
+  return pausedTasks.has(taskId);
+}
+
+export function isTaskCancelled(taskId: string): boolean {
+  return cancelledTasks.has(taskId);
+}
+
 // ==================== 任务操作 ====================
 
 function generateId(): string {
@@ -214,6 +269,27 @@ function addLog(id: string, message: string): void {
   if (task.logs.length > 100) task.logs = task.logs.slice(-50);
   task.updatedAt = Date.now();
   saveTasks();
+}
+
+// ==================== 暂停/取消检查 ====================
+
+function checkTaskControl(taskId: string): 'continue' | 'paused' | 'cancelled' {
+  const task = tasks.get(taskId);
+  if (!task) return 'cancelled';
+  if (cancelledTasks.has(taskId)) return 'cancelled';
+  if (task.status === 'paused') return 'paused';
+  return 'continue';
+}
+
+async function waitForResume(taskId: string): Promise<boolean> {
+  // 等待任务从暂停状态恢复，最多等10分钟
+  for (let i = 0; i < 600; i++) {
+    await new Promise(r => setTimeout(r, 1000));
+    const ctrl = checkTaskControl(taskId);
+    if (ctrl === 'continue') return true;
+    if (ctrl === 'cancelled') return false;
+  }
+  return false;
 }
 
 // ==================== 核心录入逻辑 ====================
@@ -286,6 +362,13 @@ async function processTask(taskId: string): Promise<void> {
       }
     }
     addLog(taskId, `基础搜索完成，找到 ${allResults.length} 个来源`);
+
+    // 🔴 暂停/取消检查点
+    {
+      const ctrl = checkTaskControl(taskId);
+      if (ctrl === 'cancelled') { processingQueue.delete(taskId); return; }
+      if (ctrl === 'paused') { const resumed = await waitForResume(taskId); if (!resumed) { processingQueue.delete(taskId); return; } }
+    }
 
     // 铁规则：不存在搜索次数上限！必须搜遍全网所有渠道才能判定版权问题
     if (allResults.length === 0) {
@@ -494,10 +577,20 @@ async function processTask(taskId: string): Promise<void> {
     // 不存在"连续X轮没新结果就停下"这回事
     // 搜遍全网 = 真的 nowhere to be found，不是"搜了几遍没找到就算了"
     while (Date.now() - searchStartTime < ABSOLUTE_MAX_SEARCH_TIME) {
+      // 🔴 检查暂停/取消
+      const checkResult = checkTaskControl(taskId);
+      if (checkResult === 'cancelled') return;
+      if (checkResult === 'paused') break; // 退出搜索循环，暂停
+
       const round = searchRounds[roundIndex % TOTAL_ROUNDS];
       const beforeCount = allResults.length;
 
       for (const query of round.queries) {
+        // 🔴 每个查询前也检查暂停/取消
+        const qCheck = checkTaskControl(taskId);
+        if (qCheck === 'cancelled') return;
+        if (qCheck === 'paused') break;
+
         try {
           const response = await searchClient.search({ query });
           if (response?.web_items) {
@@ -618,6 +711,9 @@ async function processTask(taskId: string): Promise<void> {
     });
 
     for (let i = 0; i < allResults.length; i++) {
+      // 暂停/取消检查
+      const suspended = checkTaskControl(taskId);
+      if (suspended === 'paused' || suspended === 'cancelled') return;
       if (!processingQueue.has(taskId)) {
         addLog(taskId, '任务被取消');
         return;
@@ -1283,9 +1379,24 @@ export function initTaskManager(): void {
   // 自动恢复未完成的任务
   let resumed = 0;
   for (const [id, task] of tasks) {
-    if (['pending', 'searching', 'downloading', 'translating', 'saving'].includes(task.status)) {
-      // 重置为pending让任务重新开始
-      updateTask(id, { status: 'pending', progress: 0, message: '等待自动恢复...' });
+    if (task.status === 'paused') {
+      // 暂停的任务不自动恢复，等待用户手动点击"继续"
+      updateTask(id, { message: `已暂停《${task.bookName}》，点击"继续"恢复录入` });
+    } else if (['pending', 'searching', 'downloading', 'translating', 'saving'].includes(task.status)) {
+      // 🔴 状态互斥铁律：一本书只能有一个状态
+      // 如果任务已有下载内容(chars>0)，说明内容已找到，不应重新搜索
+      if (task.chars > 0 && (task.status === 'downloading' || task.status === 'translating' || task.status === 'saving')) {
+        // 有内容但中断了 → 保留内容和进度，只重置状态为pending让后续流程继续
+        updateTask(id, { status: 'pending', message: `恢复录入《${task.bookName}》(已下载${task.chars}字，从断点继续)...` });
+        // 注意：不清零progress和currentChapter，保留断点
+      } else if (task.status === 'searching') {
+        // 正在搜索但无内容 → 重新搜索（搜索结果可能变化）
+        // 但不清零progress，保留视觉连续性
+        updateTask(id, { status: 'pending', message: `重新搜索《${task.bookName}》...（上次搜索中断，从新开始）` });
+      } else {
+        // pending或其他状态 → 正常恢复
+        updateTask(id, { status: 'pending', progress: 0, message: '等待自动恢复...' });
+      }
       resumed++;
       // 异步处理，不阻塞初始化
       setTimeout(() => processTask(id), Math.random() * 5000);
@@ -1326,7 +1437,7 @@ export function createTask(bookName: string): { task: BookTask; isNew: boolean }
   
   // 检查是否已有同名任务
   for (const [, existing] of tasks) {
-    if (existing.bookName === bookName && ['pending', 'searching', 'downloading', 'translating', 'saving'].includes(existing.status)) {
+    if (existing.bookName === bookName && ['pending', 'searching', 'downloading', 'translating', 'saving', 'paused'].includes(existing.status)) {
       return { task: existing, isNew: false };
     }
   }

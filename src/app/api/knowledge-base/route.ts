@@ -55,9 +55,6 @@ export async function GET(request: NextRequest) {
         learningCurrentChunk: task?.learningCurrentChunk ?? 0,
         learningTotalChunks: task?.learningTotalChunks ?? 0,
         learningMessage: task?.learningMessage ?? '',
-        learningChapterStructure: learnStatus?.chapterStructure ?? (task?.chapterStructure ?? ''),
-        learningTotalChapters: learnStatus?.totalChapters ?? (task?.totalChapters ?? 0),
-        learningLearnedChapters: learnStatus?.learnedChapters ?? (learnStatus?.learned ? (task?.totalChapters ?? 0) : 0),
       };
     });
 
