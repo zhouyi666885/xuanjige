@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
   if (isBookExists(trimmedName)) {
     return NextResponse.json({ 
       status: 'exists', 
-      message: `《${trimmedName}》已添加`,
+      message: `《${trimmedName}》已有这本书`,
       bookName: trimmedName 
     });
   }

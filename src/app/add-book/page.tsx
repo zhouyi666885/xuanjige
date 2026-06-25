@@ -368,7 +368,7 @@ function BookCard({
 
       {/* 已存在 */}
       {book.status === 'exists' && (
-        <div className="mt-2 text-yellow-400 text-sm">已添加 — 此书已在知识库中</div>
+        <div className="mt-2 text-yellow-400 text-sm">已有这本书 — 此书已在知识库中，无需重复添加</div>
       )}
 
       {/* 错误/版权 */}
