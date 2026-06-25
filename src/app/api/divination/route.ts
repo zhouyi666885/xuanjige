@@ -15,7 +15,7 @@ import { paiPan as qimenPaiPan, formatQiMenPaiPan as qimenFormat } from '@/lib/q
 import { paiPan as liurenPaiPan, formatLiuRenPaiPan as liurenFormat } from '@/lib/liuren';
 import { paiPan as fengshuiPaiPan, formatFengShuiPaiPan as fengshuiFormat } from '@/lib/fengshui';
 import { calculateXingMing as xingmingCalculate, formatXingMingPaiPan as xingmingFormat } from '@/lib/xingming';
-import { searchFullText, formatFullTextResults, getDetailedBookStats, findBooksByName, getBookFullText, getBookChapterContent, parseChapterRange, getLearnedBookCount, getBookLearnStatus } from '@/lib/fulltext-search';
+import { searchFullTextAsync, formatFullTextResults, getDetailedBookStats, findBooksByName, getBookFullTextAsync, getBookChapterContent, parseChapterRange, getLearnedBookCount, getBookLearnStatus } from '@/lib/fulltext-search';
 
 export const dynamic = 'force-dynamic';
 
@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
     const extendedKnowledgeResults = matchExtendedKnowledge(searchQuery);
     const extendedKnowledgeStr = extendedKnowledgeResults.map(r => r.corePoints).join('\n\n');
     // 全文检索：从本地txt文件中搜索相关古籍原文段落（不限制！从第一个字到最后一个字完整收录！）
-    const fullTextPassages = searchFullText(searchQuery, 0, 0, 0);
+    const fullTextPassages = await searchFullTextAsync(searchQuery, 0, 0, 0);
     const fullTextStr = formatFullTextResults(fullTextPassages);
 
     const finalKnowledgeStr = (knowledgeSearchStr || (classicKnowledgeStr ? '\n\n' + classicKnowledgeStr : '') || (extendedKnowledgeStr ? '\n\n' + extendedKnowledgeStr : '')

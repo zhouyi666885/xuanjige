@@ -9,7 +9,7 @@ import { searchKnowledge, formatKnowledgeResults } from '@/lib/knowledge-search'
 import { generateSanHeCanDuanPrompt, getSanHeCanDuanByTopic, SAN_HE_CAN_DUAN_GUIDE } from '@/lib/sanhe-canduan';
 import { generateMianXiangFramework, getMianXiangPredictionGuide } from '@/lib/xiangxue';
 import { generateShouXiangFramework, getShouXiangPredictionGuide } from '@/lib/shouxiang';
-import { searchFullText, formatFullTextResults, getBookFullText, findBooksByName, getDetailedBookStats, getBookChapterContent, parseChapterRange, getLearnedBookCount, getBookLearnStatus } from '@/lib/fulltext-search';
+import { searchFullText, searchFullTextAsync, formatFullTextResults, getBookFullText, getBookFullTextAsync, findBooksByName, getDetailedBookStats, getBookChapterContent, parseChapterRange, getLearnedBookCount, getBookLearnStatus } from '@/lib/fulltext-search';
 import { tongQianQiGua, shiJianQiGua as liuyaoShiJian, formatLiuYaoPaiPan as liuyaoFormat } from '@/lib/liuyao';
 import { shiJianQiGua as meihuaShiJian, shuZiQiGua, wenZiQiGua, formatMeiHuaPaiPan as meihuaFormat } from '@/lib/meihua';
 import { paiPan as qimenPaiPan, formatQiMenPaiPan as qimenFormat } from '@/lib/qimen';
@@ -265,8 +265,8 @@ ${stats.sampleBooks.map(b => `  《${b.name}》${b.chars.toLocaleString()}字 [$
     
     if (!isKnowledgeBaseQuestion) {
       // 非知识库统计问题：正常全文检索
-      // 全文检索：从本地txt文件中搜索相关古籍原文段落（不限制！从第一个字到最后一个字完整收录！）
-      const fullTextPassages = searchFullText(message, 0, 0, 0);
+      // 全文检索：从本地txt文件或S3中搜索相关古籍原文段落（不限制！从第一个字到最后一个字完整收录！）
+      const fullTextPassages = await searchFullTextAsync(message, 0, 0, 0);
       fullTextStr = formatFullTextResults(fullTextPassages);
       
       // 检测书籍内容请求
@@ -298,7 +298,7 @@ ${bookContent.content}`;
           }
         } else {
           // 用户只是提到了某本书，获取完整全文供AI参考
-          const fullText = getBookFullText(bestMatch.name);
+          const fullText = await getBookFullTextAsync(bestMatch.name);
           if (fullText) {
             specificBookFullText = `\n\n【${bestMatch.name}完整全文（从第一个字到最后一个字，一字不漏）】\n${fullText}`;
           }

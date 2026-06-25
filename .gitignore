@@ -89,6 +89,13 @@ logs/
 
 # Preview files
 .preview
+
+# Book content cache (stored in S3 for production, local cache for dev)
+public/book-content/
+book-s3-index.json
+book-tasks.json
+public/book-tasks.json
+public/book-learn-status.json
 # Dependencies
 node_modules/
 .pnp

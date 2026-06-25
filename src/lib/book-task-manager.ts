@@ -1404,8 +1404,8 @@ export function initTaskManager(): void {
       // 已录入但未学习，恢复学习
       resumed++;
       setTimeout(async () => {
-        const { getBookFullText } = require('./fulltext-search');
-        const fullText = getBookFullText(task.bookName);
+        const { getBookFullTextAsync } = require('./fulltext-search');
+        const fullText = await getBookFullTextAsync(task.bookName);
         if (fullText) {
           processLearning(id, fullText);
         }
@@ -1415,8 +1415,8 @@ export function initTaskManager(): void {
       updateTask(id, { learningStatus: 'pending', learningProgress: 0, learningMessage: '等待恢复学习...' });
       resumed++;
       setTimeout(async () => {
-        const { getBookFullText } = require('./fulltext-search');
-        const fullText = getBookFullText(task.bookName);
+        const { getBookFullTextAsync } = require('./fulltext-search');
+        const fullText = await getBookFullTextAsync(task.bookName);
         if (fullText) {
           processLearning(id, fullText);
         }

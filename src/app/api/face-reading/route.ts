@@ -3,7 +3,7 @@ import { LLMClient, Config, HeaderUtils } from 'coze-coding-dev-sdk';
 import { faceReadingPrompt, THREE_IRON_RULES, KNOWLEDGE_IRON_LAW_FOUND, KNOWLEDGE_IRON_LAW_NOT_FOUND } from '@/lib/knowledge';
 import { searchKnowledge, formatKnowledgeResults } from '@/lib/knowledge-search';
 import { matchExtendedKnowledge } from '@/lib/extended-classic-knowledge';
-import { searchFullText, formatFullTextResults } from '@/lib/fulltext-search';
+import { searchFullTextAsync, formatFullTextResults } from '@/lib/fulltext-search';
 import { generateMianXiangFramework, getMianXiangPredictionGuide } from '@/lib/xiangxue';
 import { paiPan, formatPaiPanFull, formatShiZhanPrediction } from '@/lib/bazi';
 import { paiPan as ziweiPaiPan, formatPaiPan as ziweiFormatPaiPan } from '@/lib/ziwei';
@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
       ? '\n\n📚📚📚【全部典籍核心论断——必须全部引用】📚📚📚\n' + extendedKnowledgeRaw
       : '';
     // 全文检索（不限制！从第一个字到最后一个字完整收录！）
-    const fullTextPassages = searchFullText('面相 五官 十二宫 气色 流年', 0, 0, 0);
+    const fullTextPassages = await searchFullTextAsync('面相 五官 十二宫 气色 流年', 0, 0, 0);
     const fullTextStr = formatFullTextResults(fullTextPassages);
 
     const knowledgeIronLaw = THREE_IRON_RULES + (knowledgeResults.length > 0 || fullTextPassages.length > 0 || extendedResults.length > 0

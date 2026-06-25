@@ -8,7 +8,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { saveBook as saveBookToS3, getBookContent as getBookFromS3, deleteBookFromS3 } from './book-storage';
+import { saveBook as saveBookToS3, getBookContent as getBookContentFromS3, deleteBookFromS3, getAllBookNames } from './book-storage';
 
 // 书籍内容缓存
 let bookCache: Map<string, string> | null = null;
@@ -244,10 +244,18 @@ function getBookContentDir(): string {
   
   if (process.env.COZE_PROJECT_ENV === 'PROD') {
     if (fs.existsSync(prodDir)) return prodDir;
+    // 生产环境如果没有/tmp/book-content，创建它
+    try { fs.mkdirSync(prodDir, { recursive: true }); } catch { /* ignore */ }
+    return prodDir;
   }
   
   if (fs.existsSync(devDir)) return devDir;
   return devDir;
+}
+
+/** 是否为生产环境 */
+function isProduction(): boolean {
+  return process.env.COZE_PROJECT_ENV === 'PROD';
 }
 
 // 书名关键词映射（用于根据用户问题匹配相关书籍）
@@ -389,6 +397,8 @@ export interface BookPassage {
 
 /**
  * 加载所有书籍内容到缓存（完整全文，不截断）
+ * 生产环境：从S3拉取书名列表，按需获取内容
+ * 开发环境：从本地public/book-content/读取
  */
 function loadBookCache(): void {
   if (bookCache) return;
@@ -397,7 +407,11 @@ function loadBookCache(): void {
   bookNameList = [];
   
   const dir = getBookContentDir();
-  if (!fs.existsSync(dir)) return;
+  if (!fs.existsSync(dir)) {
+    // 生产环境目录不存在时，尝试创建
+    try { fs.mkdirSync(dir, { recursive: true }); } catch { /* ignore */ }
+    return;
+  }
   
   const files = fs.readdirSync(dir).filter(f => f.endsWith('.txt'));
   
@@ -414,6 +428,64 @@ function loadBookCache(): void {
       // Skip unreadable files
     }
   }
+}
+
+/**
+ * 异步加载书籍缓存（生产环境从S3拉取）
+ * 在生产环境中，启动时从S3拉取书名列表，按需获取内容
+ */
+export async function loadBookCacheAsync(): Promise<void> {
+  if (bookCache && bookCache.size > 0) return; // 已有缓存
+  
+  bookCache = new Map();
+  bookNameList = [];
+  
+  if (isProduction()) {
+    // 生产环境：从S3获取书名列表
+    try {
+      const allBooks = await getAllBookNames();
+      for (const bookName of allBooks) {
+        bookNameList.push(bookName);
+        // 不预加载内容，按需从S3获取（懒加载）
+        bookCache.set(bookName, ''); // 占位，内容在搜索时按需加载
+      }
+      console.log(`[全文检索] 生产环境：从S3获取到 ${allBooks.length} 本书名`);
+    } catch (err) {
+      console.error('[全文检索] 生产环境从S3获取书名列表失败:', err);
+    }
+  } else {
+    // 开发环境：同步加载本地文件
+    loadBookCache();
+  }
+}
+
+/**
+ * 获取单本书的内容（生产环境从S3按需拉取）
+ */
+async function getBookContentLazy(bookName: string): Promise<string | null> {
+  // 先检查缓存中是否有实际内容
+  const cached = bookCache?.get(bookName);
+  if (cached && cached.length > 0) return cached;
+  
+  if (isProduction()) {
+    // 生产环境：从S3获取
+    try {
+      const content = await getBookContentFromS3(bookName);
+      if (content) {
+        bookCache?.set(bookName, content);
+        // 同时缓存到本地/tmp加速后续访问
+        const dir = getBookContentDir();
+        const safeName = bookName.replace(/[<>:"/\\|?*]/g, '_').trim();
+        const filePath = path.join(dir, `${safeName}.txt`);
+        try { fs.writeFileSync(filePath, content, 'utf-8'); } catch { /* ignore */ }
+        return content;
+      }
+    } catch (err) {
+      console.error(`[全文检索] 从S3获取《${bookName}》失败:`, err);
+    }
+  }
+  
+  return cached || null;
 }
 
 /**
@@ -656,6 +728,89 @@ export function searchFullText(
 }
 
 /**
+ * 异步版全文检索（生产环境使用S3按需获取书籍内容）
+ * 开发环境直接走同步缓存，生产环境从S3按需拉取
+ */
+export async function searchFullTextAsync(
+  message: string,
+  maxBooks: number = 0,
+  maxPassagesPerBook: number = 0,
+  maxTotalChars: number = 0
+): Promise<BookPassage[]> {
+  // 确保缓存已加载
+  await loadBookCacheAsync();
+  
+  if (!bookCache || !bookNameList) return [];
+  
+  // 铁律：maxBooks=0 时遍历所有书籍，不限定范围！
+  const relevantBookNames = new Set(getRelevantBooks(message));
+  
+  const relevantAvailable: string[] = [];
+  for (const name of relevantBookNames) {
+    if (bookCache.has(name)) {
+      relevantAvailable.push(name);
+    }
+  }
+  
+  // 模糊匹配
+  const msgKeywords = message.replace(/[，。！？、：；""''《》\s]/g, '').split('').filter(c => c.charCodeAt(0) > 0x4e00);
+  for (const bookName of bookNameList) {
+    if (relevantAvailable.includes(bookName)) continue;
+    for (const kw of msgKeywords) {
+      if (bookName.includes(kw)) {
+        relevantAvailable.push(bookName);
+        break;
+      }
+    }
+  }
+  
+  let booksToSearch: string[];
+  if (maxBooks === 0) {
+    const otherBooks = (bookNameList || []).filter((n: string) => !relevantAvailable.includes(n));
+    booksToSearch = [...relevantAvailable, ...otherBooks];
+  } else {
+    booksToSearch = relevantAvailable.slice(0, maxBooks);
+  }
+  
+  const searchKeywords = extractSearchKeywords(message);
+  const allPassages: BookPassage[] = [];
+  let totalChars = 0;
+  
+  for (const bookName of booksToSearch) {
+    // 按需获取书籍内容（生产环境从S3拉取，开发环境从本地缓存）
+    const fullText = await getBookContentLazy(bookName);
+    if (!fullText) continue;
+    
+    const passages = searchInText(fullText, searchKeywords, maxPassagesPerBook);
+    
+    for (const passage of passages) {
+      if (maxTotalChars > 0 && totalChars + passage.length > maxTotalChars) break;
+      
+      allPassages.push({
+        bookName,
+        chapter: '',
+        content: passage,
+        relevance: 1.0,
+      });
+      
+      totalChars += passage.length;
+    }
+    
+    if (maxTotalChars > 0 && totalChars >= maxTotalChars) break;
+  }
+  
+  return allPassages;
+}
+
+/**
+ * 异步版获取指定书籍完整全文（生产环境从S3获取）
+ */
+export async function getBookFullTextAsync(bookName: string): Promise<string | null> {
+  await loadBookCacheAsync();
+  return getBookContentLazy(bookName);
+}
+
+/**
  * 获取指定书籍的完整全文
  * 从第一个字到最后一个字，绝不截断！
  * 
@@ -680,7 +835,7 @@ export function getBookFullText(bookName: string): string | null {
   }
   
   // 本地未命中 → 异步从S3获取（同步返回null，下次请求时缓存已就绪）
-  getBookFromS3(bookName).then((content: string | null) => {
+  getBookContentFromS3(bookName).then((content: string | null) => {
     if (content) {
       // 加入缓存，下次可直接命中
       bookCache?.set(bookName, content);
