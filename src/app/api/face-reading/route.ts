@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { LLMClient, Config, HeaderUtils } from 'coze-coding-dev-sdk';
-import { faceReadingPrompt, KNOWLEDGE_IRON_LAW_FOUND, KNOWLEDGE_IRON_LAW_NOT_FOUND } from '@/lib/knowledge';
+import { faceReadingPrompt, THREE_IRON_RULES, KNOWLEDGE_IRON_LAW_FOUND, KNOWLEDGE_IRON_LAW_NOT_FOUND } from '@/lib/knowledge';
 import { searchKnowledge, formatKnowledgeResults } from '@/lib/knowledge-search';
 import { matchExtendedKnowledge } from '@/lib/extended-classic-knowledge';
 import { searchFullText, formatFullTextResults } from '@/lib/fulltext-search';
@@ -89,9 +89,9 @@ export async function POST(request: NextRequest) {
     const fullTextPassages = searchFullText('面相 五官 十二宫 气色 流年', 0, 0, 0);
     const fullTextStr = formatFullTextResults(fullTextPassages);
 
-    const knowledgeIronLaw = knowledgeResults.length > 0 || fullTextPassages.length > 0 || extendedResults.length > 0
+    const knowledgeIronLaw = THREE_IRON_RULES + (knowledgeResults.length > 0 || fullTextPassages.length > 0 || extendedResults.length > 0
       ? KNOWLEDGE_IRON_LAW_FOUND
-      : KNOWLEDGE_IRON_LAW_NOT_FOUND;
+      : KNOWLEDGE_IRON_LAW_NOT_FOUND);
 
     const systemPrompt = faceReadingPrompt
       + '\n\n' + modeInstruction

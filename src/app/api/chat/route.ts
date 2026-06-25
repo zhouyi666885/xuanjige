@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { LLMClient, Config, HeaderUtils } from 'coze-coding-dev-sdk';
-import { buildSystemPromptProfessional, buildSystemPromptCasual, KNOWLEDGE_IRON_LAW_FOUND, KNOWLEDGE_IRON_LAW_NOT_FOUND } from '@/lib/knowledge';
+import { buildSystemPromptProfessional, buildSystemPromptCasual, THREE_IRON_RULES, KNOWLEDGE_IRON_LAW_FOUND, KNOWLEDGE_IRON_LAW_NOT_FOUND } from '@/lib/knowledge';
 import { paiPan, formatPaiPanFull, formatShiZhanPrediction } from '@/lib/bazi';
 import { paiPan as ziweiPaiPan, formatPaiPan as ziweiFormatPaiPan, getMingGongLunDuan } from '@/lib/ziwei';
 import { matchKnowledge, getAllKnowledge } from '@/lib/classic-knowledge';
@@ -291,9 +291,9 @@ ${bookContent.content}`;
       + '\n\n【知识库学习指引——学思路不学结果】以上知识库内容不是让你照搬原文，而是让你学习其中的分析思路和方法论。重点关注：1.宗师看到某组合时按什么逻辑推理；2.用神忌神在实际案例中如何运用；3.宫位星曜配合的判断规则；4.大运流年叠加的具体方法。理解其分析逻辑后融入你自己的推理链，不是机械复制原文凑数。';
 
     // 知识库强制引用铁律（追加到systemPrompt最末尾，确保最高优先级）
-    const knowledgeIronLaw = knowledgeResults.length > 0 || fullTextStr.length > 0 || extendedKnowledgeResults.length > 0 || specificBookFullText
+    const knowledgeIronLaw = THREE_IRON_RULES + (knowledgeResults.length > 0 || fullTextStr.length > 0 || extendedKnowledgeResults.length > 0 || specificBookFullText
       ? KNOWLEDGE_IRON_LAW_FOUND
-      : KNOWLEDGE_IRON_LAW_NOT_FOUND;
+      : KNOWLEDGE_IRON_LAW_NOT_FOUND);
 
     const basePrompt = mode === 'professional'
       ? buildSystemPromptProfessional(birthInfoStr)

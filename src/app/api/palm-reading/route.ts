@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { LLMClient, Config, HeaderUtils } from 'coze-coding-dev-sdk';
-import { palmReadingPrompt, KNOWLEDGE_IRON_LAW_FOUND, KNOWLEDGE_IRON_LAW_NOT_FOUND } from '@/lib/knowledge';
+import { palmReadingPrompt, THREE_IRON_RULES, KNOWLEDGE_IRON_LAW_FOUND, KNOWLEDGE_IRON_LAW_NOT_FOUND } from '@/lib/knowledge';
 import { searchKnowledge, formatKnowledgeResults } from '@/lib/knowledge-search';
 import { matchExtendedKnowledge } from '@/lib/extended-classic-knowledge';
 import { searchFullText, formatFullTextResults } from '@/lib/fulltext-search';
@@ -88,9 +88,9 @@ export async function POST(request: NextRequest) {
     // 全文检索（不限制！从第一个字到最后一个字完整收录！）
     const fulltextResults = searchFullText('手相掌纹生命线感情线智慧线九大丘位掌丘', 0, 0, 0);
     const fulltextStr = formatFullTextResults(fulltextResults);
-    const knowledgeIronLaw = knowledgeResults.length > 0 || fulltextResults.length > 0 || extendedResults.length > 0
+    const knowledgeIronLaw = THREE_IRON_RULES + (knowledgeResults.length > 0 || fulltextResults.length > 0 || extendedResults.length > 0
       ? KNOWLEDGE_IRON_LAW_FOUND
-      : KNOWLEDGE_IRON_LAW_NOT_FOUND;
+      : KNOWLEDGE_IRON_LAW_NOT_FOUND);
 
     const systemPrompt = palmReadingPrompt
       + '\n\n' + modeInstruction
