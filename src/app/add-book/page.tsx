@@ -1,457 +1,390 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
-import Link from 'next/link';
+import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 
-// ========== 进度状态类型 ==========
-interface ProgressInfo {
-  stage: string;
-  message: string;
+interface TaskInfo {
+  id: string;
   bookName: string;
+  status: string;
   progress: number;
-  total: number;
-  // 摘录进度
-  currentChapter: string;
-  chaptersDone: number;
+  message: string;
+  currentChapter: number;
   totalChapters: number;
+  currentChapterName: string;
   remainingChapters: number;
-  // 翻译进度
-  translateCurrent: number;
-  translateTotal: number;
-  // 预估
-  elapsedSeconds: number;
-  estimatedRemaining: string;
-  // 搜索
-  sourcesFound: number;
-  currentSource: string;
-  sourceTried: number;
-  totalSources: number;
+  source: string;
+  size: string;
+  chars: number;
+  createdAt: number;
+  updatedAt: number;
+  completedAt: number | null;
+  error: string;
 }
 
-// ========== 书籍列表项 ==========
-interface BookItem {
-  name: string;
-  status: 'transcribing' | 'completed' | 'exists' | 'copyright' | 'error';
-  progress: ProgressInfo | null;
-  completedAt: string | null;
-  totalChapters: number;
-  totalChars: number;
-  errorMessage: string | null;
-}
-
-const defaultProgress: ProgressInfo = {
-  stage: '', message: '', bookName: '', progress: 0, total: 100,
-  currentChapter: '', chaptersDone: 0, totalChapters: 0, remainingChapters: 0,
-  translateCurrent: 0, translateTotal: 0,
-  elapsedSeconds: 0, estimatedRemaining: '',
-  sourcesFound: 0, currentSource: '', sourceTried: 0, totalSources: 0,
-};
-
-// ========== 格式化时间 ==========
-function formatDuration(seconds: number): string {
-  if (seconds < 60) return `${seconds}秒`;
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return s > 0 ? `${m}分${s}秒` : `${m}分钟`;
-}
-
-// ========== 阶段图标 ==========
-function StageIcon({ stage }: { stage: string }) {
-  if (stage === 'done') return <span className="text-green-400 text-xl">✓</span>;
-  if (stage === 'error' || stage === 'copyright') return <span className="text-red-400 text-xl">✗</span>;
-  return <span className="text-yellow-400 animate-spin inline-block">◆</span>;
-}
-
-// ========== 进度条组件 ==========
-function ProgressBar({ progress, total, stage }: { progress: number; total: number; stage: string }) {
-  const pct = total > 0 ? Math.min(Math.round((progress / total) * 100), 100) : 0;
-  const barColor = stage === 'done' ? 'bg-green-500' : stage === 'translating' ? 'bg-blue-500' : 'bg-yellow-500';
-  return (
-    <div className="w-full bg-gray-800 rounded-full h-3 overflow-hidden border border-gray-700">
-      <div
-        className={`h-full rounded-full transition-all duration-500 ${barColor}`}
-        style={{ width: `${pct}%` }}
-      />
-    </div>
-  );
-}
-
-// ========== 主页面 ==========
 export default function AddBookPage() {
+  const router = useRouter();
   const [bookName, setBookName] = useState('');
-  const [books, setBooks] = useState<BookItem[]>([]);
-  const [isAdding, setIsAdding] = useState(false);
-  const abortRef = useRef<AbortController | null>(null);
+  const [tasks, setTasks] = useState<TaskInfo[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [stats, setStats] = useState({ total: 0, active: 0, done: 0, failed: 0 });
+  const [bookCount, setBookCount] = useState(0);
 
-  // 添加书籍
-  const handleAdd = useCallback(async () => {
-    const name = bookName.trim();
-    if (!name || isAdding) return;
-
-    setIsAdding(true);
-    const newBook: BookItem = {
-      name,
-      status: 'transcribing',
-      progress: { ...defaultProgress, bookName: name, stage: 'searching', message: '正在搜索...' },
-      completedAt: null,
-      totalChapters: 0,
-      totalChars: 0,
-      errorMessage: null,
-    };
-    setBooks(prev => [newBook, ...prev]);
-    setBookName('');
-
-    const controller = new AbortController();
-    abortRef.current = controller;
-
+  // 轮询获取任务列表
+  const fetchTasks = useCallback(async () => {
     try {
-      const response = await fetch('/api/add-book', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bookName: name }),
-        signal: controller.signal,
-      });
-
-      if (!response.ok || !response.body) {
-        throw new Error('请求失败');
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          const jsonStr = line.slice(6).trim();
-          if (!jsonStr) continue;
-
-          try {
-            const data = JSON.parse(jsonStr);
-
-            setBooks(prev => prev.map(b => {
-              if (b.name !== name) return b;
-
-              if (data.stage === 'done') {
-                return {
-                  ...b,
-                  status: 'completed',
-                  progress: { ...b.progress!, ...data, stage: 'done' },
-                  completedAt: new Date().toLocaleString(),
-                  totalChapters: data.totalChapters || b.progress?.totalChapters || 0,
-                  totalChars: data.chars || 0,
-                };
-              }
-
-              if (data.stage === 'error') {
-                return {
-                  ...b,
-                  status: 'error',
-                  errorMessage: data.message || '未知错误',
-                  progress: { ...b.progress!, ...data },
-                };
-              }
-
-              if (data.stage === 'copyright') {
-                return {
-                  ...b,
-                  status: 'copyright',
-                  errorMessage: data.message || '因版权问题无法摘录',
-                  progress: { ...b.progress!, ...data },
-                };
-              }
-
-              if (data.stage === 'exists') {
-                return {
-                  ...b,
-                  status: 'exists',
-                  completedAt: new Date().toLocaleString(),
-                  progress: { ...b.progress!, ...data, stage: 'exists' },
-                };
-              }
-
-              return {
-                ...b,
-                progress: { ...b.progress!, ...data },
-              };
-            }));
-          } catch {
-            // ignore parse errors
-          }
-        }
-      }
-    } catch (err: unknown) {
-      if (err instanceof DOMException && err.name === 'AbortError') {
-        // 用户主动取消
-        setBooks(prev => prev.map(b =>
-          b.name === name ? { ...b, status: 'error', errorMessage: '已取消摘录' } : b
-        ));
-      } else {
-        setBooks(prev => prev.map(b =>
-          b.name === name ? { ...b, status: 'error', errorMessage: '请求失败，请重试' } : b
-        ));
-      }
-    } finally {
-      setIsAdding(false);
-      abortRef.current = null;
+      const res = await fetch('/api/add-book');
+      const data = await res.json();
+      setTasks(data.tasks || []);
+      setStats(data.stats || { total: 0, active: 0, done: 0, failed: 0 });
+      setBookCount(data.bookCount || 0);
+    } catch {
+      // 静默失败
     }
-  }, [bookName, isAdding]);
-
-  // 取消摘录
-  const handleCancel = useCallback((name: string) => {
-    if (abortRef.current) {
-      abortRef.current.abort();
-    }
-    setBooks(prev => prev.map(b =>
-      b.name === name ? { ...b, status: 'error', errorMessage: '已取消摘录' } : b
-    ));
   }, []);
 
-  // 删除书籍（从知识库移除）
-  const handleDelete = useCallback(async (name: string) => {
+  // 自动轮询：有活跃任务时每2秒刷新，否则每10秒
+  useEffect(() => {
+    fetchTasks();
+    const hasActive = tasks.some(t =>
+      ['pending', 'searching', 'downloading', 'translating', 'saving'].includes(t.status)
+    );
+    const interval = setInterval(fetchTasks, hasActive ? 2000 : 10000);
+    return () => clearInterval(interval);
+  }, [fetchTasks, tasks]);
+
+  // 添加书籍
+  const handleAdd = async () => {
+    if (!bookName.trim()) return;
+    setIsSubmitting(true);
+    try {
+      const res = await fetch('/api/add-book', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bookName: bookName.trim() }),
+      });
+      const data = await res.json();
+      if (data.status === 'exists') {
+        // 已有这本书
+      }
+      setBookName('');
+      // 立即刷新任务列表
+      await fetchTasks();
+    } catch {
+      // 错误处理
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // 删除任务
+  const handleDelete = async (taskId: string) => {
     try {
       await fetch('/api/add-book', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bookName: name }),
+        body: JSON.stringify({ taskId }),
       });
+      await fetchTasks();
     } catch {
-      // 即使API调用失败也从列表移除
+      // 错误处理
     }
-    setBooks(prev => prev.filter(b => b.name !== name));
-  }, []);
+  };
 
-  // 热门推荐
-  const hotBooks = ['易经', '黄帝内经', '山海经', '鬼谷子', '金刚经', '心经', '六祖坛经', '楞严经', '滴天髓', '穷通宝鉴'];
+  // 状态图标
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'pending': return '⏳';
+      case 'searching': return '🔍';
+      case 'downloading': return '📥';
+      case 'translating': return '🌐';
+      case 'saving': return '📝';
+      case 'done': return '✅';
+      case 'exists': return '📚';
+      case 'failed': return '❌';
+      case 'copyright': return '🔒';
+      default: return '📄';
+    }
+  };
+
+  // 状态标签样式
+  const getStatusStyle = (status: string) => {
+    switch (status) {
+      case 'done': return 'bg-green-900/60 text-green-300 border border-green-700';
+      case 'exists': return 'bg-amber-900/60 text-amber-300 border border-amber-700';
+      case 'failed': return 'bg-red-900/60 text-red-300 border border-red-700';
+      case 'copyright': return 'bg-orange-900/60 text-orange-300 border border-orange-700';
+      default: return 'bg-blue-900/60 text-blue-300 border border-blue-700';
+    }
+  };
+
+  // 进度条颜色
+  const getProgressColor = (status: string) => {
+    switch (status) {
+      case 'done': return 'bg-green-500';
+      case 'exists': return 'bg-amber-500';
+      case 'failed': return 'bg-red-500';
+      case 'copyright': return 'bg-orange-500';
+      default: return 'bg-gradient-to-r from-[#d4a853] to-[#f0c674]';
+    }
+  };
+
+  // 格式化时间
+  const formatTime = (timestamp: number) => {
+    if (!timestamp) return '';
+    const d = new Date(timestamp);
+    return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+  };
+
+  // 预计剩余时间
+  const getEstimatedTime = (task: TaskInfo) => {
+    if (task.status !== 'saving' && task.status !== 'translating') return '';
+    if (task.progress <= 0) return '';
+    const elapsed = Date.now() - (task.updatedAt - (task.progress / 100) * (task.updatedAt - task.createdAt));
+    const totalEstimate = (elapsed / task.progress) * 100;
+    const remaining = totalEstimate - elapsed;
+    if (remaining < 1000) return '即将完成';
+    if (remaining < 60000) return `约 ${Math.ceil(remaining / 1000)} 秒`;
+    return `约 ${Math.ceil(remaining / 60000)} 分钟`;
+  };
+
+  const isActive = (status: string) =>
+    ['pending', 'searching', 'downloading', 'translating', 'saving'].includes(status);
 
   return (
     <div className="min-h-screen bg-[#0a0a0f] text-[#e8e0d0]">
       {/* 顶部导航 */}
-      <div className="sticky top-0 z-10 bg-[#0a0a0f]/95 backdrop-blur border-b border-[#d4a853]/20 px-4 py-3">
-        <div className="max-w-lg mx-auto flex items-center gap-3">
-          <Link href="/" className="text-[#8a8070] hover:text-[#d4a853] transition-colors">
+      <div className="sticky top-0 z-10 bg-[#0a0a0f]/95 backdrop-blur-sm border-b border-[#2a2a3e]">
+        <div className="max-w-2xl mx-auto px-4 py-3 flex items-center gap-3">
+          <button
+            onClick={() => router.push('/')}
+            className="text-[#8a8070] hover:text-[#d4a853] transition-colors text-sm"
+          >
             ← 返回
-          </Link>
-          <h1 className="text-lg font-bold text-[#d4a853] flex-1 text-center">添加书籍</h1>
-          <div className="w-10" />
+          </button>
+          <h1 className="text-lg font-bold text-[#d4a853] flex-1 text-center">
+            添加书籍
+          </h1>
+          <span className="text-xs text-[#8a8070]">
+            知识库 {bookCount} 本
+          </span>
         </div>
       </div>
 
-      <div className="max-w-lg mx-auto px-4 py-6 space-y-6">
-        {/* 输入区域 */}
-        <div className="bg-[#1a1a2e] rounded-xl p-4 border border-[#d4a853]/20">
+      <div className="max-w-2xl mx-auto px-4 py-6 space-y-6">
+        {/* 输入区 */}
+        <div className="bg-[#1a1a2e] rounded-xl p-5 border border-[#2a2a3e]">
+          <p className="text-sm text-[#8a8070] mb-3">
+            输入书名，系统自动搜索并摘录到知识库。退出APP不影响，后台持续录入。
+          </p>
           <div className="flex gap-2">
             <input
               type="text"
               value={bookName}
-              onChange={e => setBookName(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleAdd()}
-              placeholder="输入书名，自动搜索添加..."
-              disabled={isAdding}
-              className="flex-1 bg-[#0a0a0f] border border-[#d4a853]/30 rounded-lg px-4 py-3 text-[#e8e0d0] placeholder-[#8a8070]/50 focus:outline-none focus:border-[#d4a853] disabled:opacity-50"
+              onChange={(e) => setBookName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+              placeholder="输入书名，如：滴天髓"
+              className="flex-1 bg-[#0a0a0f] border border-[#2a2a3e] rounded-lg px-4 py-3 text-[#e8e0d0] placeholder-[#5a5a6e] focus:border-[#d4a853] focus:outline-none transition-colors"
+              disabled={isSubmitting}
             />
             <button
               onClick={handleAdd}
-              disabled={isAdding || !bookName.trim()}
-              className="bg-[#d4a853] text-[#0a0a0f] font-bold px-5 py-3 rounded-lg hover:bg-[#e8c06a] transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+              disabled={isSubmitting || !bookName.trim()}
+              className="bg-[#d4a853] hover:bg-[#e0b860] disabled:bg-[#3a3a4e] disabled:text-[#6a6a7e] text-[#0a0a0f] font-bold px-6 py-3 rounded-lg transition-colors whitespace-nowrap"
             >
-              {isAdding ? '添加中...' : '添加'}
+              {isSubmitting ? '添加中...' : '添加'}
             </button>
           </div>
-
-          {/* 使用说明 */}
-          <p className="text-xs text-[#8a8070] mt-3 leading-relaxed">
-            输入书名后，系统自动在全网搜索书籍全文并录入知识库。
-            从第一页第一个字到最后一页最后一个字完整摘录，一个字都不会少。
-            摘录过程中和完成后均可随时删除。
-          </p>
         </div>
 
-        {/* 热门推荐 */}
-        {!isAdding && books.length === 0 && (
-          <div className="bg-[#1a1a2e] rounded-xl p-4 border border-[#d4a853]/20">
-            <h3 className="text-sm font-bold text-[#d4a853] mb-3">热门推荐</h3>
-            <div className="flex flex-wrap gap-2">
-              {hotBooks.map(name => (
-                <button
-                  key={name}
-                  onClick={() => { setBookName(name); }}
-                  className="bg-[#0a0a0f] border border-[#d4a853]/20 text-[#e8e0d0] text-sm px-3 py-1.5 rounded-lg hover:border-[#d4a853] hover:text-[#d4a853] transition-colors"
-                >
-                  {name}
-                </button>
-              ))}
+        {/* 活跃任务统计 */}
+        {stats.active > 0 && (
+          <div className="bg-[#16213e] rounded-xl p-4 border border-blue-800/50 flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-blue-600/30 flex items-center justify-center text-sm animate-pulse">
+              📥
+            </div>
+            <div className="flex-1">
+              <p className="text-sm text-blue-300">
+                后台录入中 · {stats.active} 本书正在处理
+              </p>
+              <p className="text-xs text-blue-400/60">
+                退出APP不影响，下次打开可查看进度
+              </p>
             </div>
           </div>
         )}
 
-        {/* 书籍列表 */}
-        {books.length > 0 && (
+        {/* 任务列表 */}
+        {tasks.length > 0 && (
           <div className="space-y-3">
-            {books.map(book => (
-              <BookCard
-                key={book.name}
-                book={book}
-                onCancel={handleCancel}
-                onDelete={handleDelete}
-              />
+            <h2 className="text-sm font-bold text-[#8a8070] uppercase tracking-wider">
+              录入记录
+            </h2>
+            {tasks.map((task) => (
+              <div
+                key={task.id}
+                className={`bg-[#1a1a2e] rounded-xl p-4 border transition-colors ${
+                  isActive(task.status)
+                    ? 'border-[#d4a853]/50'
+                    : 'border-[#2a2a3e]'
+                }`}
+              >
+                {/* 书名和状态 */}
+                <div className="flex items-start justify-between mb-2">
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <span className="text-lg">{getStatusIcon(task.status)}</span>
+                    <div className="min-w-0 flex-1">
+                      <h3 className="font-bold text-[#e8e0d0] truncate">
+                        《{task.bookName}》
+                      </h3>
+                      <span className={`inline-block text-xs px-2 py-0.5 rounded-full mt-1 ${getStatusStyle(task.status)}`}>
+                        {task.status === 'exists' ? '已有这本书' :
+                         task.status === 'done' ? '已进入知识库' :
+                         task.status === 'copyright' ? '因版权问题无法摘录' :
+                         task.status === 'failed' ? '摘录失败' :
+                         task.status === 'pending' ? '等待开始' :
+                         task.status === 'searching' ? '搜索中' :
+                         task.status === 'downloading' ? '获取中' :
+                         task.status === 'translating' ? '翻译中' :
+                         task.status === 'saving' ? '摘录中' :
+                         task.status}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 ml-2">
+                    {/* 取消/删除按钮 */}
+                    {isActive(task.status) ? (
+                      <button
+                        onClick={() => handleDelete(task.id)}
+                        className="text-xs text-red-400 hover:text-red-300 border border-red-800/50 px-2 py-1 rounded hover:bg-red-900/30 transition-colors"
+                      >
+                        取消
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handleDelete(task.id)}
+                        className="text-xs text-[#8a8070] hover:text-red-400 border border-[#2a2a3e] px-2 py-1 rounded hover:border-red-800/50 transition-colors"
+                      >
+                        删除
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* 进度条 */}
+                {(isActive(task.status) || task.status === 'done') && (
+                  <div className="mb-2">
+                    <div className="flex justify-between text-xs text-[#8a8070] mb-1">
+                      <span>{task.message}</span>
+                      <span>{task.progress}%</span>
+                    </div>
+                    <div className="h-2 bg-[#0a0a0f] rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-500 ${getProgressColor(task.status)}`}
+                        style={{ width: `${task.progress}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* 章节进度 */}
+                {task.totalChapters > 0 && task.status !== 'done' && task.status !== 'exists' && (
+                  <div className="grid grid-cols-3 gap-2 mt-2 text-xs">
+                    <div className="bg-[#0a0a0f] rounded-lg p-2 text-center">
+                      <p className="text-[#8a8070]">总章节</p>
+                      <p className="text-[#d4a853] font-bold text-sm">{task.totalChapters}</p>
+                    </div>
+                    <div className="bg-[#0a0a0f] rounded-lg p-2 text-center">
+                      <p className="text-[#8a8070]">当前</p>
+                      <p className="text-[#d4a853] font-bold text-sm">{task.currentChapter}/{task.totalChapters}</p>
+                    </div>
+                    <div className="bg-[#0a0a0f] rounded-lg p-2 text-center">
+                      <p className="text-[#8a8070]">剩余</p>
+                      <p className="text-[#d4a853] font-bold text-sm">{task.remainingChapters} 章</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* 预计剩余时间 */}
+                {isActive(task.status) && getEstimatedTime(task) && (
+                  <p className="text-xs text-[#8a8070] mt-1">
+                    预计剩余: {getEstimatedTime(task)}
+                  </p>
+                )}
+
+                {/* 完成信息 */}
+                {task.status === 'done' && (
+                  <div className="mt-2 bg-green-900/20 border border-green-800/30 rounded-lg p-3">
+                    <p className="text-green-300 font-bold text-center text-sm">
+                      已进入知识库
+                    </p>
+                    <div className="flex justify-center gap-4 mt-1 text-xs text-green-400/70">
+                      <span>{task.totalChapters} 章</span>
+                      <span>{task.size}</span>
+                      <span>{task.chars?.toLocaleString()} 字</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* 已有此书 */}
+                {task.status === 'exists' && (
+                  <div className="mt-2 bg-amber-900/20 border border-amber-800/30 rounded-lg p-3">
+                    <p className="text-amber-300 text-center text-sm">
+                      已有这本书 — 此书已在知识库中，无需重复添加
+                    </p>
+                  </div>
+                )}
+
+                {/* 版权限制 */}
+                {task.status === 'copyright' && (
+                  <div className="mt-2 bg-orange-900/20 border border-orange-800/30 rounded-lg p-3">
+                    <p className="text-orange-300 text-center text-sm">
+                      因版权问题无法摘录
+                    </p>
+                    <p className="text-xs text-orange-400/60 text-center mt-1">
+                      已遍历所有可访问来源，均未找到此书公开内容
+                    </p>
+                  </div>
+                )}
+
+                {/* 时间信息 */}
+                <div className="flex justify-between text-xs text-[#5a5a6e] mt-2">
+                  <span>创建: {formatTime(task.createdAt)}</span>
+                  {task.completedAt && (
+                    <span>完成: {formatTime(task.completedAt)}</span>
+                  )}
+                </div>
+              </div>
             ))}
           </div>
         )}
-      </div>
-    </div>
-  );
-}
 
-// ========== 书籍卡片组件 ==========
-function BookCard({
-  book,
-  onCancel,
-  onDelete,
-}: {
-  book: BookItem;
-  onCancel: (name: string) => void;
-  onDelete: (name: string) => void;
-}) {
-  const isTranscribing = book.status === 'transcribing';
-  const isCompleted = book.status === 'completed' || book.status === 'exists';
-  const isError = book.status === 'error' || book.status === 'copyright';
-  const p = book.progress;
-
-  return (
-    <div className={`bg-[#1a1a2e] rounded-xl p-4 border ${
-      isCompleted ? 'border-green-500/30' : isError ? 'border-red-500/30' : 'border-[#d4a853]/30'
-    }`}>
-      {/* 书名 + 状态 */}
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-2 flex-1 min-w-0">
-          <StageIcon stage={isCompleted ? 'done' : isError ? 'error' : 'transcribing'} />
-          <h3 className="font-bold text-[#d4a853] truncate">《{book.name}》</h3>
-        </div>
-        {/* 删除/取消按钮 */}
-        {isTranscribing ? (
-          <button
-            onClick={() => onCancel(book.name)}
-            className="text-xs text-red-400 border border-red-400/30 px-2 py-1 rounded hover:bg-red-400/10 transition-colors whitespace-nowrap"
-          >
-            取消
-          </button>
-        ) : (
-          <button
-            onClick={() => onDelete(book.name)}
-            className="text-xs text-[#8a8070] border border-[#8a8070]/30 px-2 py-1 rounded hover:text-red-400 hover:border-red-400/30 transition-colors whitespace-nowrap"
-          >
-            删除
-          </button>
+        {/* 空状态 */}
+        {tasks.length === 0 && (
+          <div className="text-center py-12">
+            <p className="text-4xl mb-4">📖</p>
+            <p className="text-[#8a8070] text-sm">
+              输入书名，自动搜索摘录到知识库
+            </p>
+            <p className="text-[#5a5a6e] text-xs mt-1">
+              后台永久运行，退出APP不中断
+            </p>
+          </div>
         )}
+
+        {/* 使用说明 */}
+        <div className="bg-[#1a1a2e] rounded-xl p-4 border border-[#2a2a3e]">
+          <h3 className="text-sm font-bold text-[#d4a853] mb-2">使用说明</h3>
+          <ul className="text-xs text-[#8a8070] space-y-1">
+            <li>• 输入书名后系统自动搜索并完整摘录</li>
+            <li>• 后台永久运行，退出APP不影响录入进度</li>
+            <li>• 下次打开自动恢复进度，继续录入</li>
+            <li>• 已有此书会提示「已有这本书」</li>
+            <li>• 摘录中可取消，完成后也可删除</li>
+            <li>• 因版权限制无法获取的书籍会明确提示</li>
+          </ul>
+        </div>
       </div>
-
-      {/* 已完成状态 */}
-      {isCompleted && (
-        <div className="mt-3 space-y-1">
-          <div className="text-green-400 font-bold text-lg">已进入知识库</div>
-          {book.totalChars > 0 && (
-            <div className="text-xs text-[#8a8070]">
-              共 {book.totalChapters} 章 · {book.totalChars.toLocaleString()} 字
-              {p?.elapsedSeconds ? ` · 耗时 ${formatDuration(p.elapsedSeconds)}` : ''}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* 已存在 */}
-      {book.status === 'exists' && (
-        <div className="mt-2 text-yellow-400 text-sm">已有这本书 — 此书已在知识库中，无需重复添加</div>
-      )}
-
-      {/* 错误/版权 */}
-      {isError && (
-        <div className="mt-2 space-y-1">
-          <div className={`text-sm ${book.status === 'copyright' ? 'text-yellow-400' : 'text-red-400'}`}>
-            {book.errorMessage || '摘录失败'}
-          </div>
-          {p?.totalSources && p.totalSources > 0 && (
-            <div className="text-xs text-[#8a8070]">
-              已遍历 {p.totalSources} 个来源网站
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* 摘录中 — 进度可视化 */}
-      {isTranscribing && p && (
-        <div className="mt-3 space-y-2">
-          {/* 进度条 */}
-          <ProgressBar progress={p.progress} total={p.total} stage={p.stage} />
-
-          {/* 章节进度 */}
-          {p.totalChapters > 0 && (
-            <div className="space-y-1">
-              <div className="flex justify-between text-xs">
-                <span className="text-[#d4a853]">
-                  第 {p.chaptersDone}/{p.totalChapters} 章
-                </span>
-                <span className="text-[#8a8070]">
-                  剩余 {p.remainingChapters} 章
-                </span>
-              </div>
-              {/* 章节进度条 */}
-              <div className="w-full bg-gray-800 rounded-full h-1.5 overflow-hidden">
-                <div
-                  className="h-full bg-[#d4a853] rounded-full transition-all duration-300"
-                  style={{ width: `${p.totalChapters > 0 ? Math.round((p.chaptersDone / p.totalChapters) * 100) : 0}%` }}
-                />
-              </div>
-            </div>
-          )}
-
-          {/* 当前章节名称 */}
-          {p.currentChapter && (
-            <div className="text-xs text-[#e8e0d0]/80 truncate">
-              正在摘录: {p.currentChapter}
-            </div>
-          )}
-
-          {/* 翻译进度 */}
-          {p.translateTotal > 0 && (
-            <div className="text-xs text-blue-400">
-              翻译进度: {p.translateCurrent}/{p.translateTotal} 段
-              ({p.translateTotal > 0 ? Math.round(p.translateCurrent / p.translateTotal * 100) : 0}%)
-            </div>
-          )}
-
-          {/* 搜索/下载进度 */}
-          {p.stage === 'searching' && (
-            <div className="text-xs text-[#8a8070]">
-              {p.sourcesFound > 0 ? `找到 ${p.sourcesFound} 个来源` : '正在全网搜索...'}
-            </div>
-          )}
-          {p.stage === 'fetching' && p.totalSources > 0 && (
-            <div className="text-xs text-[#8a8070]">
-              尝试来源 {p.sourceTried}/{p.totalSources}
-            </div>
-          )}
-
-          {/* 预估剩余时间 */}
-          {p.estimatedRemaining && p.stage === 'saving' && (
-            <div className="text-xs text-[#8a8070]">
-              预计剩余 {p.estimatedRemaining}
-            </div>
-          )}
-
-          {/* 百分比 */}
-          <div className="text-right text-xs text-[#8a8070]">
-            {p.total > 0 ? Math.round(p.progress / p.total * 100) : 0}%
-          </div>
-        </div>
-      )}
     </div>
   );
 }
