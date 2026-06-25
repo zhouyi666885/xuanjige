@@ -258,8 +258,38 @@ function searchInText(text: string, keywords: string[], maxPassages: number = 0)
 /**
  * 从用户消息中提取搜索关键词（更全面）
  */
+// 同义词映射表（用户常用词 → 古籍中的同义表达）
+const SYNONYM_MAP: Record<string, string[]> = {
+  '事业': ['官禄', '功名', '仕途', '官运', '事业', '求职', '升迁', '功名'],
+  '财运': ['财帛', '财星', '求财', '偏财', '正财', '财运', '破财', '纳财'],
+  '婚姻': ['配偶', '姻缘', '夫妻', '红鸾', '天喜', '桃花', '合婚', '嫁娶'],
+  '健康': ['疾厄', '疾病', '寿元', '身体', '健康', '灾厄', '血光'],
+  '学业': ['功名', '科举', '文昌', '文运', '学业', '考试', '学堂'],
+  '性格': ['性情', '心性', '品性', '性格', '禀性'],
+  '子女': ['子女', '子息', '儿女', '后代', '嗣续'],
+  '父母': ['父母', '六亲', '椿萱', '双亲'],
+  '兄弟': ['兄弟', '兄友', '比劫', '手足'],
+  '出行': ['出行', '远行', '迁徙', '出行', '行旅'],
+  '官司': ['官非', '诉讼', '刑狱', '口舌', '官司'],
+  '寿命': ['寿元', '寿命', '天年', '长生'],
+  '风水': ['堪舆', '地理', '宅运', '阴宅', '阳宅', '风水'],
+  '面相': ['相法', '面相', '五官', '气色', '三停'],
+  '手相': ['掌相', '手相', '掌纹', '手纹'],
+  '工作': ['官禄', '事业', '职业', '工作'],
+  '恋爱': ['桃花', '姻缘', '红鸾', '恋爱'],
+  '投资': ['求财', '偏财', '投资', '财运'],
+  '考试': ['功名', '文昌', '科举', '考试'],
+  '搬家': ['迁徙', '移居', '搬家', '入宅'],
+  '运势': ['运程', '运气', '流年', '大运', '运势'],
+  '命运': ['命理', '天命', '命数', '命运'],
+  '赚钱': ['求财', '财帛', '谋财', '赚钱'],
+  '离婚': ['破婚', '丧偶', '刑克', '离异'],
+  '小人': ['劫煞', '刑害', '是非', '小人'],
+};
+
 function extractSearchKeywords(message: string): string[] {
   const keywords: string[] = [];
+  const expandedKeywords = new Set<string>();
   
   // 命理核心术语
   const terms = [
@@ -292,6 +322,23 @@ function extractSearchKeywords(message: string): string[] {
   if (keywords.length === 0) {
     const chineseWords = message.match(/[\u4e00-\u9fff]{2,4}/g) || [];
     keywords.push(...chineseWords.slice(0, 8));
+  }
+  
+  // 同义词扩展：遍历同义词映射，如果用户消息中包含某个词，就追加其同义词
+  for (const [key, synonyms] of Object.entries(SYNONYM_MAP)) {
+    if (message.includes(key)) {
+      for (const syn of synonyms) {
+        if (!keywords.includes(syn)) {
+          expandedKeywords.add(syn);
+        }
+      }
+    }
+  }
+  
+  // 将扩展的同义词追加到关键词列表
+  const expanded = Array.from(expandedKeywords);
+  if (expanded.length > 0) {
+    keywords.push(...expanded.slice(0, 12));
   }
   
   return keywords;
