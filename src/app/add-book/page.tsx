@@ -130,16 +130,18 @@ export default function AddBookPage() {
   const router = useRouter();
   const [bookName, setBookName] = useState('');
   const [tasks, setTasks] = useState<TaskInfo[]>([]);
+  const [copyrightNotices, setCopyrightNotices] = useState<{bookName: string; status: string; message: string; createdAt: number}[]>([]);
+  const [dismissedNotices, setDismissedNotices] = useState<Set<string>>(new Set());
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [stats, setStats] = useState({ total: 0, active: 0, done: 0, failed: 0 });
   const [bookCount, setBookCount] = useState(0);
   const [learningBooks, setLearningBooks] = useState<LearningBook[]>([]);
 
-  // 新会话清除版权/失败任务（退出APP后再进入时消失）
+  // 新会话清除版权提示（退出APP后再进入时版权提示消失）
   useEffect(() => {
     const cleared = sessionStorage.getItem('xuanjige_copyright_cleared');
     if (!cleared) {
-      // 新会话，清除上次的版权/失败任务
+      // 新会话，清除服务端的版权/失败任务
       fetch('/api/add-book', { method: 'DELETE' }).catch(() => {});
       sessionStorage.setItem('xuanjige_copyright_cleared', '1');
     }
@@ -151,6 +153,7 @@ export default function AddBookPage() {
       const res = await fetch('/api/add-book');
       const data = await res.json();
       setTasks(data.tasks || []);
+      setCopyrightNotices(data.copyrightNotices || []);
       setStats(data.stats || { total: 0, active: 0, done: 0, failed: 0 });
       setBookCount(data.bookCount || 0);
       setLearningBooks(data.learningBooks || []);
@@ -378,20 +381,44 @@ export default function AddBookPage() {
           </div>
         )}
 
-        {/* 任务列表 */}
-        {tasks.length > 0 && (
+        {/* 版权失败一次性提示 */}
+        {copyrightNotices.filter(n => !dismissedNotices.has(n.bookName)).length > 0 && (
+          <div className="space-y-2">
+            {copyrightNotices.filter(n => !dismissedNotices.has(n.bookName)).map((notice) => (
+              <div
+                key={notice.bookName}
+                className="bg-red-950/60 rounded-xl p-4 border border-red-800/40 flex items-start gap-3"
+              >
+                <span className="text-lg mt-0.5">⚠️</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-red-300 font-medium">
+                    《{notice.bookName}》因版权问题录入失败
+                  </p>
+                  <p className="text-xs text-red-400/60 mt-1">
+                    已搜遍全网所有渠道，均未找到完整内容
+                  </p>
+                </div>
+                <button
+                  onClick={() => setDismissedNotices(prev => new Set(prev).add(notice.bookName))}
+                  className="text-xs text-red-400/60 hover:text-red-300 border border-red-800/30 px-2 py-1 rounded transition-colors"
+                >
+                  知道了
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* 正在录入中的任务列表（只显示活跃任务，带进度条） */}
+        {tasks.filter(t => isActive(t.status)).length > 0 && (
           <div className="space-y-3">
             <h2 className="text-sm font-bold text-[#8a8070] uppercase tracking-wider">
-              录入记录
+              正在录入
             </h2>
-            {tasks.map((task) => (
+            {tasks.filter(t => isActive(t.status)).map((task) => (
               <div
                 key={task.id}
-                className={`bg-[#1a1a2e] rounded-xl p-4 border transition-colors ${
-                  isActive(task.status)
-                    ? 'border-[#d4a853]/50'
-                    : 'border-[#2a2a3e]'
-                }`}
+                className="bg-[#1a1a2e] rounded-xl p-4 border border-[#d4a853]/50 transition-colors"
               >
                 {/* 书名和状态 */}
                 <div className="flex items-start justify-between mb-2">
@@ -401,49 +428,22 @@ export default function AddBookPage() {
                       <h3 className="font-bold text-[#e8e0d0] truncate">
                         《{task.bookName}》
                       </h3>
-                      <span className={`inline-block text-xs px-2 py-0.5 rounded-full mt-1 ${getStatusStyle(task.status)}`}>
-                        {task.status === 'exists' ? '已有这本书' :
-                         task.status === 'done' ? (
-                           task.learningStatus === 'done' ? '已学习' :
-                           task.learningStatus === 'learning' ? '学习中' :
-                           task.learningStatus === 'failed' ? '学习失败' :
-                           '待学习'
-                         ) :
-                         task.status === 'copyright' ? '因版权问题无法摘录' :
-                         task.status === 'failed' ? '摘录失败' :
-                         task.status === 'pending' ? '等待开始' :
+                      <span className="inline-block text-xs px-2 py-0.5 rounded-full mt-1 bg-[#d4a853]/20 text-[#d4a853] border border-[#d4a853]/30">
+                        {task.status === 'pending' ? '等待开始' :
                          task.status === 'searching' ? '搜索中' :
                          task.status === 'downloading' ? '获取中' :
                          task.status === 'translating' ? '翻译中' :
                          task.status === 'saving' ? '摘录中' :
                          task.status}
                       </span>
-                      {/* 缺章节标记 */}
-                      {task.hasMissingChapters && (
-                        <span className="inline-block text-xs px-2 py-0.5 rounded-full mt-1 bg-red-900/60 text-red-300 border border-red-700 ml-1">
-                          缺章节 ({task.currentChapter}/{task.totalChapters})
-                        </span>
-                      )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 ml-2">
-                    {/* 取消/删除按钮 */}
-                    {isActive(task.status) ? (
-                      <button
-                        onClick={() => handleDelete(task.id)}
-                        className="text-xs text-red-400 hover:text-red-300 border border-red-800/50 px-2 py-1 rounded hover:bg-red-900/30 transition-colors"
-                      >
-                        取消
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => handleDelete(task.id)}
-                        className="text-xs text-[#8a8070] hover:text-red-400 border border-[#2a2a3e] px-2 py-1 rounded hover:border-red-800/50 transition-colors"
-                      >
-                        删除
-                      </button>
-                    )}
-                  </div>
+                  <button
+                    onClick={() => handleDelete(task.id)}
+                    className="text-xs text-red-400 hover:text-red-300 border border-red-800/50 px-2 py-1 rounded hover:bg-red-900/30 transition-colors ml-2"
+                  >
+                    取消
+                  </button>
                 </div>
 
                 {/* 进度条1 - 录入进度 */}

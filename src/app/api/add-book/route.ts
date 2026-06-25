@@ -25,27 +25,21 @@ export async function GET() {
     // 过滤掉 exists 状态的旧任务（已有书不再创建任务）
     const nonExistsTasks = taskList.filter(t => t.status !== 'exists');
 
-    // 🔴 版权问题/录入失败的任务：保留在列表中，不自动删除！
-    // 只有用户退出APP再重新进入时才消失（前端sessionStorage控制）
-    // 不能在搜索过程中自动把条目删掉
+    // 🔴 录入记录显示规则：
+    // 1. 录入成功(done) → 不在录入记录里显示（已完成的不占位置）
+    // 2. 录入失败(copyright/failed) → 不在任务列表显示，而是作为一次性通知返回
+    // 3. 退出APP再回来 → 失败记录也不显示，清空不保留
+    // 4. 录入中途(还没完成但也没失败) → 继续显示，带进度条
 
-    // 历史记录显示规则：
-    // - 已100%完整录入成功、且不缺任何章节的书籍 → 隐藏
-    // - 没录完的书籍 → 显示
-    // - 进度100%但实际缺章节的书籍 → 显示并标注"缺章节"
-    // - 版权问题/录入失败 → 保留在列表中，直到用户退出APP重新进入
-    const visibleTasks = nonExistsTasks.filter(t => {
-      // 版权问题和录入失败：本次显示
-      if (t.status === 'copyright' || t.status === 'failed') return true;
-      if (t.status !== 'done') return true; // 没录完的继续显示
-      // done 状态：检查是否缺章节
-      const total = t.totalChapters || 0;
-      const current = t.currentChapter || 0;
-      // totalChapters=0 说明没检测到章节结构，视为完整
-      if (total === 0) return false;
-      // currentChapter < totalChapters 说明缺章节
-      return current < total;
-    });
+    // 活跃任务：正在录入中的（带进度条）
+    const activeTasks = nonExistsTasks.filter(t =>
+      t.status !== 'done' && t.status !== 'copyright' && t.status !== 'failed' && t.status !== 'exists'
+    );
+
+    // 版权/失败通知：一次性提示，前端sessionStorage控制退出后消失
+    const copyrightNotices = nonExistsTasks.filter(t =>
+      t.status === 'copyright' || t.status === 'failed'
+    );
 
     // 获取所有书籍的学习进度
     const learningProgressList = getLearningProgress();
@@ -54,11 +48,11 @@ export async function GET() {
     return NextResponse.json({
       bookCount: nonExistsTasks.filter(t => t.status === 'done').length,
       stats,
-      tasks: visibleTasks.map(t => {
+      // 只显示正在录入中的任务（带进度条）
+      tasks: activeTasks.map(t => {
         const total = t.totalChapters || 0;
         const current = t.currentChapter || 0;
         const hasMissingChapters = t.status === 'done' && total > 0 && current < total;
-        // 从知识库学习进度中获取
         const learnProgress = learningMap.get(t.bookName);
         return {
           id: t.id,
@@ -83,8 +77,7 @@ export async function GET() {
           updatedAt: t.updatedAt,
           completedAt: t.completedAt,
           error: t.error,
-          hasMissingChapters, // 缺章节标记
-          // 知识库学习进度（按原书章节结构）
+          hasMissingChapters,
           knowledgeLearning: learnProgress ? {
             learnedChapters: learnProgress.learnedChapters,
             totalChapters: learnProgress.totalChapters,
@@ -94,6 +87,13 @@ export async function GET() {
           } : null,
         };
       }),
+      // 一次性版权/失败通知（前端控制：退出APP后消失）
+      copyrightNotices: copyrightNotices.map(t => ({
+        bookName: t.bookName,
+        status: t.status,
+        message: t.message,
+        createdAt: t.createdAt,
+      })),
       // 已完成录入但仍在学习的书籍（被隐藏的任务，学习进度仍需显示）
       learningBooks: learningProgressList
         .filter(p => !p.learned && p.totalChapters > 0)
