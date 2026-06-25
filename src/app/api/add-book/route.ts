@@ -21,30 +21,56 @@ export async function GET() {
     const stats = getTaskStats();
 
     // 过滤掉 exists 状态的旧任务（已有书不再创建任务）
-    const visibleTasks = taskList.filter(t => t.status !== 'exists');
+    const nonExistsTasks = taskList.filter(t => t.status !== 'exists');
+
+    // 历史记录显示规则：
+    // - 已100%完整录入成功、且不缺任何章节的书籍 → 隐藏
+    // - 没录完的书籍 → 显示
+    // - 进度100%但实际缺章节的书籍 → 显示并标注"缺章节"
+    const visibleTasks = nonExistsTasks.filter(t => {
+      if (t.status !== 'done') return true; // 没录完的继续显示
+      // done 状态：检查是否缺章节
+      const total = t.totalChapters || 0;
+      const current = t.currentChapter || 0;
+      // totalChapters=0 说明没检测到章节结构，视为完整
+      if (total === 0) return false;
+      // currentChapter < totalChapters 说明缺章节
+      return current < total;
+    });
 
     return NextResponse.json({
-      bookCount: visibleTasks.filter(t => t.status === 'done').length,
+      bookCount: nonExistsTasks.filter(t => t.status === 'done').length,
       stats,
-      tasks: visibleTasks.map(t => ({
-        id: t.id,
-        bookName: t.bookName,
-        status: t.status,
-        progress: t.progress,
-        message: t.message,
-        currentChapter: t.currentChapter,
-        totalChapters: t.totalChapters,
-        currentChapterName: t.currentChapterName,
-        remainingChapters: t.remainingChapters,
-        source: t.source,
-        size: t.size,
-        chars: t.chars,
-        chapterStructure: t.chapterStructure,
-        createdAt: t.createdAt,
-        updatedAt: t.updatedAt,
-        completedAt: t.completedAt,
-        error: t.error,
-      })),
+      tasks: visibleTasks.map(t => {
+        const total = t.totalChapters || 0;
+        const current = t.currentChapter || 0;
+        const hasMissingChapters = t.status === 'done' && total > 0 && current < total;
+        return {
+          id: t.id,
+          bookName: t.bookName,
+          status: t.status,
+          progress: t.progress,
+          message: t.message,
+          currentChapter: t.currentChapter,
+          totalChapters: t.totalChapters,
+          currentChapterName: t.currentChapterName,
+          remainingChapters: t.remainingChapters,
+          source: t.source,
+          size: t.size,
+          chars: t.chars,
+          chapterStructure: t.chapterStructure,
+          learningStatus: t.learningStatus,
+          learningProgress: t.learningProgress,
+          learningCurrentChunk: t.learningCurrentChunk,
+          learningTotalChunks: t.learningTotalChunks,
+          learningMessage: t.learningMessage,
+          createdAt: t.createdAt,
+          updatedAt: t.updatedAt,
+          completedAt: t.completedAt,
+          error: t.error,
+          hasMissingChapters, // 缺章节标记
+        };
+      }),
     });
   } catch (error) {
     return NextResponse.json(

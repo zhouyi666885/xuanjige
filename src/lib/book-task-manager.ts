@@ -10,7 +10,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { Config, LLMClient, SearchClient, FetchClient, FetchContentItem } from 'coze-coding-dev-sdk';
+import { Config, LLMClient, SearchClient, FetchClient, FetchContentItem, KnowledgeClient } from 'coze-coding-dev-sdk';
 import { isBookExists, addBookToKnowledgeBase, findBooksByName } from './fulltext-search';
 import { saveBook } from './book-storage';
 
@@ -26,7 +26,7 @@ interface BookTask {
   id: string;
   bookName: string;
   status: 'pending' | 'searching' | 'downloading' | 'translating' | 'saving' | 'done' | 'failed' | 'copyright' | 'exists';
-  progress: number; // 0-100
+  progress: number; // 0-100 录入进度
   currentChapter: number;
   totalChapters: number;
   currentChapterName: string;
@@ -37,6 +37,12 @@ interface BookTask {
   chars: number;
   chapters: BookChapter[]; // 原书章节结构
   chapterStructure: string; // 原书编排方式描述，如"卷+章"、"篇"、"章"
+  // 学习进度
+  learningStatus: 'pending' | 'learning' | 'done' | 'failed'; // AI学习状态
+  learningProgress: number; // 0-100 学习进度
+  learningCurrentChunk: number; // 当前学习的分块
+  learningTotalChunks: number; // 总分块数
+  learningMessage: string; // 学习状态消息
   createdAt: number;
   updatedAt: number;
   startedAt: number | null;
@@ -427,7 +433,7 @@ async function processTask(taskId: string): Promise<void> {
 
     updateTask(taskId, {
       status: 'done',
-      message: `《${task.bookName}》已进入知识库`,
+      message: `《${task.bookName}》已录入知识库，准备开始AI学习...`,
       progress: 100,
       totalChapters: finalChapterCount,
       currentChapter: finalChapterCount,
@@ -444,6 +450,9 @@ async function processTask(taskId: string): Promise<void> {
       })),
     });
     addLog(taskId, `摘录完成: ${finalChapterCount} ${finalChapterInfo.structureType}, ${bookContent.length} 字`);
+
+    // 7. 录入完成后自动开始AI学习
+    setTimeout(() => processLearning(taskId, bookContent), 500);
 
   } catch (e) {
     const errMsg = e instanceof Error ? e.message : String(e);
@@ -673,6 +682,166 @@ async function saveWithProgress(taskId: string, content: string, confirmedChapte
   }
 }
 
+// ==================== AI学习逻辑 ====================
+
+/**
+ * AI学习书籍内容：将书籍内容分块后逐批写入向量知识库
+ * 录入完成后自动触发，学习完成后该书知识点才算真正可用
+ */
+async function processLearning(taskId: string, bookContent: string): Promise<void> {
+  const task = tasks.get(taskId);
+  if (!task || task.status !== 'done') return;
+
+  // 如果已经在学习中或已学完，跳过
+  if (task.learningStatus === 'learning' || task.learningStatus === 'done') return;
+
+  updateTask(taskId, {
+    learningStatus: 'learning',
+    learningProgress: 0,
+    learningMessage: `AI正在学习《${task.bookName}》...`,
+  });
+  addLog(taskId, '开始AI学习');
+
+  try {
+    const config = new Config();
+    const knowledgeClient = new KnowledgeClient(config);
+
+    // 根据书名智能选择知识库表名
+    const tableName = selectDatasetForBook(task.bookName);
+
+    // 分块：每块约4000字符（约2000 tokens），适合向量检索
+    const CHUNK_SIZE = 4000;
+    const chunks: string[] = [];
+    
+    // 按段落边界分块，避免截断句子
+    const paragraphs = bookContent.split(/\n{2,}/).filter((p: string) => p.trim().length > 0);
+    let currentChunk = '';
+    
+    for (const para of paragraphs) {
+      if (currentChunk.length + para.length + 2 > CHUNK_SIZE && currentChunk.length > 0) {
+        chunks.push(currentChunk.trim());
+        currentChunk = para;
+      } else {
+        currentChunk += (currentChunk ? '\n\n' : '') + para;
+      }
+    }
+    if (currentChunk.trim()) {
+      chunks.push(currentChunk.trim());
+    }
+
+    const totalChunks = chunks.length;
+    updateTask(taskId, {
+      learningTotalChunks: totalChunks,
+      learningCurrentChunk: 0,
+      learningMessage: `AI学习中: 共${totalChunks}块内容...`,
+    });
+    addLog(taskId, `学习分块: ${totalChunks} 块, 目标表: ${tableName}`);
+
+    // 逐批写入向量知识库（每批5块，避免API限流）
+    const BATCH_SIZE = 5;
+    let processedChunks = 0;
+
+    for (let i = 0; i < totalChunks; i += BATCH_SIZE) {
+      if (!tasks.has(taskId)) {
+        addLog(taskId, '学习被中断（任务被删除）');
+        return;
+      }
+
+      const batch = chunks.slice(i, Math.min(i + BATCH_SIZE, totalChunks));
+      const documents = batch.map((chunk: string) => ({
+        source: 0 as const, // DataSourceType.TEXT
+        raw_data: chunk,
+      }));
+
+      try {
+        await knowledgeClient.addDocuments(documents, tableName, {
+          separator: '\n\n',
+          max_tokens: 2000,
+        });
+      } catch (e) {
+        addLog(taskId, `学习批次 ${Math.floor(i / BATCH_SIZE) + 1} 写入失败: ${e instanceof Error ? e.message : String(e)}`);
+        // 失败后重试一次
+        try {
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          await knowledgeClient.addDocuments(documents, tableName, {
+            separator: '\n\n',
+            max_tokens: 2000,
+          });
+        } catch {
+          addLog(taskId, `学习批次 ${Math.floor(i / BATCH_SIZE) + 1} 重试也失败，跳过`);
+        }
+      }
+
+      processedChunks = Math.min(i + BATCH_SIZE, totalChunks);
+      const progress = Math.floor((processedChunks / totalChunks) * 100);
+      updateTask(taskId, {
+        learningProgress: progress,
+        learningCurrentChunk: processedChunks,
+        learningMessage: `AI学习中: ${processedChunks}/${totalChunks}块 (${progress}%)`,
+      });
+
+      // 批次间短暂延迟，避免API限流
+      if (i + BATCH_SIZE < totalChunks) {
+        await new Promise(resolve => setTimeout(resolve, 300));
+      }
+    }
+
+    // 学习完成
+    updateTask(taskId, {
+      learningStatus: 'done',
+      learningProgress: 100,
+      learningCurrentChunk: totalChunks,
+      learningTotalChunks: totalChunks,
+      learningMessage: `AI已学完《${task.bookName}》全部内容`,
+    });
+    addLog(taskId, `学习完成: ${totalChunks}块内容已写入${tableName}`);
+
+  } catch (e) {
+    const errMsg = e instanceof Error ? e.message : String(e);
+    updateTask(taskId, {
+      learningStatus: 'failed',
+      learningMessage: `AI学习失败: ${errMsg}`,
+    });
+    addLog(taskId, `学习失败: ${errMsg}`);
+  }
+}
+
+/**
+ * 根据书名智能选择向量知识库表名
+ * 不同领域的书籍写入对应领域的数据集
+ */
+function selectDatasetForBook(bookName: string): string {
+  // 领域关键词匹配
+  const domainMap: [string[], string][] = [
+    [['学业', '考试', '科举', '读书', '教育', '文昌'], 'xueye_knowledge'],
+    [['婚姻', '夫妻', '婚恋', '合婚', '嫁娶', '桃花'], 'hunyin_knowledge'],
+    [['事业', '官运', '仕途', '职场', '升迁'], 'shiye_knowledge'],
+    [['财运', '财富', '求财', '生意', '经商', '理财'], 'caiyun_knowledge'],
+    [['健康', '疾病', '医学', '中医', '养生', '本草', '伤寒', '金匮', '素问', '灵枢'], 'jiankang_knowledge'],
+    [['六亲', '父母', '兄弟', '子女', '六亲'], 'liuqin_knowledge'],
+    [['六爻', '爻', '铜钱', '纳甲', '卜筮', '占卜', '易冒', '增删卜易', '卜筮正宗'], 'liuyao_knowledge'],
+    [['梅花', '心易', '体用', '梅花易'], 'meihua_knowledge'],
+    [['风水', '地理', '宅经', '葬书', '堪舆', '玄空', '八宅', '飞星', '阳宅', '阴宅'], 'fengshui_knowledge'],
+    [['面相', '手相', '相法', '相术', '麻衣', '柳庄', '神相', '水镜', '冰鉴'], 'xiangxue_knowledge'],
+    [['紫微', '斗数', '星盘', '紫微斗'], 'geju_knowledge'],
+    [['格局', '用神', '调候', '格局论'], 'geju_knowledge'],
+    [['神煞', '神煞', '天乙', '驿马', '文昌', '华盖'], 'shensha_knowledge'],
+    [['大运', '流年', '运程'], 'dayun_knowledge'],
+    [['盲派', '盲派', '口诀', '秘典'], 'mangpai_knowledge'],
+    [['择日', '择吉', '日课', '通胜', '历法'], 'book_system_knowledge'],
+    [['姓名', '命名', '起名', '测名', '五格', '数理'], 'book_system_knowledge'],
+  ];
+
+  for (const [keywords, table] of domainMap) {
+    if (keywords.some(kw => bookName.includes(kw))) {
+      return table;
+    }
+  }
+
+  // 默认写入综合知识库
+  return 'book_system_knowledge';
+}
+
 // ==================== 公开API ====================
 
 /**
@@ -693,6 +862,26 @@ export function initTaskManager(): void {
       resumed++;
       // 异步处理，不阻塞初始化
       setTimeout(() => processTask(id), Math.random() * 5000);
+    } else if (task.status === 'done' && task.learningStatus === 'pending') {
+      // 已录入但未学习，恢复学习
+      resumed++;
+      setTimeout(async () => {
+        const { getBookFullText } = require('./fulltext-search');
+        const fullText = getBookFullText(task.bookName);
+        if (fullText) {
+          processLearning(id, fullText);
+        }
+      }, Math.random() * 5000 + 3000);
+    } else if (task.status === 'done' && task.learningStatus === 'learning') {
+      // 学习中断，恢复学习
+      resumed++;
+      setTimeout(async () => {
+        const { getBookFullText } = require('./fulltext-search');
+        const fullText = getBookFullText(task.bookName);
+        if (fullText) {
+          processLearning(id, fullText);
+        }
+      }, Math.random() * 5000 + 3000);
     }
   }
   
@@ -717,7 +906,7 @@ export function createTask(bookName: string): { task: BookTask; isNew: boolean }
   // 检查知识库是否已有此书
   if (isBookExists(bookName)) {
     // 已有此书，不创建任务，直接返回标记
-    return { task: { id: '', bookName, status: 'exists', message: `《${bookName}》已有这本书`, progress: 100, currentChapter: 0, totalChapters: 0, currentChapterName: '', remainingChapters: 0, source: '', size: '', chars: 0, createdAt: Date.now(), updatedAt: Date.now(), startedAt: Date.now(), completedAt: Date.now(), error: '', logs: [], chapters: [], chapterStructure: '' } as BookTask, isNew: false };
+    return { task: { id: '', bookName, status: 'exists', message: `《${bookName}》已有这本书`, progress: 100, currentChapter: 0, totalChapters: 0, currentChapterName: '', remainingChapters: 0, source: '', size: '', chars: 0, learningStatus: 'done' as const, learningProgress: 100, learningCurrentChunk: 0, learningTotalChunks: 0, learningMessage: '已学习', createdAt: Date.now(), updatedAt: Date.now(), startedAt: Date.now(), completedAt: Date.now(), error: '', logs: [], chapters: [], chapterStructure: '' } as BookTask, isNew: false };
   }
   
   const id = generateId();
@@ -734,6 +923,11 @@ export function createTask(bookName: string): { task: BookTask; isNew: boolean }
     source: '',
     size: '',
     chars: 0,
+    learningStatus: 'pending',
+    learningProgress: 0,
+    learningCurrentChunk: 0,
+    learningTotalChunks: 0,
+    learningMessage: '等待录入完成...',
     createdAt: Date.now(),
     updatedAt: Date.now(),
     startedAt: null,

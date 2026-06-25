@@ -13,10 +13,16 @@ interface TaskInfo {
   totalChapters: number;
   currentChapterName: string;
   remainingChapters: number;
+  hasMissingChapters?: boolean;
   source: string;
   size: string;
   chars: number;
   chapterStructure: string;
+  learningStatus: string;
+  learningProgress: number;
+  learningCurrentChunk: number;
+  learningTotalChunks: number;
+  learningMessage: string;
   createdAt: number;
   updatedAt: number;
   completedAt: number | null;
@@ -372,7 +378,12 @@ export default function AddBookPage() {
                       </h3>
                       <span className={`inline-block text-xs px-2 py-0.5 rounded-full mt-1 ${getStatusStyle(task.status)}`}>
                         {task.status === 'exists' ? '已有这本书' :
-                         task.status === 'done' ? '已学习' :
+                         task.status === 'done' ? (
+                           task.learningStatus === 'done' ? '已学习' :
+                           task.learningStatus === 'learning' ? '学习中' :
+                           task.learningStatus === 'failed' ? '学习失败' :
+                           '待学习'
+                         ) :
                          task.status === 'copyright' ? '因版权问题无法摘录' :
                          task.status === 'failed' ? '摘录失败' :
                          task.status === 'pending' ? '等待开始' :
@@ -382,6 +393,12 @@ export default function AddBookPage() {
                          task.status === 'saving' ? '摘录中' :
                          task.status}
                       </span>
+                      {/* 缺章节标记 */}
+                      {task.hasMissingChapters && (
+                        <span className="inline-block text-xs px-2 py-0.5 rounded-full mt-1 bg-red-900/60 text-red-300 border border-red-700 ml-1">
+                          缺章节 ({task.currentChapter}/{task.totalChapters})
+                        </span>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-2 ml-2">
@@ -404,13 +421,60 @@ export default function AddBookPage() {
                   </div>
                 </div>
 
-                {/* 进度条 */}
-                {(isActive(task.status) || task.status === 'done') && (
-                  <SmoothProgressBar
-                    progress={task.progress}
-                    status={task.status}
-                    message={task.message}
-                  />
+                {/* 进度条 - 录入 */}
+                {(isActive(task.status)) && (
+                  <div className="mb-1">
+                    <div className="flex justify-between text-[10px] text-[#8a8070] mb-0.5">
+                      <span>录入进度</span>
+                      <span>{task.progress}%</span>
+                    </div>
+                    <SmoothProgressBar
+                      progress={task.progress}
+                      status={task.status}
+                      message={task.message}
+                    />
+                  </div>
+                )}
+
+                {/* 进度条 - AI学习（录入完成后显示） */}
+                {(task.status === 'done' && task.learningStatus && task.learningStatus !== 'pending') && (
+                  <div className="mb-1">
+                    <div className="flex justify-between text-[10px] text-[#8a8070] mb-0.5">
+                      <span>AI学习进度</span>
+                      <span>{task.learningProgress}%</span>
+                    </div>
+                    <div className="mb-2">
+                      <div className="flex justify-between text-xs text-[#8a8070] mb-1">
+                        <span>{task.learningMessage || 'AI学习中...'}</span>
+                        <span>{task.learningProgress}%</span>
+                      </div>
+                      <div className="h-2 bg-[#0a0a0f] rounded-full overflow-hidden relative">
+                        <div
+                          className={`h-full rounded-full ${
+                            task.learningStatus === 'done' ? 'bg-gradient-to-r from-[#4ade80] to-[#22c55e]' :
+                            task.learningStatus === 'failed' ? 'bg-red-500' :
+                            'bg-gradient-to-r from-[#4ade80] to-[#d4a853]'
+                          }`}
+                          style={{ width: `${task.learningProgress}%`, transition: 'width 0.5s ease-out' }}
+                        />
+                        {task.learningStatus === 'learning' && task.learningProgress > 0 && (
+                          <div
+                            className="absolute top-0 left-0 h-full rounded-full opacity-60"
+                            style={{
+                              width: `${task.learningProgress}%`,
+                              background: 'linear-gradient(90deg, transparent 0%, rgba(74,222,128,0.4) 50%, transparent 100%)',
+                              animation: 'shimmer 2s infinite',
+                            }}
+                          />
+                        )}
+                      </div>
+                      {task.learningTotalChunks > 0 && task.learningStatus === 'learning' && (
+                        <p className="text-[10px] text-[#5a5a6e] mt-0.5">
+                          {task.learningCurrentChunk}/{task.learningTotalChunks} 块内容
+                        </p>
+                      )}
+                    </div>
+                  </div>
                 )}
 
                 {/* 章节进度 */}
@@ -442,14 +506,42 @@ export default function AddBookPage() {
 
                 {/* 完成信息 */}
                 {task.status === 'done' && (
-                  <div className="mt-2 bg-green-900/20 border border-green-800/30 rounded-lg p-3">
-                    <p className="text-green-300 font-bold text-center text-sm">
-                      已录入并自动学习
+                  <div className={`mt-2 border rounded-lg p-3 ${
+                    task.learningStatus === 'done' 
+                      ? 'bg-green-900/20 border-green-800/30' 
+                      : task.learningStatus === 'failed'
+                      ? 'bg-red-900/20 border-red-800/30'
+                      : 'bg-blue-900/20 border-blue-800/30'
+                  }`}>
+                    <p className={`font-bold text-center text-sm ${
+                      task.learningStatus === 'done' 
+                        ? 'text-green-300' 
+                        : task.learningStatus === 'failed'
+                        ? 'text-red-300'
+                        : 'text-blue-300'
+                    }`}>
+                      {task.learningStatus === 'done' 
+                        ? '已录入并AI学完' 
+                        : task.learningStatus === 'failed'
+                        ? '录入成功，AI学习失败'
+                        : task.learningStatus === 'learning'
+                        ? '录入完成，AI学习中...'
+                        : '录入完成，等待AI学习...'}
                     </p>
-                    <p className="text-green-400/50 text-center text-[10px] mt-0.5">
-                      全文已学会，回答问题时可随时调用
+                    <p className={`text-center text-[10px] mt-0.5 ${
+                      task.learningStatus === 'done' 
+                        ? 'text-green-400/50' 
+                        : task.learningStatus === 'failed'
+                        ? 'text-red-400/50'
+                        : 'text-blue-400/50'
+                    }`}>
+                      {task.learningStatus === 'done' 
+                        ? '全文已学会，回答问题时可随时调用'
+                        : task.learningStatus === 'failed'
+                        ? 'AI学习失败，可尝试重新录入'
+                        : '学习完成后知识点才可被AI调用'}
                     </p>
-                    <div className="flex justify-center gap-4 mt-1 text-xs text-green-400/70">
+                    <div className="flex justify-center gap-4 mt-1 text-xs text-[#8a8070]">
                       <span>{task.chapterStructure ? `${task.totalChapters} ${task.chapterStructure}` : `${task.totalChapters} 章`}</span>
                       <span>{task.size}</span>
                       <span>{task.chars?.toLocaleString()} 字</span>

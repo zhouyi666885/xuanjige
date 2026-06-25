@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getBookStats, removeBookFromKnowledgeBase, getBookLearnStatus, getLearnedBookCount } from '@/lib/fulltext-search';
+import { getAllTasks } from '@/lib/book-task-manager';
 
 /**
  * GET /api/knowledge-base
@@ -31,18 +32,29 @@ export async function GET(request: NextRequest) {
     const start = (page - 1) * pageSize;
     const pagedBooks = books.slice(start, start + pageSize);
 
+    // 获取所有任务（含学习进度）
+    const allTasks = getAllTasks();
+    const taskMap = new Map(allTasks.map(t => [t.bookName, t]));
+
     // 为每本书附加基本信息
     const bookList = pagedBooks.map(name => {
       // 从书名推断分类（简单匹配）
       const category = getBookCategory(name);
       // 获取学习状态
       const learnStatus = getBookLearnStatus(name);
+      // 获取任务中的学习进度
+      const task = taskMap.get(name);
       return {
         name,
         category,
-        learned: learnStatus?.learned ?? false,
-        learnedAt: learnStatus?.learnedAt ?? null,
+        learned: learnStatus?.learned ?? (task?.learningStatus === 'done'),
+        learnedAt: learnStatus?.learnedAt ?? (task?.completedAt ?? null),
         charCount: learnStatus?.charCount ?? 0,
+        learningStatus: task?.learningStatus ?? (learnStatus?.learned ? 'done' : 'pending'),
+        learningProgress: task?.learningProgress ?? (learnStatus?.learned ? 100 : 0),
+        learningCurrentChunk: task?.learningCurrentChunk ?? 0,
+        learningTotalChunks: task?.learningTotalChunks ?? 0,
+        learningMessage: task?.learningMessage ?? '',
       };
     });
 

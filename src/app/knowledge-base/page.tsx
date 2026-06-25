@@ -9,6 +9,11 @@ interface BookInfo {
   learned: boolean;
   learnedAt: number | null;
   charCount: number;
+  learningStatus: 'pending' | 'learning' | 'done';
+  learningProgress: number;
+  learningCurrentChunk: number;
+  learningTotalChunks: number;
+  learningMessage: string;
 }
 
 interface KnowledgeBaseStats {
@@ -238,9 +243,19 @@ export default function KnowledgeBasePage() {
                       <h3 className="text-sm text-[#e8e0d0] truncate font-medium">
                         《{book.name}》
                       </h3>
-                      {book.learned && (
+                      {book.learningStatus === 'done' && (
                         <span className="text-[10px] bg-[#4ade80]/10 text-[#4ade80] px-1.5 py-0.5 rounded-full flex-shrink-0 border border-[#4ade80]/20">
                           已学习
+                        </span>
+                      )}
+                      {book.learningStatus === 'learning' && (
+                        <span className="text-[10px] bg-[#d4a853]/10 text-[#d4a853] px-1.5 py-0.5 rounded-full flex-shrink-0 border border-[#d4a853]/20 animate-pulse">
+                          学习中
+                        </span>
+                      )}
+                      {book.learningStatus === 'pending' && (
+                        <span className="text-[10px] bg-[#5a5a6e]/10 text-[#5a5a6e] px-1.5 py-0.5 rounded-full flex-shrink-0 border border-[#5a5a6e]/20">
+                          待学习
                         </span>
                       )}
                     </div>
@@ -254,6 +269,25 @@ export default function KnowledgeBasePage() {
                         </span>
                       )}
                     </div>
+                    {/* 学习进度条 */}
+                    {book.learningStatus !== 'pending' && (
+                      <div className="mt-1.5">
+                        <div className="flex justify-between text-[9px] text-[#8a8070] mb-0.5">
+                          <span>{book.learningStatus === 'done' ? '学习完成' : (book.learningMessage || 'AI学习中...')}</span>
+                          <span>{book.learningProgress}%{book.learningTotalChunks > 0 ? ` (${book.learningCurrentChunk}/${book.learningTotalChunks})` : ''}</span>
+                        </div>
+                        <div className="h-1 bg-[#0a0a0f] rounded-full overflow-hidden">
+                          <div 
+                            className={`h-full rounded-full transition-all duration-700 ${
+                              book.learningStatus === 'done' 
+                                ? 'bg-gradient-to-r from-[#4ade80] to-[#22c55e]' 
+                                : 'bg-gradient-to-r from-[#d4a853] to-[#f59e0b]'
+                            }`}
+                            style={{ width: `${book.learningProgress}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <button
                     onClick={() => setShowDeleteConfirm(book.name)}
