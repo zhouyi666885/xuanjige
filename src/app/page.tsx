@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { CameraCapture } from '@/components/camera-capture';
 import { ChatInterface } from '@/components/chat-interface';
 import { ReadingResult } from '@/components/reading-result';
+import { CopyrightNotice } from '@/components/copyright-notice';
 
 interface ReadingState {
   type: 'face' | 'palm';
@@ -46,6 +47,8 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
+      {/* Copyright Notice - shows once per session */}
+      <CopyrightNotice />
       {/* Hero Section with Camera Buttons */}
       <section className="relative px-4 pt-12 pb-8">
         <div className="absolute inset-0 bg-gradient-to-b from-gold/5 via-transparent to-transparent pointer-events-none" />

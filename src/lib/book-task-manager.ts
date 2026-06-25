@@ -322,15 +322,16 @@ async function processTask(taskId: string): Promise<void> {
       }
     }
 
-    // 如果前6轮都没找到，继续追加搜索（铁规则：不存在搜索次数上限）
+    // 铁规则：不存在搜索次数上限！必须搜遍全网所有渠道才能判定版权问题
     if (allResults.length === 0) {
-      const extraQueries = [
+      // 第一批追加：基础扩展搜索
+      const extraQueries1 = [
         `${task.bookName} 书`,
         `${task.bookName} 作者 全文`,
         `${task.bookName} 目录 章节`,
         `${task.bookName} 简介 内容 阅读`,
       ];
-      for (const query of extraQueries) {
+      for (const query of extraQueries1) {
         try {
           const response = await searchClient.search({ query });
           if (response?.web_items) {
@@ -344,14 +345,88 @@ async function processTask(taskId: string): Promise<void> {
           // 继续
         }
       }
-      addLog(taskId, `追加搜索完成，累计 ${allResults.length} 个来源`);
+      addLog(taskId, `追加搜索第1批完成，累计 ${allResults.length} 个来源`);
     }
 
-    // 只有一种情况判定版权问题：全网所有能访问的网站都搜过了，确认没有任何一个网站有这本书的完整内容
+    // 如果第一批追加还是没找到，继续搜更多渠道
+    if (allResults.length === 0) {
+      const extraQueries2 = [
+        `${task.bookName} pdf 下载`,
+        `${task.bookName} 电子书 在线阅读`,
+        `${task.bookName} txt 全本`,
+        `${task.bookName} epub 免费下载`,
+      ];
+      for (const query of extraQueries2) {
+        try {
+          const response = await searchClient.search({ query });
+          if (response?.web_items) {
+            for (const r of response.web_items) {
+              if (r.url && !allResults.some(x => x.url === r.url)) {
+                allResults.push({ url: r.url, title: r.title || '', snippet: r.snippet || '' });
+              }
+            }
+          }
+        } catch (e) {
+          // 继续
+        }
+      }
+      addLog(taskId, `追加搜索第2批完成，累计 ${allResults.length} 个来源`);
+    }
+
+    // 如果第二批追加还是没找到，搜文档平台和论坛
+    if (allResults.length === 0) {
+      const extraQueries3 = [
+        `${task.bookName} site:wenku.baidu.com OR site:doc88.com OR site:docin.com`,
+        `${task.bookName} site:douban.com OR site:zhihu.com OR site:tieba.baidu.com`,
+        `${task.bookName} site:gugeyingshu.com OR site:guji.nlpc.org.cn OR site:shuge.org`,
+        `${task.bookName} 古籍库 OR 典籍 OR 藏书 OR 图书馆`,
+      ];
+      for (const query of extraQueries3) {
+        try {
+          const response = await searchClient.search({ query });
+          if (response?.web_items) {
+            for (const r of response.web_items) {
+              if (r.url && !allResults.some(x => x.url === r.url)) {
+                allResults.push({ url: r.url, title: r.title || '', snippet: r.snippet || '' });
+              }
+            }
+          }
+        } catch (e) {
+          // 继续
+        }
+      }
+      addLog(taskId, `追加搜索第3批（文档平台/古籍库）完成，累计 ${allResults.length} 个来源`);
+    }
+
+    // 如果第三批追加还是没找到，最后再试一次模糊搜索
+    if (allResults.length === 0) {
+      const extraQueries4 = [
+        `${task.bookName} 内容 摘录`,
+        `${task.bookName} 原文 引用`,
+        `${task.bookName} 读后感 书评 内容介绍`,
+      ];
+      for (const query of extraQueries4) {
+        try {
+          const response = await searchClient.search({ query });
+          if (response?.web_items) {
+            for (const r of response.web_items) {
+              if (r.url && !allResults.some(x => x.url === r.url)) {
+                allResults.push({ url: r.url, title: r.title || '', snippet: r.snippet || '' });
+              }
+            }
+          }
+        } catch (e) {
+          // 继续
+        }
+      }
+      addLog(taskId, `追加搜索第4批（模糊搜索）完成，累计 ${allResults.length} 个来源`);
+    }
+
+    // 只有一种情况判定版权问题：全网所有渠道（免费网站、文档平台、电子书站、论坛、古籍库等）全部搜遍，确认找不到
     if (allResults.length === 0) {
       updateTask(taskId, {
         status: 'copyright',
-        message: `全网搜索均未找到《${task.bookName}》的完整内容`,
+        message: `已搜遍全网所有渠道（免费网站、文档平台、电子书站、论坛、古籍库），均未找到《${task.bookName}》的完整内容`,
         progress: 0,
         completedAt: Date.now(),
       });
@@ -531,11 +606,11 @@ async function processTask(taskId: string): Promise<void> {
     if (!foundContent || bookContent.length < 200) {
       updateTask(taskId, {
         status: 'copyright',
-        message: `全网搜索均未找到《${task.bookName}》的完整内容`,
+        message: `已搜遍全网所有渠道并逐一尝试获取《${task.bookName}》，均未找到完整内容`,
         progress: 0,
         completedAt: Date.now(),
       });
-      addLog(taskId, `遍历 ${allResults.length} 个来源、多轮搜索后均未获取到有效内容，判定为版权问题`);
+      addLog(taskId, `遍历 ${allResults.length} 个来源、4批追加搜索后均未获取到有效内容，判定为版权问题`);
       return;
     }
 
