@@ -239,13 +239,32 @@ export default function AddBookPage() {
           <h1 className="text-lg font-bold text-[#d4a853] flex-1 text-center">
             添加书籍
           </h1>
-          <span className="text-xs text-[#8a8070]">
-            知识库 {bookCount} 本
-          </span>
+          <button
+            onClick={() => router.push('/knowledge-base')}
+            className="text-xs text-[#d4a853] hover:text-[#f0c674] transition-colors font-medium"
+          >
+            📚 知识库 {bookCount} 本
+          </button>
         </div>
       </div>
 
       <div className="max-w-2xl mx-auto px-4 py-6 space-y-6">
+        {/* 知识库入口 */}
+        <button
+          onClick={() => router.push('/knowledge-base')}
+          className="w-full bg-gradient-to-r from-[#1a1a2e] to-[#16213e] border border-[#d4a853]/20 rounded-xl p-4 flex items-center gap-4 hover:border-[#d4a853]/40 hover:from-[#1a1a2e] hover:to-[#1a2a4e] transition-all group"
+        >
+          <div className="w-12 h-12 rounded-full bg-[#d4a853]/10 flex items-center justify-center text-2xl group-hover:scale-110 transition-transform">
+            📚
+          </div>
+          <div className="flex-1 text-left">
+            <p className="text-[#d4a853] font-bold text-sm">查看知识库</p>
+            <p className="text-xs text-[#8a8070] mt-0.5">
+              已收录 {bookCount} 本典籍，点击查看全部书籍
+            </p>
+          </div>
+          <span className="text-[#d4a853]/30 text-xl group-hover:text-[#d4a853]/60 transition-colors">›</span>
+        </button>
         {/* 输入区 */}
         <div className="bg-[#1a1a2e] rounded-xl p-5 border border-[#2a2a3e]">
           <p className="text-sm text-[#8a8070] mb-3">

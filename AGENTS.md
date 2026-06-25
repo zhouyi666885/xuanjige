@@ -29,12 +29,14 @@
 │   │   ├── xingming/page.tsx     # 姓名测算
 │   │   ├── classics/page.tsx     # 经典书房
 │   │   ├── add-book/page.tsx     # 添加书籍（输入书名自动搜索入库）
+│   │   ├── knowledge-base/page.tsx # 知识库（查看/搜索/删除已录入书籍）
 │   │   └── api/
 │   │       ├── chat/route.ts     # AI 问答（流式 SSE）
 │   │       ├── face-reading/route.ts  # 面相分析（流式 SSE）
 │   │       ├── palm-reading/route.ts  # 手相分析（流式 SSE）
 │   │       ├── divination/route.ts    # 通用测算（流式 SSE）
 │   │       ├── add-book/route.ts      # 添加书籍（搜索+下载+翻译+入库，SSE流式）
+│   │       ├── knowledge-base/route.ts # 知识库（列出+搜索+删除书籍）
 │   │       └── feedback/route.ts     # 预测验证反馈
 │   ├── components/
 │   │   ├── camera-capture.tsx    # 拍照组件（相机/相册）
@@ -57,6 +59,9 @@
 │       ├── xiangxue.ts           # 面相分析（五官+十二宫+三停+气色+流年部位）
 │       ├── shouxiang.ts          # 手相分析（五大主线+九大丘位+特殊纹路+流年法）
 │       ├── sanhe-canduan.ts      # 三合参断框架（八字+紫微+面手相交叉验证）
+│       ├── book-task-manager.ts  # 书籍录入后台任务管理器（持久化+自动恢复+章节识别）
+│       ├── book-storage.ts       # S3对象存储封装（本地缓存+S3双层架构）
+│       ├── fulltext-search.ts    # 全文检索模块（1291本完整书籍+搜索+去重+增删）
 │       └── utils.ts
 ```
 
@@ -81,6 +86,8 @@
 6. GET /api/feedback - 查询反馈统计（JSON，返回准确率统计）
 7. POST /api/add-book - 添加书籍到知识库（SSE流式，输入书名→搜索→下载→翻译→入库）
 8. GET /api/add-book - 查询知识库书籍数量
+9. GET /api/knowledge-base - 获取知识库书籍列表（支持search分页）
+10. DELETE /api/knowledge-base - 从知识库删除书籍
 
 ## 代码规范
 - 严格 TypeScript，禁止隐式 any

@@ -218,6 +218,17 @@ export default function Home() {
               </div>
               <span className="text-gold/30 text-sm">›</span>
             </Link>
+            <Link
+              href="/knowledge-base"
+              className="w-full flex items-center gap-4 p-3 bg-gradient-to-r from-[#1a2a4e]/60 to-[#16213e]/40 border border-[#d4a853]/15 rounded-xl hover:border-[#d4a853]/35 hover:bg-[#1a2a4e]/80 transition-all duration-300 group"
+            >
+              <span className="text-2xl group-hover:scale-110 transition-transform">📚</span>
+              <div className="flex-1 text-left">
+                <span className="text-[#d4a853] text-sm font-bold">知识库</span>
+                <span className="text-muted-foreground text-xs ml-2">查看已收录的全部书籍</span>
+              </div>
+              <span className="text-[#d4a853]/30 text-sm">›</span>
+            </Link>
             <div className="text-center pt-2">
               <p className="text-muted-foreground text-xs">
                 全书共收录 <span className="text-gold font-bold">19,055</span> 部典籍
