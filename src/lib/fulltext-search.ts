@@ -496,6 +496,100 @@ export function getBookStats(): { bookCount: number; totalChars: number; bookNam
 }
 
 /**
+ * 获取知识库详细统计信息（供AI回答用户关于知识库的问题）
+ * 包括：总书数、总字符数、英文书翻译状态、完整性检查
+ */
+export function getDetailedBookStats(): {
+  bookCount: number;
+  totalChars: number;
+  chineseBookCount: number;
+  englishBookCount: number;
+  englishTranslatedCount: number;
+  englishUntranslatedCount: number;
+  avgCharsPerBook: number;
+  minChars: number;
+  maxChars: number;
+  booksUnder1000Chars: number;
+  sampleBooks: { name: string; chars: number; language: string }[];
+} {
+  loadBookCache();
+  
+  if (!bookCache || !bookNameList) {
+    return {
+      bookCount: 0, totalChars: 0, chineseBookCount: 0,
+      englishBookCount: 0, englishTranslatedCount: 0, englishUntranslatedCount: 0,
+      avgCharsPerBook: 0, minChars: 0, maxChars: 0, booksUnder1000Chars: 0,
+      sampleBooks: [],
+    };
+  }
+  
+  let totalChars = 0;
+  let chineseBookCount = 0;
+  let englishBookCount = 0;
+  let englishTranslatedCount = 0;
+  let englishUntranslatedCount = 0;
+  let minChars = Infinity;
+  let maxChars = 0;
+  let booksUnder1000Chars = 0;
+  const sampleBooks: { name: string; chars: number; language: string }[] = [];
+  
+  // 用于抽样的索引
+  const step = Math.max(1, Math.floor(bookNameList.length / 10));
+  
+  for (let i = 0; i < bookNameList.length; i++) {
+    const name = bookNameList[i];
+    const content = bookCache.get(name) || '';
+    const chars = content.length;
+    totalChars += chars;
+    
+    if (chars < minChars) minChars = chars;
+    if (chars > maxChars) maxChars = chars;
+    if (chars < 1000) booksUnder1000Chars++;
+    
+    // 判断书名是否为英文
+    const isEnglishName = /^[A-Za-z]/.test(name);
+    
+    if (isEnglishName) {
+      englishBookCount++;
+      // 检查内容是否包含中文（已翻译）
+      const hasChinese = /[\u4e00-\u9fff]/.test(content.substring(0, 2000));
+      if (hasChinese) {
+        englishTranslatedCount++;
+      } else {
+        englishUntranslatedCount++;
+      }
+    } else {
+      chineseBookCount++;
+    }
+    
+    // 抽样
+    if (i % step === 0 && sampleBooks.length < 15) {
+      sampleBooks.push({
+        name,
+        chars,
+        language: isEnglishName ? (content.substring(0, 2000).match(/[\u4e00-\u9fff]/) ? '英文→已翻译为中文' : '英文原文') : '中文原文',
+      });
+    }
+  }
+  
+  if (minChars === Infinity) minChars = 0;
+  
+  return {
+    bookCount: bookNameList.length,
+    totalChars,
+    chineseBookCount,
+    englishBookCount,
+    englishTranslatedCount,
+    englishUntranslatedCount,
+    avgCharsPerBook: bookNameList.length > 0 ? Math.round(totalChars / bookNameList.length) : 0,
+    minChars,
+    maxChars,
+    booksUnder1000Chars,
+    sampleBooks,
+  };
+}
+
+/**
  * 检查书籍是否已存在于知识库
  */
 export function isBookExists(bookName: string): boolean {

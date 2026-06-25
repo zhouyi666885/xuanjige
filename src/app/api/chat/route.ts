@@ -9,7 +9,7 @@ import { searchKnowledge, formatKnowledgeResults } from '@/lib/knowledge-search'
 import { generateSanHeCanDuanPrompt, getSanHeCanDuanByTopic, SAN_HE_CAN_DUAN_GUIDE } from '@/lib/sanhe-canduan';
 import { generateMianXiangFramework, getMianXiangPredictionGuide } from '@/lib/xiangxue';
 import { generateShouXiangFramework, getShouXiangPredictionGuide } from '@/lib/shouxiang';
-import { searchFullText, formatFullTextResults, getBookFullText, findBooksByName } from '@/lib/fulltext-search';
+import { searchFullText, formatFullTextResults, getBookFullText, findBooksByName, getDetailedBookStats } from '@/lib/fulltext-search';
 import { tongQianQiGua, shiJianQiGua as liuyaoShiJian, formatLiuYaoPaiPan as liuyaoFormat } from '@/lib/liuyao';
 import { shiJianQiGua as meihuaShiJian, shuZiQiGua, wenZiQiGua, formatMeiHuaPaiPan as meihuaFormat } from '@/lib/meihua';
 import { paiPan as qimenPaiPan, formatQiMenPaiPan as qimenFormat } from '@/lib/qimen';
@@ -202,6 +202,33 @@ export async function POST(request: NextRequest) {
     const fullTextPassages = searchFullText(message, 0, 0, 0);
     const fullTextStr = formatFullTextResults(fullTextPassages);
     
+    // 检测用户是否在问关于知识库本身的问题
+    const isKnowledgeBaseQuestion = /知识库|多少本书|多少书|收录|录入|藏书|书库|英文.*翻译|翻译.*中文|整本书|完整.*录入|第一页.*最后|第一个字.*最后|全本|全文.*收录|有没有.*书/.test(message);
+    let knowledgeBaseInfo = '';
+    if (isKnowledgeBaseQuestion) {
+      const stats = getDetailedBookStats();
+      knowledgeBaseInfo = `\n\n【知识库实时统计信息——用户正在询问知识库相关情况，必须如实回答】
+📚 知识库总藏书量：${stats.bookCount} 本
+📝 总字符数：${stats.totalChars.toLocaleString()} 字
+📊 平均每本：${stats.avgCharsPerBook.toLocaleString()} 字
+📏 最短的书：${stats.minChars.toLocaleString()} 字 | 最长的书：${stats.maxChars.toLocaleString()} 字
+🇨🇳 中文原版书：${stats.chineseBookCount} 本
+🇬🇧 英文原版书：${stats.englishBookCount} 本（已全部翻译为中文：${stats.englishTranslatedCount} 本，未翻译：${stats.englishUntranslatedCount} 本）
+⚠️ 字数少于1000的书：${stats.booksUnder1000Chars} 本
+
+📖 部分书籍抽样：
+${stats.sampleBooks.map(b => `  《${b.name}》${b.chars.toLocaleString()}字 [${b.language}]`).join('\n')}
+
+【知识库录入规则】
+1. 每本书从第一页第一个字到最后一页最后一个字完整录入，一个字都不遗漏
+2. 所有英文原版书均已翻译为中文，翻译同样从第一个字到最后一个字完整翻译
+3. 翻译使用【段N】编号方案，确保每一段原文和译文一一对应，100%段落匹配
+4. 书籍目录按原书叫法显示（卦就写卦、章就写章、卷就写卷）
+5. 知识库内容是AI回答的唯一来源，不允许编造知识库中没有的内容
+
+请根据以上实时统计数据如实回答用户关于知识库的问题。`;
+    }
+    
     // 如果用户明确提到了某本书，直接获取该书完整全文
     const bookNameMatches = findBooksByName(message);
     let specificBookFullText = '';
@@ -235,7 +262,7 @@ export async function POST(request: NextRequest) {
     // 加入自动起卦/排盘
     const autoQiGuaResult = autoQiGua(message, birthInfo ? (birthInfo as BirthInfo) : null);
     const contextStr = context ? `\n\n【前置分析结果】\n${context}\n请在以上分析结果基础上，继续深入回答用户的问题。` : '';
-    const systemPrompt = basePrompt + '\n\n' + finalKnowledgeStr + '\n\n' + topicGuide + autoQiGuaResult + contextStr + knowledgeIronLaw;
+    const systemPrompt = basePrompt + '\n\n' + finalKnowledgeStr + knowledgeBaseInfo + '\n\n' + topicGuide + autoQiGuaResult + contextStr + knowledgeIronLaw;
 
     const messages = [
       { role: 'system' as const, content: systemPrompt },

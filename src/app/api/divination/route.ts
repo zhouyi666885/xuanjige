@@ -15,7 +15,7 @@ import { paiPan as qimenPaiPan, formatQiMenPaiPan as qimenFormat } from '@/lib/q
 import { paiPan as liurenPaiPan, formatLiuRenPaiPan as liurenFormat } from '@/lib/liuren';
 import { paiPan as fengshuiPaiPan, formatFengShuiPaiPan as fengshuiFormat } from '@/lib/fengshui';
 import { calculateXingMing as xingmingCalculate, formatXingMingPaiPan as xingmingFormat } from '@/lib/xingming';
-import { searchFullText, formatFullTextResults } from '@/lib/fulltext-search';
+import { searchFullText, formatFullTextResults, getDetailedBookStats } from '@/lib/fulltext-search';
 
 export const dynamic = 'force-dynamic';
 
@@ -75,7 +75,27 @@ export async function POST(request: NextRequest) {
       ? '\n\n🔴🔴🔴【搜索铁律】回答问题时，必须遍历整个知识库中所有书籍来搜索答案，不要分领域、不要限定范围！搜索范围包括：知识库里的所有书籍、所有领域、所有内容！不是只搜索这个领域的书，是所有书都搜！只要和这个问题有关的内容，全部整合起来回答。收到问题 → 遍历知识库全部书籍 → 找到所有相关内容 → 综合整理成完整回答。不分领域、不限范围、所有书籍全部查！\n\n🔴🔴🔴【完整回答铁律】回答问题时，不要限制字数！用户问什么就完整回答什么，不要因为回答到一半就说"已到达字数限制"或者"回答已结束"就直接中断！完整回答要求：1.问题问什么就回答什么，要回答完整 2.不要中途截断，不要只回答一半 3.如果内容较长就完整分段输出，直到把答案全部说完为止 4.无论回答多少字都要完整输出，不设上限！问多少答多少，完整输出，不断章取义！\n\n🔴🔴🔴【知识库铁律——永久生效——绝对不可违反】🔴🔴🔴\n你的知识库中已检索到典籍论断和原文。你的回答必须遵循以下铁律：\n\n【最高原则】所有回答必须且只能来自知识库！知识库是唯一的回答来源！\n\n1. ⚠️ 你必须基于知识库中【所有】相关典籍论断进行分析，一条都不能忽略！\n2. 你不需要把所有论断逐条罗列出来——而是要把所有论断消化吸收后，给出深度综合分析\n3. 分析过程中自然引用典籍论断的知识点，⚠️禁止在回答中标注或出现任何书名\n4. 同一问题必须引用至少3本以上不同典籍的论断进行交叉验证后才能下结论\n5. 如果不同典籍论断有矛盾，必须如实说明矛盾点，不能只选一个\n6. 最终判断必须体现综合分析的结果，⚠️但禁止出现任何书名\n7. 不引用知识库内容就直接回答的判断，视为无效\n8. 🔴🔴🔴你的所有判断必须且只能来自知识库中真实存在的典籍论断，禁止凭空编造！\n9. 🔴🔴🔴知识库中没有的内容就是不知道！绝不许自行编造！\n10. 🔴回答不限制行数、字数、篇幅！该写多长就写多长！\n11. 🔴🔴检索没有上限！绝不允许因为"太多了"而省略！\n12. 🔴🔴你的回答也没有上限！没有上限！\n13. 🔴🔴🔴书籍全文从第一个字到最后一个字完整收录！绝不允许以"字数到了"或"行数到了"为由截断！\n14. 🔴🔴🔴所有回答必须且只能来自知识库！知识库是唯一的回答来源！知识库中没有的就是不知道！'
       : '\n\n🔴🔴🔴【知识库铁律——永久生效——绝对不可违反】🔴🔴🔴\n⚠️ 知识库中未检索到与用户问题相关的典籍论断！\n1. 🔴🔴🔴你不能凭空编造任何命理判断，所有判断必须有典籍依据\n2. 🔴🔴🔴没有知识库论断支撑的问题，你必须明确告知用户"此问题在现有典籍知识库中未找到充分依据，我无法给出可靠判断"\n3. 🔴🔴🔴禁止在没有典籍依据的情况下给出看似专业的判断——那不是分析，是编造！\n4. 🔴🔴🔴所有回答必须且只能来自知识库！知识库是唯一的回答来源！知识库中没有的就是不知道！';
     
-    const systemPrompt = baseSystemPrompt + finalKnowledgeStr + knowledgeIronLaw;
+    // 检测用户是否在问关于知识库本身的问题
+    const isKnowledgeBaseQuestion = /知识库|多少本书|多少书|收录|录入|藏书|书库|英文.*翻译|翻译.*中文|整本书|完整.*录入|第一页.*最后|第一个字.*最后|全本|全文.*收录|有没有.*书/.test(input);
+    let knowledgeBaseInfo = '';
+    if (isKnowledgeBaseQuestion) {
+      const stats = getDetailedBookStats();
+      knowledgeBaseInfo = `\n\n【知识库实时统计信息——用户正在询问知识库相关情况，必须如实回答】
+📚 知识库总藏书量：${stats.bookCount} 本
+📝 总字符数：${stats.totalChars.toLocaleString()} 字
+📊 平均每本：${stats.avgCharsPerBook.toLocaleString()} 字
+🇨🇳 中文原版书：${stats.chineseBookCount} 本
+🇬🇧 英文原版书：${stats.englishBookCount} 本（已全部翻译为中文：${stats.englishTranslatedCount} 本，未翻译：${stats.englishUntranslatedCount} 本）
+
+【知识库录入规则】
+1. 每本书从第一页第一个字到最后一页最后一个字完整录入，一个字都不遗漏
+2. 所有英文原版书均已翻译为中文，翻译同样从第一个字到最后一个字完整翻译
+3. 书籍目录按原书叫法显示（卦就写卦、章就写章、卷就写卷）
+
+请根据以上实时统计数据如实回答用户关于知识库的问题。`;
+    }
+
+    const systemPrompt = baseSystemPrompt + finalKnowledgeStr + knowledgeBaseInfo + knowledgeIronLaw;
 
     const modeInstruction = mode === 'professional'
       ? '请用专业术语进行解读，将典籍知识融入分析逻辑中，禁止出现任何书名。'
