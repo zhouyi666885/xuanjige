@@ -135,6 +135,16 @@ export default function AddBookPage() {
   const [bookCount, setBookCount] = useState(0);
   const [learningBooks, setLearningBooks] = useState<LearningBook[]>([]);
 
+  // 新会话清除版权/失败任务（退出APP后再进入时消失）
+  useEffect(() => {
+    const cleared = sessionStorage.getItem('xuanjige_copyright_cleared');
+    if (!cleared) {
+      // 新会话，清除上次的版权/失败任务
+      fetch('/api/add-book', { method: 'DELETE' }).catch(() => {});
+      sessionStorage.setItem('xuanjige_copyright_cleared', '1');
+    }
+  }, []);
+
   // 轮询获取任务列表
   const fetchTasks = useCallback(async () => {
     try {

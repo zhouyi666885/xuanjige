@@ -6,6 +6,7 @@ import {
   getTask,
   deleteTask,
   getTaskStats,
+  forceSaveTasks,
 } from '@/lib/book-task-manager';
 import { getLearningProgress } from '@/lib/fulltext-search';
 
@@ -223,6 +224,34 @@ export async function DELETE(request: NextRequest) {
   } catch (error) {
     return NextResponse.json(
       { error: '删除失败' },
+      { status: 500 }
+    );
+  }
+}
+
+// PATCH: 清除所有版权问题/失败的书籍条目（用户重新进入APP时调用）
+export async function PATCH() {
+  try {
+    const tasks = getAllTasks();
+    const removedCount = tasks.filter(
+      (t) => t.status === 'copyright' || t.status === 'failed'
+    ).length;
+
+    // 将版权/失败任务标记为已清除
+    for (const task of tasks) {
+      if (task.status === 'copyright' || task.status === 'failed') {
+        task.status = 'cleared';
+      }
+    }
+    await import('@/lib/book-task-manager').then((m) => m.forceSaveTasks());
+
+    return NextResponse.json({
+      success: true,
+      removedCount,
+    });
+  } catch (error) {
+    return NextResponse.json(
+      { error: '清除失败' },
       { status: 500 }
     );
   }

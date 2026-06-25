@@ -25,7 +25,7 @@ interface BookChapter {
 interface BookTask {
   id: string;
   bookName: string;
-  status: 'pending' | 'searching' | 'downloading' | 'translating' | 'saving' | 'done' | 'failed' | 'copyright' | 'exists';
+  status: 'pending' | 'searching' | 'downloading' | 'translating' | 'saving' | 'done' | 'failed' | 'copyright' | 'exists' | 'cleared';
   progress: number; // 0-100 录入进度
   currentChapter: number;
   totalChapters: number;
@@ -185,6 +185,10 @@ function saveTasks(): void {
   } catch (e) {
     console.error('[TaskManager] 保存任务失败:', e);
   }
+}
+
+export function forceSaveTasks(): void {
+  saveTasks();
 }
 
 // ==================== 任务操作 ====================
@@ -371,10 +375,13 @@ async function processTask(taskId: string): Promise<void> {
 
     let noNewResultCount = 0;
     let roundIndex = 0;
+    const searchStartTime = Date.now();
+    const MAX_SEARCH_TIME = 10 * 60 * 1000; // 10分钟最大搜索时间（防止真正无限循环卡死服务器）
 
     // 无上限搜索循环：只要还在发现新结果，就继续搜
     // 只有连续3轮都没发现新结果，才认为搜遍全网
-    while (noNewResultCount < 3) {
+    // 安全保护：超过10分钟强制停止（此时已经搜了很多轮了）
+    while (noNewResultCount < 3 && Date.now() - searchStartTime < MAX_SEARCH_TIME) {
       const round = searchRounds[roundIndex % searchRounds.length];
       const beforeCount = allResults.length;
 
@@ -391,6 +398,8 @@ async function processTask(taskId: string): Promise<void> {
         } catch (e) {
           // 继续搜索下一个
         }
+        // 每个查询之间间隔1秒，避免触发搜索API限流
+        await new Promise(r => setTimeout(r, 1000));
       }
 
       const newResults = allResults.length - beforeCount;
@@ -406,9 +415,11 @@ async function processTask(taskId: string): Promise<void> {
 
       // 🔴 搜索次数无上限！只要连续3轮没新结果才停下（说明全网已搜遍）
       // 不设轮次上限，想搜多少次搜多少次
+      // 安全保护：超过10分钟强制停止
     }
 
-    addLog(taskId, `搜索完成：共 ${roundIndex} 轮，累计 ${allResults.length} 个来源`);
+    const searchElapsed = Math.round((Date.now() - searchStartTime) / 1000);
+    addLog(taskId, `搜索完成：共 ${roundIndex} 轮，耗时 ${searchElapsed}秒，累计 ${allResults.length} 个来源`);
 
     // 只有一种情况判定版权问题：全网所有渠道全部搜遍，确认找不到
     if (allResults.length === 0) {
