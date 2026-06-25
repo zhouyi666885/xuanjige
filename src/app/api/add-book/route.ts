@@ -24,21 +24,15 @@ export async function GET() {
     // 过滤掉 exists 状态的旧任务（已有书不再创建任务）
     const nonExistsTasks = taskList.filter(t => t.status !== 'exists');
 
-    // 版权问题/录入失败的任务：本次显示，但立即从持久化中清除（下次进入就消失）
-    const copyrightAndFailedTasks = nonExistsTasks.filter(t => 
-      t.status === 'copyright' || t.status === 'failed'
-    );
-    if (copyrightAndFailedTasks.length > 0) {
-      for (const t of copyrightAndFailedTasks) {
-        try { deleteTask(t.id); } catch {}
-      }
-    }
+    // 🔴 版权问题/录入失败的任务：保留在列表中，不自动删除！
+    // 只有用户退出APP再重新进入时才消失（前端sessionStorage控制）
+    // 不能在搜索过程中自动把条目删掉
 
     // 历史记录显示规则：
     // - 已100%完整录入成功、且不缺任何章节的书籍 → 隐藏
     // - 没录完的书籍 → 显示
     // - 进度100%但实际缺章节的书籍 → 显示并标注"缺章节"
-    // - 版权问题/录入失败 → 本次显示（已从持久化清除，下次消失）
+    // - 版权问题/录入失败 → 保留在列表中，直到用户退出APP重新进入
     const visibleTasks = nonExistsTasks.filter(t => {
       // 版权问题和录入失败：本次显示
       if (t.status === 'copyright' || t.status === 'failed') return true;

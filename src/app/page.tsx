@@ -236,10 +236,6 @@ export default function Home() {
             <span className="text-xl">📷</span>
             <span className="text-[10px]">拍照</span>
           </button>
-          <Link href="/classics" className="flex flex-col items-center gap-0.5 text-muted-foreground hover:text-gold py-1 px-4 transition-colors">
-            <span className="text-xl">📚</span>
-            <span className="text-[10px]">书房</span>
-          </Link>
           <Link href="/add-book" className="flex flex-col items-center gap-0.5 text-muted-foreground hover:text-gold py-1 px-4 transition-colors">
             <span className="text-xl">➕</span>
             <span className="text-[10px]">添书</span>
