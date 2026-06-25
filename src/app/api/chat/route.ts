@@ -198,14 +198,14 @@ export async function POST(request: NextRequest) {
     const knowledgeResults = await searchKnowledge(searchQuery);
     const knowledgeSearchStr = formatKnowledgeResults(knowledgeResults);
 
-    // 全文检索：从本地txt文件中搜索相关古籍原文段落（不限制！从第一个字到最后一个字完整收录！）
-    const fullTextPassages = searchFullText(message, 0, 0, 0);
-    const fullTextStr = formatFullTextResults(fullTextPassages);
-    
     // 检测用户是否在问关于知识库本身的问题
     const isKnowledgeBaseQuestion = /知识库|多少本书|多少书|收录|录入|藏书|书库|英文.*翻译|翻译.*中文|整本书|完整.*录入|第一页.*最后|第一个字.*最后|全本|全文.*收录|有没有.*书/.test(message);
     let knowledgeBaseInfo = '';
+    let fullTextStr = '';
+    let specificBookFullText = '';
+    
     if (isKnowledgeBaseQuestion) {
+      // 知识库相关问题：只注入统计数据，跳过全文检索（避免超上下文窗口）
       const stats = getDetailedBookStats();
       knowledgeBaseInfo = `\n\n【知识库实时统计信息——用户正在询问知识库相关情况，必须如实回答】
 📚 知识库总藏书量：${stats.bookCount} 本
@@ -227,17 +227,20 @@ ${stats.sampleBooks.map(b => `  《${b.name}》${b.chars.toLocaleString()}字 [$
 5. 知识库内容是AI回答的唯一来源，不允许编造知识库中没有的内容
 
 请根据以上实时统计数据如实回答用户关于知识库的问题。`;
-    }
-    
-    // 如果用户明确提到了某本书，直接获取该书完整全文
-    const bookNameMatches = findBooksByName(message);
-    let specificBookFullText = '';
-    if (bookNameMatches.length > 0) {
-      // 取最匹配的书籍（名称最短的=最精确匹配）
-      const bestMatch = bookNameMatches.sort((a, b) => a.name.length - b.name.length)[0];
-      const fullText = getBookFullText(bestMatch.name);
-      if (fullText) {
-        specificBookFullText = `\n\n【${bestMatch.name}完整全文（从第一个字到最后一个字，一字不漏）】\n${fullText}`;
+    } else {
+      // 非知识库问题：正常全文检索
+      // 全文检索：从本地txt文件中搜索相关古籍原文段落（不限制！从第一个字到最后一个字完整收录！）
+      const fullTextPassages = searchFullText(message, 0, 0, 0);
+      fullTextStr = formatFullTextResults(fullTextPassages);
+      
+      // 如果用户明确提到了某本书，直接获取该书完整全文
+      const bookNameMatches = findBooksByName(message);
+      if (bookNameMatches.length > 0) {
+        const bestMatch = bookNameMatches.sort((a, b) => a.name.length - b.name.length)[0];
+        const fullText = getBookFullText(bestMatch.name);
+        if (fullText) {
+          specificBookFullText = `\n\n【${bestMatch.name}完整全文（从第一个字到最后一个字，一字不漏）】\n${fullText}`;
+        }
       }
     }
 
@@ -249,7 +252,7 @@ ${stats.sampleBooks.map(b => `  《${b.name}》${b.chars.toLocaleString()}字 [$
       + (specificBookFullText ? specificBookFullText : '');
 
     // 知识库强制引用铁律（追加到systemPrompt最末尾，确保最高优先级）
-    const knowledgeIronLaw = knowledgeResults.length > 0 || fullTextPassages.length > 0 || extendedKnowledgeResults.length > 0 || specificBookFullText
+    const knowledgeIronLaw = knowledgeResults.length > 0 || fullTextStr.length > 0 || extendedKnowledgeResults.length > 0 || specificBookFullText
       ? KNOWLEDGE_IRON_LAW_FOUND
       : KNOWLEDGE_IRON_LAW_NOT_FOUND;
 
@@ -262,7 +265,35 @@ ${stats.sampleBooks.map(b => `  《${b.name}》${b.chars.toLocaleString()}字 [$
     // 加入自动起卦/排盘
     const autoQiGuaResult = autoQiGua(message, birthInfo ? (birthInfo as BirthInfo) : null);
     const contextStr = context ? `\n\n【前置分析结果】\n${context}\n请在以上分析结果基础上，继续深入回答用户的问题。` : '';
-    const systemPrompt = basePrompt + '\n\n' + finalKnowledgeStr + knowledgeBaseInfo + '\n\n' + topicGuide + autoQiGuaResult + contextStr + knowledgeIronLaw;
+    let systemPrompt = basePrompt + '\n\n' + finalKnowledgeStr + knowledgeBaseInfo + '\n\n' + topicGuide + autoQiGuaResult + contextStr + knowledgeIronLaw;
+
+    // 智能截断：确保总token不超模型上下文窗口（约128K tokens，中文约1.7字/token）
+    // 保留系统提示词核心内容 + 铁律 + 知识库信息，优先截断全文检索段落
+    const MAX_SYSTEM_CHARS = 180000; // 约100K tokens，留28K给历史和回复
+    if (systemPrompt.length > MAX_SYSTEM_CHARS) {
+      // 第一轮截断：移除specificBookFullText（整本书全文最占空间）
+      if (specificBookFullText) {
+        systemPrompt = systemPrompt.replace(specificBookFullText, '\n\n【注：该书全文过长，已截断。请基于已有段落引用回答。】');
+      }
+      // 第二轮截断：截断全文检索段落
+      if (systemPrompt.length > MAX_SYSTEM_CHARS && fullTextStr) {
+        const keepChars = MAX_SYSTEM_CHARS - (systemPrompt.length - fullTextStr.length);
+        if (keepChars > 0) {
+          const truncatedFullText = fullTextStr.substring(0, keepChars);
+          systemPrompt = systemPrompt.replace(fullTextStr, truncatedFullText + '\n\n[...更多段落已省略，但回答时仍须完整，不可说"省略了"]');
+        } else {
+          systemPrompt = systemPrompt.replace(fullTextStr, '');
+        }
+      }
+      // 第三轮：仍超限则从末尾截断扩展知识
+      if (systemPrompt.length > MAX_SYSTEM_CHARS && extendedKnowledgeStr) {
+        const keepChars = MAX_SYSTEM_CHARS - (systemPrompt.length - extendedKnowledgeStr.length - 200);
+        if (keepChars > 0) {
+          const truncated = extendedKnowledgeStr.substring(0, keepChars);
+          systemPrompt = systemPrompt.replace(extendedKnowledgeStr, truncated + '\n\n[...更多论断已省略]');
+        }
+      }
+    }
 
     const messages = [
       { role: 'system' as const, content: systemPrompt },
