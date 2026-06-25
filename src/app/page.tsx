@@ -42,14 +42,7 @@ export default function Home() {
     { icon: '✍️', name: '姓名测算', desc: '五格剖象·三才', href: '/xingming' },
   ];
 
-  const classicCategories = [
-    { icon: '📚', name: '全部经典', count: '20000部', href: '/classics' },
-    { icon: '📜', name: '易学系统', count: '2270+部', href: '/classics' },
-    { icon: '📖', name: '八字命理', count: '1180+部', href: '/classics' },
-    { icon: '🌟', name: '紫微斗数', count: '1250+部', href: '/classics' },
-    { icon: '🏔️', name: '风水地理', count: '1130+部', href: '/classics' },
-    { icon: '🧘', name: '丹道气功', count: '830+部', href: '/classics' },
-  ];
+
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -185,28 +178,14 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Classics Library - NOW WITH LINK */}
+      {/* 书籍管理 */}
       <section className="px-4 py-6 pb-20">
         <div className="max-w-lg mx-auto">
           <h2 className="font-serif text-gold text-lg font-bold mb-4 flex items-center gap-2">
             <span className="w-1 h-5 bg-gold rounded-full" />
-            经典书房
+            书籍管理
           </h2>
           <div className="space-y-2">
-            {classicCategories.map((cat) => (
-              <Link
-                key={cat.name}
-                href={cat.href}
-                className="w-full flex items-center gap-4 p-3 bg-card border border-gold/10 rounded-xl hover:border-gold/30 hover:bg-gold/5 transition-all duration-300 group"
-              >
-                <span className="text-2xl group-hover:scale-110 transition-transform">{cat.icon}</span>
-                <div className="flex-1 text-left">
-                  <span className="text-foreground text-sm font-medium">{cat.name}</span>
-                  <span className="text-muted-foreground text-xs ml-2">{cat.count}</span>
-                </div>
-                <span className="text-gold/30 text-sm">›</span>
-              </Link>
-            ))}
             <Link
               href="/add-book"
               className="w-full flex items-center gap-4 p-3 bg-gradient-to-r from-gold/10 to-gold/5 border border-gold/20 rounded-xl hover:border-gold/40 hover:bg-gold/10 transition-all duration-300 group"
@@ -229,11 +208,6 @@ export default function Home() {
               </div>
               <span className="text-[#d4a853]/30 text-sm">›</span>
             </Link>
-            <div className="text-center pt-2">
-              <p className="text-muted-foreground text-xs">
-                全书共收录 <span className="text-gold font-bold">19,055</span> 部典籍
-              </p>
-            </div>
           </div>
         </div>
       </section>
