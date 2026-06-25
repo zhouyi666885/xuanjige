@@ -16,6 +16,12 @@ import { saveBook } from './book-storage';
 
 // ==================== 类型定义 ====================
 
+interface BookChapter {
+  name: string;       // 原书格式名称，如"第一卷 第一章"、"第三篇"、"第十二章"
+  type: string;       // 结构类型：卷/篇/章/节/回/部/辑/部分
+  startIndex: number; // 在原文中的起始位置
+}
+
 interface BookTask {
   id: string;
   bookName: string;
@@ -29,12 +35,89 @@ interface BookTask {
   source: string;
   size: string;
   chars: number;
+  chapters: BookChapter[]; // 原书章节结构
+  chapterStructure: string; // 原书编排方式描述，如"卷+章"、"篇"、"章"
   createdAt: number;
   updatedAt: number;
   startedAt: number | null;
   completedAt: number | null;
   error: string;
   logs: string[];
+}
+
+// ==================== 原书章节结构解析 ====================
+
+/**
+ * 从书籍内容中智能解析原书的章节结构
+ * 识别：卷/篇/章/节/回/部/辑 等原书编排方式
+ */
+function parseBookChapters(content: string): BookChapter[] {
+  const chapters: BookChapter[] = [];
+  const lines = content.split('\n');
+
+  // 匹配原书各种章节格式
+  const chapterPatterns = [
+    // 卷+章格式：第一卷 第一章、卷一 第一章、卷一·第一章
+    { regex: /^[\s]*第[一二三四五六七八九十百千万零\d]+卷[\s]*[·\s]*第[一二三四五六七八九十百千万零\d]+章/, type: '卷/章' },
+    // 纯卷格式：第一卷、卷一、卷上、卷下、卷之上、卷之中、卷之下
+    { regex: /^[\s]*第?[一二三四五六七八九十百千万零\d]+卷/, type: '卷' },
+    // 纯章格式：第一章、章一、章一·标题
+    { regex: /^[\s]*第[一二三四五六七八九十百千万零\d]+章/, type: '章' },
+    // 篇格式：第一篇、篇一、上篇、下篇、正篇、续篇
+    { regex: /^[\s]*第?[一二三四五六七八九十百千万零\d]+篇|^[\s]*[上下正续]?篇/, type: '篇' },
+    // 节格式：第一节、节一
+    { regex: /^[\s]*第[一二三四五六七八九十百千万零\d]+节/, type: '节' },
+    // 回格式：第一回、回一（古典小说）
+    { regex: /^[\s]*第[一二三四五六七八九十百千万零\d]+回/, type: '回' },
+    // 部格式：第一部、上部、下部
+    { regex: /^[\s]*第?[一二三四五六七八九十百千万零\d]+部|^[\s]*[上下]部/, type: '部' },
+    // 辑格式：第一辑
+    { regex: /^[\s]*第[一二三四五六七八九十百千万零\d]+辑/, type: '辑' },
+    // 部分格式：第一部分
+    { regex: /^[\s]*第[一二三四五六七八九十百千万零\d]+部分/, type: '部分' },
+    // 英文 Chapter/Part/Book/Section
+    { regex: /^[\s]*(Chapter|Part|Book|Section|Volume)\s+\d+/i, type: 'chapter' },
+  ];
+
+  let charIndex = 0;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      charIndex += line.length + 1;
+      continue;
+    }
+
+    for (const pattern of chapterPatterns) {
+      if (pattern.regex.test(trimmed)) {
+        // 提取章节名称（取该行，去掉前后空白，限制长度）
+        const name = trimmed.length > 60 ? trimmed.substring(0, 60) + '...' : trimmed;
+        chapters.push({
+          name,
+          type: pattern.type,
+          startIndex: charIndex,
+        });
+        break; // 一行只匹配一个模式
+      }
+    }
+
+    charIndex += line.length + 1;
+  }
+
+  return chapters;
+}
+
+/**
+ * 根据当前写入位置确定正在录入的章节
+ */
+function getCurrentChapterAtPosition(chapters: BookChapter[], position: number): { index: number; name: string } {
+  if (chapters.length === 0) return { index: 0, name: '' };
+
+  for (let i = chapters.length - 1; i >= 0; i--) {
+    if (position >= chapters[i].startIndex) {
+      return { index: i + 1, name: chapters[i].name };
+    }
+  }
+  return { index: 1, name: chapters[0].name };
 }
 
 // ==================== 全局状态 ====================
@@ -359,44 +442,92 @@ async function translateContent(taskId: string, content: string): Promise<string
 // ==================== 分章保存 ====================
 
 async function saveWithProgress(taskId: string, content: string): Promise<void> {
-  const paragraphs = content.split(/\n{2,}/).filter(p => p.trim().length > 0);
-  const total = paragraphs.length;
+  // 1. 先解析原书章节结构
+  const chapters = parseBookChapters(content);
+  const totalChars = content.length;
   
-  // 先构建完整内容再一次性保存（确保完整性）
-  // 但实时更新进度
-  const batchSize = Math.max(1, Math.floor(total / 20)); // 分20次更新进度
-  
-  for (let i = 0; i < total; i += batchSize) {
-    if (!processingQueue.has(taskId)) {
-      addLog(taskId, '摘录被取消');
-      return;
-    }
-    
-    const current = Math.min(i + batchSize, total);
-    const progress = 50 + Math.floor((current / total) * 50);
-    const chapterName = paragraphs[i]?.substring(0, 20)?.replace(/\n/g, '') || `第${current}段`;
-    
+  // 2. 如果解析到了真实章节结构，按章节进度更新
+  if (chapters.length >= 2) {
     updateTask(taskId, {
-      progress,
-      currentChapter: current,
-      totalChapters: total,
-      remainingChapters: total - current,
-      currentChapterName: chapterName,
-      message: `正在摘录: ${chapterName.substring(0, 15)} (${current}/${total})`,
+      progress: 50,
+      totalChapters: chapters.length,
+      currentChapter: 0,
+      remainingChapters: chapters.length,
+      currentChapterName: '准备摘录...',
+      message: `发现原书结构: 共 ${chapters.length} ${chapters[0]?.type || '章'}`,
     });
+
+    // 按字符位置分段写入，以真实章节为进度单位
+    const chunkSize = Math.max(1000, Math.floor(totalChars / 50));
+    let writtenChars = 0;
+    let lastChapterIdx = 0;
+
+    while (writtenChars < totalChars) {
+      if (!processingQueue.has(taskId)) {
+        addLog(taskId, '摘录被取消');
+        return;
+      }
+
+      writtenChars = Math.min(writtenChars + chunkSize, totalChars);
+      const progress = 50 + Math.floor((writtenChars / totalChars) * 50);
+      
+      // 根据当前字符位置确定所在章节
+      const currentChapterInfo = getCurrentChapterAtPosition(chapters, writtenChars);
+      const currentChapterIdx = currentChapterInfo.index;
+      const currentChapterName = currentChapterInfo.name;
+
+      // 只在章节变化时更新章节信息
+      if (currentChapterIdx !== lastChapterIdx || progress >= 99) {
+        lastChapterIdx = currentChapterIdx;
+        updateTask(taskId, {
+          progress,
+          currentChapter: currentChapterIdx,
+          totalChapters: chapters.length,
+          remainingChapters: chapters.length - currentChapterIdx,
+          currentChapterName: currentChapterName,
+          message: `正在摘录: ${currentChapterName.substring(0, 20)} (${currentChapterIdx}/${chapters.length})`,
+        });
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 80));
+    }
+  } else {
+    // 3. 没有识别到章节结构，按段落进度更新
+    const paragraphs = content.split(/\n{2,}/).filter((p: string) => p.trim().length > 0);
+    const total = paragraphs.length;
+    const batchSize = Math.max(1, Math.floor(total / 20));
     
-    // 小延迟让进度可见
-    await new Promise(resolve => setTimeout(resolve, 100));
+    for (let i = 0; i < total; i += batchSize) {
+      if (!processingQueue.has(taskId)) {
+        addLog(taskId, '摘录被取消');
+        return;
+      }
+      
+      const current = Math.min(i + batchSize, total);
+      const progress = 50 + Math.floor((current / total) * 50);
+      
+      updateTask(taskId, {
+        progress,
+        currentChapter: current,
+        totalChapters: total,
+        remainingChapters: total - current,
+        currentChapterName: `第${current}段`,
+        message: `正在摘录: 第${current}段/${total}段`,
+      });
+      
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
   }
   
-  // 一次性保存完整内容到知识库
+  // 4. 一次性保存完整内容到知识库
   const task = tasks.get(taskId);
   if (!task || !processingQueue.has(taskId)) return;
   
   try {
     addBookToKnowledgeBase(task.bookName, content);
     saveBook(task.bookName, content);
-    addLog(taskId, `保存完成: ${total} 章, ${content.length} 字`);
+    const chapterCount = chapters.length >= 2 ? chapters.length : content.split(/\n{2,}/).filter((p: string) => p.trim().length > 0).length;
+    addLog(taskId, `保存完成: ${chapterCount} 章, ${content.length} 字`);
   } catch (e) {
     addLog(taskId, `保存失败: ${e instanceof Error ? e.message : String(e)}`);
     throw e;
@@ -466,6 +597,8 @@ export function createTask(bookName: string): { task: BookTask; isNew: boolean }
       completedAt: Date.now(),
       error: '',
       logs: ['检测到知识库中已有此书'],
+      chapters: [],
+      chapterStructure: '',
     };
     tasks.set(id, task);
     saveTasks();
@@ -492,8 +625,10 @@ export function createTask(bookName: string): { task: BookTask; isNew: boolean }
     completedAt: null,
     error: '',
     logs: [],
+    chapterStructure: '',
+    chapters: [],
   };
-  
+
   tasks.set(id, task);
   saveTasks();
   
@@ -531,10 +666,15 @@ export function deleteTask(taskId: string): boolean {
   const task = tasks.get(taskId);
   if (!task) return false;
   
-  // 如果任务已完成（done），同时从知识库删除
-  if (task.status === 'done') {
-    const { deleteBookFromKnowledgeBase } = require('./fulltext-search');
-    deleteBookFromKnowledgeBase(task.bookName);
+  // 如果任务已完成（done）或进行中（processing），都要从知识库删除
+  // 进行中的任务可能已经部分写入了知识库，必须清除残留
+  if (task.status === 'done' || task.status === 'saving') {
+    try {
+      const { removeBookFromKnowledgeBase } = require('./fulltext-search');
+      removeBookFromKnowledgeBase(task.bookName);
+    } catch {
+      // 忽略删除错误
+    }
   }
   
   tasks.delete(taskId);

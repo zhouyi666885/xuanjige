@@ -576,9 +576,27 @@ export function removeBookFromKnowledgeBase(bookName: string): boolean {
   const fileName = `${safeName}.txt`;
   const filePath = path.join(dir, fileName);
   
-  // 删除本地文件
+  // 删除本地主文件
   if (fs.existsSync(filePath)) {
     fs.unlinkSync(filePath);
+  }
+  
+  // 删除翻译临时文件（.translating）
+  const translatingPath = path.join(dir, `${safeName}.translating`);
+  if (fs.existsSync(translatingPath)) {
+    fs.unlinkSync(translatingPath);
+  }
+  
+  // 删除任何以该书名开头的相关文件（防止残留）
+  try {
+    const allFiles = fs.readdirSync(dir);
+    for (const f of allFiles) {
+      if (f.startsWith(safeName) && (f.endsWith('.txt') || f.endsWith('.translating') || f.endsWith('.tmp') || f.endsWith('.bak'))) {
+        fs.unlinkSync(path.join(dir, f));
+      }
+    }
+  } catch {
+    // 忽略目录扫描错误
   }
   
   // 从缓存中移除
