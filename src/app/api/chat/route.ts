@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { LLMClient, Config, HeaderUtils } from 'coze-coding-dev-sdk';
-import { buildSystemPromptProfessional, buildSystemPromptCasual } from '@/lib/knowledge';
+import { buildSystemPromptProfessional, buildSystemPromptCasual, KNOWLEDGE_IRON_LAW_FOUND, KNOWLEDGE_IRON_LAW_NOT_FOUND } from '@/lib/knowledge';
 import { paiPan, formatPaiPanFull, formatShiZhanPrediction } from '@/lib/bazi';
 import { paiPan as ziweiPaiPan, formatPaiPan as ziweiFormatPaiPan, getMingGongLunDuan } from '@/lib/ziwei';
 import { matchKnowledge, getAllKnowledge } from '@/lib/classic-knowledge';
@@ -250,8 +250,8 @@ ${stats.sampleBooks.map(b => `  《${b.name}》${b.chars.toLocaleString()}字 [$
 
     // 知识库强制引用铁律（追加到systemPrompt最末尾，确保最高优先级）
     const knowledgeIronLaw = knowledgeResults.length > 0 || fullTextPassages.length > 0 || extendedKnowledgeResults.length > 0 || specificBookFullText
-      ? '\n\n🔴🔴🔴【搜索铁律】回答问题时，必须遍历整个知识库中所有书籍来搜索答案，不要分领域、不要限定范围！搜索范围包括：知识库里的所有书籍、所有领域、所有内容！不是只搜索这个领域的书，是所有书都搜！只要和这个问题有关的内容，全部整合起来回答。收到问题 → 遍历知识库全部书籍 → 找到所有相关内容 → 综合整理成完整回答。不分领域、不限范围、所有书籍全部查！\n\n🔴🔴🔴【完整回答铁律】回答问题时，不要限制字数！用户问什么就完整回答什么，不要因为回答到一半就说"已到达字数限制"或者"回答已结束"就直接中断！完整回答要求：1.问题问什么就回答什么，要回答完整 2.不要中途截断，不要只回答一半 3.如果内容较长就完整分段输出，直到把答案全部说完为止 4.无论回答多少字都要完整输出，不设上限！问多少答多少，完整输出，不断章取义！\n\n🔴🔴🔴【知识库铁律——永久生效——绝对不可违反】🔴🔴🔴\n你的知识库中已检索到典籍论断和原文。你的回答必须遵循以下铁律：\n\n【最高原则】所有回答必须且只能来自知识库！知识库是唯一的回答来源！\n\n1. ⚠️ 你必须基于知识库中【所有】相关典籍论断和原文进行分析，一条都不能忽略！不是只看几条就下结论，是所有论断都要纳入分析！\n2. 你不需要把所有论断逐条罗列出来——而是要把所有论断消化吸收后，给出深度综合分析\n3. 分析过程中自然引用典籍论断的知识点，在判断逻辑中体现推理过程即可，⚠️禁止在回答中标注或出现任何书名（如《某某》），所有书籍知识消化吸收后融入分析\n4. 同一问题必须引用至少3本以上不同典籍的论断进行交叉验证后才能下结论\n5. 如果不同典籍论断有矛盾，必须如实说明矛盾点，不能只选一个\n6. 最终判断必须体现综合分析的结果，⚠️但禁止出现任何书名\n7. 不引用知识库内容就直接回答的判断，视为无效\n8. 🔴🔴🔴你的所有判断必须且只能来自知识库中真实存在的典籍论断，禁止凭空编造任何书籍名称、论断内容或案例。绝不许自行编造！\n9. 🔴🔴🔴知识库中没有的内容就是不知道！必须如实说"知识库中未找到相关典籍论断"，绝不许自行编造！\n10. 🔴回答不限制行数、字数、篇幅！该写多长就写多长，宁可详细不可遗漏！不要因为篇幅限制而压缩内容！\n11. 🔴🔴检索没有上限！无论原文检索还是任何检索，都没有数量上限！能检索多少就检索多少，能引用多少就引用多少！绝不允许因为"太多了"而省略任何内容！\n12. 🔴🔴你的回答也没有上限！知识库有100条论断就引用100条，有200条就引用200条！没有上限！没有上限！没有上限！\n13. 🔴🔴🔴书籍全文从第一个字到最后一个字完整收录！绝不允许以"字数到了"或"行数到了"为由截断！知识库中的每一本书都是完整的，你引用时也必须完整引用，不得删减！\n14. 🔴🔴🔴当用户提到具体书名时，知识库中该书的完整全文已经提供给你。你必须基于完整全文来回答，不得只看部分章节！'
-      : '\n\n🔴🔴🔴【知识库铁律——永久生效——绝对不可违反】🔴🔴🔴\n⚠️ 知识库中未检索到与用户问题相关的典籍论断！\n你必须遵循以下规则：\n1. 🔴🔴🔴你不能凭空编造任何命理判断，所有判断必须有典籍依据\n2. 🔴🔴🔴没有知识库论断支撑的问题，你必须明确告知用户"此问题在现有典籍知识库中未找到充分依据，我无法给出可靠判断"\n3. 你可以建议用户换一种方式提问，或者告诉用户哪些领域的问题你能够基于典籍给出判断\n4. 🔴🔴🔴禁止在没有典籍依据的情况下给出看似专业的判断——那不是分析，是编造！\n5. 如果只能给出部分判断，必须明确标注哪些部分有典籍依据、哪些部分是推测\n6. 🔴🔴🔴所有回答必须且只能来自知识库！知识库是唯一的回答来源！知识库中没有的就是不知道！';
+      ? KNOWLEDGE_IRON_LAW_FOUND
+      : KNOWLEDGE_IRON_LAW_NOT_FOUND;
 
     const basePrompt = mode === 'professional'
       ? buildSystemPromptProfessional(birthInfoStr)
