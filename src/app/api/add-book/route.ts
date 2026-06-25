@@ -38,6 +38,11 @@ export async function GET() {
       t.status !== 'done' && t.status !== 'copyright' && t.status !== 'failed' && t.status !== 'exists' && t.status !== 'cleared'
     );
 
+    // 缺章节任务：录入完成但缺少章节的书，需要显示"缺章节"标注
+    const missingChapterTasks = nonExistsTasks.filter(t =>
+      t.status === 'done' && t.totalChapters > 0 && t.currentChapter < t.totalChapters
+    );
+
     // 版权/失败通知：一次性提示，前端sessionStorage控制退出后消失
     const copyrightNotices = nonExistsTasks.filter(t =>
       t.status === 'copyright' || t.status === 'failed'
@@ -95,6 +100,13 @@ export async function GET() {
         status: t.status,
         message: t.message,
         createdAt: t.createdAt,
+      })),
+      // 缺章节书籍：录入完成但章节不全，需要标注"缺章节"
+      missingChapterBooks: missingChapterTasks.map(t => ({
+        bookName: t.bookName,
+        currentChapter: t.currentChapter,
+        totalChapters: t.totalChapters,
+        chapterStructure: t.chapterStructure || '章',
       })),
       // 已完成录入但仍在学习的书籍（被隐藏的任务，学习进度仍需显示）
       learningBooks: learningProgressList

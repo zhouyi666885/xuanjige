@@ -134,6 +134,7 @@ export default function AddBookPage() {
   const [stats, setStats] = useState({ total: 0, active: 0, done: 0, failed: 0 });
   const [bookCount, setBookCount] = useState(0);
   const [learningBooks, setLearningBooks] = useState<LearningBook[]>([]);
+  const [missingChapterBooks, setMissingChapterBooks] = useState<{bookName: string; currentChapter: number; totalChapters: number; chapterStructure: string}[]>([]);
 
   // 新会话清除版权提示（退出APP后再进入时版权提示消失）
   useEffect(() => {
@@ -159,6 +160,7 @@ export default function AddBookPage() {
       setStats(data.stats || { total: 0, active: 0, done: 0, failed: 0 });
       setBookCount(data.bookCount || 0);
       setLearningBooks(data.learningBooks || []);
+      setMissingChapterBooks(data.missingChapterBooks || []);
     } catch {
       // 静默失败
     }
@@ -449,6 +451,34 @@ export default function AddBookPage() {
                 >
                   知道了
                 </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* 缺章节书籍提示 */}
+        {missingChapterBooks.length > 0 && (
+          <div className="space-y-2">
+            <h2 className="text-sm font-bold text-amber-500 uppercase tracking-wider">
+              缺章节
+            </h2>
+            {missingChapterBooks.map((book) => (
+              <div
+                key={book.bookName}
+                className="bg-amber-950/40 rounded-xl p-3 border border-amber-700/40 flex items-center gap-3"
+              >
+                <span className="text-base">⚠️</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-amber-200 font-medium truncate">
+                    《{book.bookName}》
+                  </p>
+                  <p className="text-xs text-amber-400/70 mt-0.5">
+                    录入完成但缺章节：已录{book.currentChapter}{book.chapterStructure}/共{book.totalChapters}{book.chapterStructure}
+                  </p>
+                </div>
+                <span className="text-[10px] bg-amber-900/50 text-amber-300 px-2 py-0.5 rounded-full border border-amber-700/40 flex-shrink-0">
+                  缺章节
+                </span>
               </div>
             ))}
           </div>

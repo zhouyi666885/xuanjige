@@ -55,6 +55,10 @@ export async function GET(request: NextRequest) {
         learningCurrentChunk: task?.learningCurrentChunk ?? 0,
         learningTotalChunks: task?.learningTotalChunks ?? 0,
         learningMessage: task?.learningMessage ?? '',
+        hasMissingChapters: task ? (task.totalChapters > 0 && task.currentChapter < task.totalChapters) : false,
+        currentChapter: task?.currentChapter ?? 0,
+        totalChapters: task?.totalChapters ?? 0,
+        chapterStructure: task?.chapterStructure ?? '章',
       };
     });
 

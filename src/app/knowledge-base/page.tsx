@@ -14,6 +14,10 @@ interface BookInfo {
   learningCurrentChunk: number;
   learningTotalChunks: number;
   learningMessage: string;
+  hasMissingChapters: boolean;
+  currentChapter: number;
+  totalChapters: number;
+  chapterStructure: string;
 }
 
 interface KnowledgeBaseStats {
@@ -256,6 +260,11 @@ export default function KnowledgeBasePage() {
                       {book.learningStatus === 'pending' && (
                         <span className="text-[10px] bg-[#5a5a6e]/10 text-[#5a5a6e] px-1.5 py-0.5 rounded-full flex-shrink-0 border border-[#5a5a6e]/20">
                           待学习
+                        </span>
+                      )}
+                      {book.hasMissingChapters && (
+                        <span className="text-[10px] bg-amber-900/30 text-amber-400 px-1.5 py-0.5 rounded-full flex-shrink-0 border border-amber-700/30">
+                          缺章节 {book.currentChapter}/{book.totalChapters}{book.chapterStructure}
                         </span>
                       )}
                     </div>
