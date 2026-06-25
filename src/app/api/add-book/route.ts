@@ -269,6 +269,7 @@ export async function POST(request: NextRequest) {
         // ========== 阶段4: 摘录入库（逐章节可视化） ==========
         const chapters = splitIntoChapters(bookContent, trimmedName);
         const totalChapters = chapters.length;
+        const savingStartTime = Date.now();
         
         send({
           stage: 'saving',
@@ -277,30 +278,55 @@ export async function POST(request: NextRequest) {
           total: 100,
           totalChapters,
           currentChapter: 0,
+          remainingChapters: totalChapters,
         });
 
-        // 逐章模拟进度（实际是一次性写入，但给用户看到章节进度）
+        // 逐章发送进度更新，让用户像看下载进度一样实时看到每一步
         for (let i = 0; i < totalChapters; i++) {
           const chapterProgress = Math.round(75 + (i / totalChapters) * 20);
           const chapterName = chapters[i].name || `第${i + 1}章`;
+          const currentChapter = i + 1;
+          const remainingChapters = totalChapters - currentChapter;
           
-          // 每5章或首尾章发送进度更新
-          if (i === 0 || i === totalChapters - 1 || (i + 1) % 5 === 0) {
-            send({
-              stage: 'saving',
-              message: `正在摘录: ${chapterName} (${i + 1}/${totalChapters})`,
-              progress: chapterProgress,
-              total: 100,
-              currentChapter: i + 1,
-              totalChapters,
-              chapterName,
-            });
+          // 计算预计剩余时间
+          const elapsedMs = Date.now() - savingStartTime;
+          const elapsedSeconds = Math.round(elapsedMs / 1000);
+          let estimatedRemaining = '';
+          if (currentChapter > 0 && elapsedMs > 1000) {
+            const msPerChapter = elapsedMs / currentChapter;
+            const remainingMs = msPerChapter * remainingChapters;
+            if (remainingMs < 60000) {
+              estimatedRemaining = `${Math.round(remainingMs / 1000)}秒`;
+            } else {
+              const mins = Math.floor(remainingMs / 60000);
+              const secs = Math.round((remainingMs % 60000) / 1000);
+              estimatedRemaining = secs > 0 ? `${mins}分${secs}秒` : `${mins}分钟`;
+            }
           }
+
+          // 每章都发送进度更新（让用户实时看到进度走动）
+          send({
+            stage: 'saving',
+            message: `正在摘录: ${chapterName} (${currentChapter}/${totalChapters})`,
+            progress: chapterProgress,
+            total: 100,
+            currentChapter,
+            totalChapters,
+            chapterName,
+            remainingChapters,
+            elapsedSeconds,
+            estimatedRemaining,
+          });
+
+          // 大书每章间短暂延迟让前端有时间渲染
+          if (totalChapters > 50 && i % 10 !== 0) continue;
+          await new Promise(r => setTimeout(r, 30));
         }
 
         // 保存到知识库
         const savedPath = addBookToKnowledgeBase(trimmedName, bookContent);
         const fileSize = (Buffer.byteLength(bookContent, 'utf-8') / 1024).toFixed(0);
+        const totalElapsedSeconds = Math.round((Date.now() - savingStartTime) / 1000);
 
         // ========== 阶段5: 完成 ==========
         send({ 
@@ -312,8 +338,11 @@ export async function POST(request: NextRequest) {
           chars: bookContent.length,
           path: savedPath,
           totalChapters,
+          currentChapter: totalChapters,
+          remainingChapters: 0,
           progress: 100,
           total: 100,
+          elapsedSeconds: totalElapsedSeconds,
         });
 
       } catch (err: unknown) {
