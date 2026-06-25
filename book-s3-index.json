@@ -65,12 +65,6 @@
     "uploadedAt": "2026-06-24T20:43:53.128Z",
     "localCached": true
   },
-  "A Dictionary of Islam Being a cyclopedia of the doctrines, rites, ceremonies, an": {
-    "s3Key": "books/A_Dictionary_of_Islam_Being_a_cyclopedia_of_the_doctrines_rites_ceremonies_an_0687b985.txt",
-    "size": 6775,
-    "uploadedAt": "2026-06-24T20:43:53.198Z",
-    "localCached": true
-  },
   "A Discourse of Life and Death, by Mornay; and Antonius by Garnier": {
     "s3Key": "books/A_Discourse_of_Life_and_Death_by_Mornay_and_Antonius_by_Garnier_db812c7e.txt",
     "size": 173388,
@@ -1107,24 +1101,6 @@
     "s3Key": "books/Increasing_Human_Efficiency_in_Business_A_Contribution_to_the_Psychology_of_Busi_f70f6697.txt",
     "size": 348674,
     "uploadedAt": "2026-06-24T20:44:11.861Z",
-    "localCached": true
-  },
-  "Index of the Project Gutenberg Works of Friedrich Nietzsche": {
-    "s3Key": "books/Index_of_the_Project_Gutenberg_Works_of_Friedrich_Nietzsche_40d5d6ef.txt",
-    "size": 14994,
-    "uploadedAt": "2026-06-24T20:44:11.935Z",
-    "localCached": true
-  },
-  "Index of the Project Gutenberg Works of Lucius Annaeus Seneca": {
-    "s3Key": "books/Index_of_the_Project_Gutenberg_Works_of_Lucius_Annaeus_Seneca_48c71ccb.txt",
-    "size": 6444,
-    "uploadedAt": "2026-06-24T20:44:12.004Z",
-    "localCached": true
-  },
-  "Index of the Project Gutenberg Works of the Brothers Grimm": {
-    "s3Key": "books/Index_of_the_Project_Gutenberg_Works_of_the_Brothers_Grimm_9c6e0fad.txt",
-    "size": 42051,
-    "uploadedAt": "2026-06-24T20:44:12.096Z",
     "localCached": true
   },
   "Indian Legends of Minnesota": {
@@ -3809,18 +3785,6 @@
     "uploadedAt": "2026-06-24T20:44:58.096Z",
     "localCached": true
   },
-  "佛说高王观世音经": {
-    "s3Key": "books/Fo_Shuo_Gao_Wang_Guan_Shi_Yin_Jing_c549d8a5.txt",
-    "size": 2756,
-    "uploadedAt": "2026-06-24T20:44:58.171Z",
-    "localCached": true
-  },
-  "佛遗教经": {
-    "s3Key": "books/Fo_Yi_Jiao_Jing_197d0490.txt",
-    "size": 9041,
-    "uploadedAt": "2026-06-24T20:44:58.250Z",
-    "localCached": true
-  },
   "佛陀弟子传": {
     "s3Key": "books/Fo_Tuo_Di_Zi_Chuan_3be67fd0.txt",
     "size": 805205,
@@ -4487,12 +4451,6 @@
     "uploadedAt": "2026-06-24T20:45:08.561Z",
     "localCached": true
   },
-  "十善业道经": {
-    "s3Key": "books/Shi_Shan_Ye_Dao_Jing_bc0cc644.txt",
-    "size": 8609,
-    "uploadedAt": "2026-06-24T20:45:08.633Z",
-    "localCached": true
-  },
   "千金方": {
     "s3Key": "books/Qian_Jin_Fang_93fde5ff.txt",
     "size": 1576789,
@@ -4851,12 +4809,6 @@
     "s3Key": "books/Ming_Li_Sui_Bi_d8c40262.txt",
     "size": 181128,
     "uploadedAt": "2026-06-24T20:45:14.455Z",
-    "localCached": true
-  },
-  "唯识三十颂": {
-    "s3Key": "books/Wei_Shi_San_Shi_Song_ff6c46d1.txt",
-    "size": 4863,
-    "uploadedAt": "2026-06-24T20:45:14.525Z",
     "localCached": true
   },
   "唯识与中观（2006版）": {
@@ -6449,12 +6401,6 @@
     "uploadedAt": "2026-06-24T20:45:46.305Z",
     "localCached": true
   },
-  "法家思想": {
-    "s3Key": "books/Fa_Jia_Si_Xiang_92515954.txt",
-    "size": 8518,
-    "uploadedAt": "2026-06-24T20:45:46.366Z",
-    "localCached": true
-  },
   "注解大六壬指南": {
     "s3Key": "books/Zhu_Jie_Da_Liu_Ren_Zhi_Nan_7d6a0833.txt",
     "size": 299719,
@@ -6705,12 +6651,6 @@
     "s3Key": "books/Yu_Zhao_Shen_Ying_Zhen_Jing_Zhu_Jie_9482784a.txt",
     "size": 38186,
     "uploadedAt": "2026-06-24T20:45:49.964Z",
-    "localCached": true
-  },
-  "玉皇心印经": {
-    "s3Key": "books/Yu_Huang_Xin_Yin_Jing_86cb67f8.txt",
-    "size": 1075,
-    "uploadedAt": "2026-06-24T20:45:50.029Z",
     "localCached": true
   },
   "玉皇经": {
@@ -7467,12 +7407,6 @@
     "s3Key": "books/Yang_Zhai_Shi_Shu_14c48812.txt",
     "size": 135895,
     "uploadedAt": "2026-06-24T20:46:00.442Z",
-    "localCached": true
-  },
-  "阿弥陀经": {
-    "s3Key": "books/A_Mi_Tuo_Jing_26b959d8.txt",
-    "size": 7341,
-    "uploadedAt": "2026-06-24T20:46:00.505Z",
     "localCached": true
   },
   "阿毗达摩讲要": {
