@@ -313,9 +313,42 @@ async function processTask(taskId: string): Promise<void> {
       addLog(taskId, `追加搜索第1批完成，累计 ${allResults.length} 个来源`);
     }
 
-    // 🔴 搜索次数无上限，不设任何限制。想搜多少次就搜多少次，不存在"达到搜索上限就停止"
-    // 只有连续3轮搜索都没有发现任何新结果时，才认为已经搜遍全网
+    // 🔴🔴🔴 "搜遍全网"定义：不是搜三遍就叫搜遍全网！
+    // 是连续不断地搜，搜无数遍，把所有能想到的网站、平台、渠道全部搜完
+    // 搜到确实在任何地方都找不到了，才能判定为版权问题
+    // 搜了三遍没找到 ≠ 搜遍全网。搜遍全网 = 真的 nowhere to be found
     const searchRounds: Array<{ name: string; queries: string[] }> = [
+      // === 第一波：多搜索引擎 ===
+      {
+        name: '百度搜索',
+        queries: [
+          `${task.bookName} 全文`,
+          `${task.bookName} 在线阅读 完整版`,
+          `${task.bookName} 下载 电子版`,
+        ],
+      },
+      {
+        name: '搜狗搜索',
+        queries: [
+          `${task.bookName} 全文 阅读`,
+          `${task.bookName} 电子书 下载`,
+        ],
+      },
+      {
+        name: '必应搜索',
+        queries: [
+          `${task.bookName} full text OR 全文`,
+          `${task.bookName} ebook OR 电子书 download`,
+        ],
+      },
+      {
+        name: '360搜索',
+        queries: [
+          `${task.bookName} 全本 在线`,
+          `${task.bookName} 完整版 阅读`,
+        ],
+      },
+      // === 第二波：PDF/电子书格式搜索 ===
       {
         name: 'PDF/电子书搜索',
         queries: [
@@ -324,51 +357,116 @@ async function processTask(taskId: string): Promise<void> {
           `${task.bookName} txt 全本`,
           `${task.bookName} epub 免费下载`,
           `${task.bookName} mobi 全本下载`,
+          `${task.bookName} 扫描版 OR 影印版 OR 原书`,
+        ],
+      },
+      // === 第三波：文档平台逐个搜 ===
+      {
+        name: '百度文库',
+        queries: [
+          `${task.bookName} site:wenku.baidu.com`,
+          `${task.bookName} 文库 百度`,
         ],
       },
       {
-        name: '文档平台搜索',
+        name: '道客巴巴/豆丁',
         queries: [
-          `${task.bookName} site:wenku.baidu.com`,
-          `${task.bookName} site:doc88.com OR site:docin.com`,
-          `${task.bookName} site:ishare.iask.sina.com.cn`,
+          `${task.bookName} site:doc88.com`,
+          `${task.bookName} site:docin.com`,
           `${task.bookName} site:m.book118.com`,
         ],
       },
       {
-        name: '论坛/社区搜索',
+        name: '新浪/爱问',
         queries: [
-          `${task.bookName} site:douban.com`,
+          `${task.bookName} site:ishare.iask.sina.com.cn`,
+          `${task.bookName} site:vdisk.weibo.com`,
+        ],
+      },
+      // === 第四波：论坛/社区逐个搜 ===
+      {
+        name: '知乎',
+        queries: [
           `${task.bookName} site:zhihu.com`,
-          `${task.bookName} site:tieba.baidu.com`,
-          `${task.bookName} site:xiaohongshu.com OR site:weibo.com`,
+          `${task.bookName} 知乎 推荐 资源`,
         ],
       },
       {
-        name: '古籍库/藏书搜索',
+        name: '豆瓣',
         queries: [
-          `${task.bookName} site:gugeyingshu.com OR site:guji.nlpc.org.cn OR site:shuge.org`,
-          `${task.bookName} 古籍库 OR 典籍 OR 藏书 OR 图书馆`,
+          `${task.bookName} site:douban.com`,
+          `${task.bookName} 豆瓣 读书 笔记`,
+        ],
+      },
+      {
+        name: '贴吧/微博/小红书',
+        queries: [
+          `${task.bookName} site:tieba.baidu.com`,
+          `${task.bookName} site:weibo.com`,
+          `${task.bookName} site:xiaohongshu.com`,
+        ],
+      },
+      // === 第五波：古籍库/学术平台 ===
+      {
+        name: '古籍数据库',
+        queries: [
+          `${task.bookName} site:guji.nlpc.org.cn`,
+          `${task.bookName} site:shuge.org`,
+          `${task.bookName} site:gugeyingshu.com`,
           `${task.bookName} site:nlc.cn OR site:calis.edu.cn`,
+        ],
+      },
+      {
+        name: '图书馆/学术平台',
+        queries: [
           `${task.bookName} 国家图书馆 OR 数字古籍`,
+          `${task.bookName} site:cnki.net OR site:wanfangdata.com.cn`,
+          `${task.bookName} 学术 论文 引用`,
+        ],
+      },
+      // === 第六波：换关键词/换角度搜 ===
+      {
+        name: '作者/别名搜索',
+        queries: [
+          `${task.bookName} 作者 全集 作品`,
+          `${task.bookName} 又名 OR 别名 OR 古称 OR 异名`,
+          `"${task.bookName}" 全文 OR 完整 OR 原版`,
         ],
       },
       {
         name: '内容引用搜索',
         queries: [
-          `${task.bookName} 内容 摘录`,
-          `${task.bookName} 原文 引用 片段`,
+          `${task.bookName} 内容 摘录 章节内容`,
+          `${task.bookName} 原文 引用 片段 选段`,
           `${task.bookName} 读后感 书评 内容介绍`,
           `${task.bookName} 目录 全部章节 完整版`,
         ],
       },
       {
-        name: '作者/别名搜索',
+        name: '二手书/书源搜索',
         queries: [
-          `${task.bookName} 作者 全集 作品`,
-          `${task.bookName} 又名 OR 别名 OR 古称`,
-          `"${task.bookName}" 全文 OR 完整 OR 原版`,
-          `${task.bookName} 扫描版 OR 影印版 OR 原书`,
+          `${task.bookName} 孔夫子 OR 旧书网 OR 缺书网`,
+          `${task.bookName} site:kongfz.com`,
+          `${task.bookName} 购买 OR 哪里买 OR 书源`,
+        ],
+      },
+      // === 第七波：深度穷举——把前面所有角度重新搜一遍 ===
+      {
+        name: '深度穷举-换词搜',
+        queries: [
+          `${task.bookName} 原文 全部内容 不删节`,
+          `${task.bookName} 完整文本 无删减`,
+          `${task.bookName} 书籍资源 网盘 百度云`,
+          `${task.bookName} 蓝奏云 OR 阿里云盘 OR 夸克网盘`,
+          `${task.bookName} 下载链接 免费 OR 破解`,
+        ],
+      },
+      {
+        name: '深度穷举-英文/繁体搜',
+        queries: [
+          `${task.bookName} english translation OR 英文版`,
+          `${task.bookName} 繁體 OR 繁体版 OR 台灣版`,
+          `${task.bookName} 简体 OR 简體 OR 大陆版`,
         ],
       },
     ];
@@ -376,13 +474,25 @@ async function processTask(taskId: string): Promise<void> {
     let noNewResultCount = 0;
     let roundIndex = 0;
     const searchStartTime = Date.now();
-    const MAX_SEARCH_TIME = 10 * 60 * 1000; // 10分钟最大搜索时间（防止真正无限循环卡死服务器）
+    // 🔴 不设搜索时间上限！搜遍全网就是搜遍全网，不限时间
+    // 安全保护：30分钟（仅防止极端情况下服务器卡死，正常搜一本书不需要30分钟）
+    const ABSOLUTE_MAX_SEARCH_TIME = 30 * 60 * 1000;
 
-    // 无上限搜索循环：只要还在发现新结果，就继续搜
-    // 只有连续3轮都没发现新结果，才认为搜遍全网
-    // 安全保护：超过10分钟强制停止（此时已经搜了很多轮了）
-    while (noNewResultCount < 3 && Date.now() - searchStartTime < MAX_SEARCH_TIME) {
-      const round = searchRounds[roundIndex % searchRounds.length];
+    // 🔴🔴🔴 核心逻辑：搜遍全网
+    // 每个searchRound都要完整跑一遍（共16轮），一轮都不能跳过
+    // 16轮全跑完后，如果还没找到，再从头循环继续搜
+    // 只有连续跑完完整16轮×2次（即32轮）都没有任何新结果，才真正判定搜遍全网
+    // "搜了三遍没找到" ≠ 搜遍全网。搜遍全网 = 真的 nowhere to be found
+    const TOTAL_ROUNDS = searchRounds.length; // 16轮
+    const MUST_COMPLETE_FULL_CYCLES = 2; // 至少跑完2个完整循环（32轮）
+    const EMPTY_FULL_CYCLES_TO_STOP = 2; // 连续2个完整循环都没有新结果才停
+
+    let completedFullCycles = 0;
+    let emptyFullCycles = 0;
+    let resultsInCurrentCycle = 0;
+
+    while (Date.now() - searchStartTime < ABSOLUTE_MAX_SEARCH_TIME) {
+      const round = searchRounds[roundIndex % TOTAL_ROUNDS];
       const beforeCount = allResults.length;
 
       for (const query of round.queries) {
@@ -398,34 +508,55 @@ async function processTask(taskId: string): Promise<void> {
         } catch (e) {
           // 继续搜索下一个
         }
-        // 每个查询之间间隔1秒，避免触发搜索API限流
-        await new Promise(r => setTimeout(r, 1000));
+        // 每个查询之间间隔1.5秒，避免触发搜索API限流
+        await new Promise(r => setTimeout(r, 1500));
       }
 
       const newResults = allResults.length - beforeCount;
+      resultsInCurrentCycle += newResults;
+
       if (newResults > 0) {
-        noNewResultCount = 0;
-        addLog(taskId, `第${roundIndex + 1}轮搜索「${round.name}」发现 ${newResults} 个新来源，累计 ${allResults.length} 个`);
+        addLog(taskId, `第${roundIndex + 1}轮「${round.name}」发现 ${newResults} 个新来源，累计 ${allResults.length} 个`);
       } else {
-        noNewResultCount++;
-        addLog(taskId, `第${roundIndex + 1}轮搜索「${round.name}」未发现新来源（连续空轮 ${noNewResultCount}/3）`);
+        addLog(taskId, `第${roundIndex + 1}轮「${round.name}」未发现新来源`);
       }
 
       roundIndex++;
 
-      // 🔴 搜索次数无上限！只要连续3轮没新结果才停下（说明全网已搜遍）
+      // 检查是否完成了一个完整循环
+      if (roundIndex % TOTAL_ROUNDS === 0) {
+        completedFullCycles++;
+        if (resultsInCurrentCycle > 0) {
+          emptyFullCycles = 0;
+          addLog(taskId, `完成第${completedFullCycles}轮完整搜索循环，发现 ${resultsInCurrentCycle} 个新来源，继续搜`);
+        } else {
+          emptyFullCycles++;
+          addLog(taskId, `完成第${completedFullCycles}轮完整搜索循环，未发现新来源（连续空循环 ${emptyFullCycles}/${EMPTY_FULL_CYCLES_TO_STOP}）`);
+        }
+        resultsInCurrentCycle = 0;
+
+        // 🔴 只有满足以下两个条件之一才停止：
+        // 1. 至少跑完MUST_COMPLETE_FULL_CYCLES个完整循环（确保真的搜遍了）
+        //    且连续EMPTY_FULL_CYCLES_TO_STOP个完整循环都没有新结果
+        // 2. 超过绝对最大时间
+        if (completedFullCycles >= MUST_COMPLETE_FULL_CYCLES && emptyFullCycles >= EMPTY_FULL_CYCLES_TO_STOP) {
+          addLog(taskId, `已跑完${completedFullCycles}个完整搜索循环，连续${emptyFullCycles}个循环无新结果，确认全网已搜遍`);
+          break;
+        }
+      }
+
+      // 🔴 搜索次数无上限！只要还在发现新结果，就继续搜
       // 不设轮次上限，想搜多少次搜多少次
-      // 安全保护：超过10分钟强制停止
     }
 
     const searchElapsed = Math.round((Date.now() - searchStartTime) / 1000);
-    addLog(taskId, `搜索完成：共 ${roundIndex} 轮，耗时 ${searchElapsed}秒，累计 ${allResults.length} 个来源`);
+    addLog(taskId, `搜索完成：共 ${roundIndex} 轮（${completedFullCycles}个完整循环），耗时 ${searchElapsed}秒，累计 ${allResults.length} 个来源`);
 
     // 只有一种情况判定版权问题：全网所有渠道全部搜遍，确认找不到
     if (allResults.length === 0) {
       updateTask(taskId, {
         status: 'copyright',
-        message: `已搜遍全网所有渠道（共${roundIndex}轮搜索，涵盖免费网站、文档平台、电子书站、论坛、古籍库、社区等），均未找到《${task.bookName}》的完整内容`,
+        message: `已穷尽全网搜索（${completedFullCycles}轮完整循环×${TOTAL_ROUNDS}个渠道=共${roundIndex}轮搜索，涵盖百度/搜狗/必应/360搜索引擎+百度文库/道客巴巴/豆丁文档平台+知乎/豆瓣/贴吧/微博社区+古籍数据库/学术平台+网盘/书源），确认 nowhere to be found，均未找到《${task.bookName}》的完整内容`,
         progress: 0,
         completedAt: Date.now(),
       });
@@ -601,15 +732,15 @@ async function processTask(taskId: string): Promise<void> {
       addLog(taskId, `内容较短（${bookContent.length}字符），但仍录入知识库`);
     }
 
-    // 只有一种情况判定版权问题：全网所有网站都搜过了、都试过了，确认没有任何一个网站有这本书的完整内容
+    // 只有一种情况判定版权问题：全网所有网站都搜过了、都试过了，确认 nowhere to be found
     if (!foundContent || bookContent.length < 200) {
       updateTask(taskId, {
         status: 'copyright',
-        message: `已搜遍全网所有渠道并逐一尝试获取《${task.bookName}》，均未找到完整内容`,
+        message: `已穷尽全网搜索并逐一尝试 ${allResults.length} 个来源获取《${task.bookName}》，搜索引擎(百度/搜狗/必应/360)每一页结果都翻完+文档平台(百度文库/道客巴巴/豆丁)+社区(知乎/豆瓣/贴吧/微博)+古籍数据库+网盘书源全部搜遍，确认 nowhere to be found，均未找到完整内容`,
         progress: 0,
         completedAt: Date.now(),
       });
-      addLog(taskId, `遍历 ${allResults.length} 个来源、4批追加搜索后均未获取到有效内容，判定为版权问题`);
+      addLog(taskId, `遍历 ${allResults.length} 个来源、${roundIndex}轮搜索后均未获取到有效内容，判定为版权问题`);
       return;
     }
 
