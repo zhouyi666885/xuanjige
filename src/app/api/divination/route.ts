@@ -15,7 +15,7 @@ import { paiPan as qimenPaiPan, formatQiMenPaiPan as qimenFormat } from '@/lib/q
 import { paiPan as liurenPaiPan, formatLiuRenPaiPan as liurenFormat } from '@/lib/liuren';
 import { paiPan as fengshuiPaiPan, formatFengShuiPaiPan as fengshuiFormat } from '@/lib/fengshui';
 import { calculateXingMing as xingmingCalculate, formatXingMingPaiPan as xingmingFormat } from '@/lib/xingming';
-import { searchFullText, formatFullTextResults, getDetailedBookStats } from '@/lib/fulltext-search';
+import { searchFullText, formatFullTextResults, getDetailedBookStats, findBooksByName, getBookFullText, getBookChapterContent, parseChapterRange } from '@/lib/fulltext-search';
 
 export const dynamic = 'force-dynamic';
 
@@ -77,8 +77,13 @@ export async function POST(request: NextRequest) {
     
     // 检测用户是否在问关于知识库本身的问题
     const isKnowledgeBaseQuestion = /知识库|多少本书|多少书|收录|录入|藏书|书库|英文.*翻译|翻译.*中文|整本书|完整.*录入|第一页.*最后|第一个字.*最后|全本|全文.*收录|有没有.*书/.test(input);
+    
+    // 检测用户是否要求查看某本书的全文或章节
+    const isBookContentRequest = /全文|内容|发给我|发过来|给我看|看看|查看|读一读|章节|第[一二三四五六七八九十百千零\d]+[卦篇章卷部节回]|前[一二三四五六七八九十百千零\d]+[卦篇章卷部节回]|原文|原文内容|书里.*写|书上.*说/.test(input);
+    
     let knowledgeBaseInfo = '';
-    if (isKnowledgeBaseQuestion) {
+    let bookContentInfo = '';
+    if (isKnowledgeBaseQuestion && !isBookContentRequest) {
       const stats = getDetailedBookStats();
       knowledgeBaseInfo = `\n\n【知识库实时统计信息——用户正在询问知识库相关情况，必须如实回答】
 📚 知识库总藏书量：${stats.bookCount} 本
@@ -93,9 +98,33 @@ export async function POST(request: NextRequest) {
 3. 书籍目录按原书叫法显示（卦就写卦、章就写章、卷就写卷）
 
 请根据以上实时统计数据如实回答用户关于知识库的问题。`;
+    } else if (isBookContentRequest) {
+      // 检测书籍内容请求
+      const bookNameMatches = findBooksByName(input);
+      if (bookNameMatches.length > 0) {
+        const bestMatch = bookNameMatches.sort((a, b) => a.name.length - b.name.length)[0];
+        const chapterRange = parseChapterRange(input);
+        const bookContent = getBookChapterContent(bestMatch.name, chapterRange || undefined);
+        
+        if (bookContent) {
+          bookContentInfo = `\n\n【《${bestMatch.name}》${bookContent.requestedChapters}——从第一个字到最后一个字完整呈现，绝不截断】
+总${bookContent.structureType}数：${bookContent.totalChapters}
+当前显示：${bookContent.requestedChapters}
+
+${bookContent.content}
+
+【书籍内容输出指令——最高优先级！】
+用户要求查看《${bestMatch.name}》的内容。你必须：
+1. 将上方的书籍原文完整输出给用户，从第一个字到最后一个字，一个字都不许省略！
+2. 绝对不允许限制字数！绝对不允许限制行数！
+3. 绝对不允许以"字数到了""行数到了""篇幅有限"为由截断！
+4. 原文有多长就输出多长，完整输出，不断章取义！
+5. 输出格式：直接输出原文内容，不需要额外解释`;
+        }
+      }
     }
 
-    const systemPrompt = baseSystemPrompt + finalKnowledgeStr + knowledgeBaseInfo + knowledgeIronLaw;
+    let systemPrompt = baseSystemPrompt + finalKnowledgeStr + knowledgeBaseInfo + bookContentInfo + knowledgeIronLaw;
 
     const modeInstruction = mode === 'professional'
       ? '请用专业术语进行解读，将典籍知识融入分析逻辑中，禁止出现任何书名。'

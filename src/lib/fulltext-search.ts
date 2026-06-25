@@ -720,3 +720,154 @@ export function removeBookFromKnowledgeBase(bookName: string): boolean {
 export function getBookDir(): string {
   return getBookContentDir();
 }
+
+/**
+ * 获取指定书籍的章节内容
+ * @param bookName 书名
+ * @param chapterRange 章节范围，如 { start: 1, end: 10 } 表示第1章到第10章
+ * @returns 章节内容文本，如果未指定范围则返回整本书
+ */
+export function getBookChapterContent(
+  bookName: string,
+  chapterRange?: { start: number; end: number }
+): { content: string; totalChapters: number; structureType: string; requestedChapters: string } | null {
+  const fullText = getBookFullText(bookName);
+  if (!fullText) return null;
+
+  // 解析章节结构
+  const chapters = parseChaptersFromText(fullText);
+  
+  if (chapters.length === 0 || !chapterRange) {
+    // 没有章节结构，或不指定范围，返回全文
+    return {
+      content: fullText,
+      totalChapters: chapters.length || 0,
+      structureType: chapters.length > 0 ? chapters[0].type : '全文',
+      requestedChapters: chapterRange ? '全文（无章节结构）' : '全文'
+    };
+  }
+
+  // 按范围提取章节
+  const start = Math.max(1, chapterRange.start);
+  const end = Math.min(chapters.length, chapterRange.end);
+  
+  const parts: string[] = [];
+  for (let i = start - 1; i < end; i++) {
+    const chapterStart = chapters[i].startIndex;
+    const chapterEnd = i + 1 < chapters.length ? chapters[i + 1].startIndex : fullText.length;
+    parts.push(fullText.substring(chapterStart, chapterEnd));
+  }
+
+  const structureType = chapters[0].type;
+  const rangeDesc = start === end
+    ? `第${start}${structureType}`
+    : `第${start}${structureType}到第${end}${structureType}`;
+
+  return {
+    content: parts.join('\n'),
+    totalChapters: chapters.length,
+    structureType,
+    requestedChapters: rangeDesc
+  };
+}
+
+/**
+ * 从文本中解析章节结构（轻量版，不依赖book-task-manager）
+ */
+function parseChaptersFromText(text: string): { type: string; startIndex: number }[] {
+  const chapters: { type: string; startIndex: number }[] = [];
+  
+  // 按优先级匹配章节模式
+  const patterns: { regex: RegExp; type: string }[] = [
+    { regex: /^第[一二三四五六七八九十百千零\d]+[卷篇]\s*第[一二三四五六七八九十百千零\d]+[章节回品]/gm, type: '卷/章' },
+    { regex: /^第[一二三四五六七八九十百千零\d]+卦\s*/gm, type: '卦' },
+    { regex: /^第[一二三四五六七八九十百千零\d]+[卷]/gm, type: '卷' },
+    { regex: /^第[一二三四五六七八九十百千零\d]+[篇]/gm, type: '篇' },
+    { regex: /^第[一二三四五六七八九十百千零\d]+[章]/gm, type: '章' },
+    { regex: /^第[一二三四五六七八九十百千零\d]+[节]/gm, type: '节' },
+    { regex: /^第[一二三四五六七八九十百千零\d]+[回]/gm, type: '回' },
+    { regex: /^第[一二三四五六七八九十百千零\d]+[部]/gm, type: '部' },
+    { regex: /^第[一二三四五六七八九十百千零\d]+[品]/gm, type: '品' },
+    { regex: /^第[一二三四五六七八九十百千零\d]+[门]/gm, type: '门' },
+    // 六十四卦名（乾坤屯蒙需讼师比...）
+    { regex: /^(乾|坤|屯|蒙|需|讼|师|比|小畜|履|泰|否|同人|大有|谦|豫|随|蛊|临|观|噬嗑|贲|剥|复|无妄|大畜|颐|大过|坎|离|咸|恒|遁|大壮|晋|明夷|家人|睽|蹇|解|损|益|夬|姤|萃|升|困|井|革|鼎|震|艮|渐|归妹|丰|旅|巽|兑|涣|节|中孚|小过|既济|未济)卦\b/gm, type: '卦' },
+  ];
+
+  for (const pattern of patterns) {
+    let match: RegExpExecArray | null;
+    pattern.regex.lastIndex = 0;
+    while ((match = pattern.regex.exec(text)) !== null) {
+      chapters.push({
+        type: pattern.type,
+        startIndex: match.index
+      });
+    }
+    if (chapters.length >= 3) break; // 找到足够的章节就停止
+  }
+
+  // 按位置排序
+  chapters.sort((a, b) => a.startIndex - b.startIndex);
+  
+  return chapters;
+}
+
+/**
+ * 解析用户消息中的章节范围请求
+ * @returns 章节范围对象，如果无法解析则返回null
+ */
+export function parseChapterRange(message: string): { start: number; end: number } | null {
+  // 匹配 "第X章到第Y章" / "第X卦到第Y卦" / "第X篇到第Y篇" 等
+  const rangeMatch = message.match(/第([一二三四五六七八九十百千零\d]+)[卦篇章卷部节回]到第([一二三四五六七八九十百千零\d]+)[卦篇章卷部节回]/);
+  if (rangeMatch) {
+    return { start: chineseToNumber(rangeMatch[1]), end: chineseToNumber(rangeMatch[2]) };
+  }
+  
+  // 匹配 "第X章" / "第X卦" 等（单章）
+  const singleMatch = message.match(/第([一二三四五六七八九十百千零\d]+)[卦篇章卷部节回]/);
+  if (singleMatch) {
+    const n = chineseToNumber(singleMatch[1]);
+    return { start: n, end: n };
+  }
+  
+  // 匹配 "前X章" / "前10卦"
+  const prefixMatch = message.match(/前([一二三四五六七八九十百千零\d]+)[卦篇章卷部节回]/);
+  if (prefixMatch) {
+    const n = chineseToNumber(prefixMatch[1]);
+    return { start: 1, end: n };
+  }
+  
+  return null;
+}
+
+/**
+ * 中文数字转阿拉伯数字
+ */
+function chineseToNumber(str: string): number {
+  // 如果是纯数字
+  if (/^\d+$/.test(str)) return parseInt(str, 10);
+  
+  const map: Record<string, number> = {
+    '零': 0, '一': 1, '二': 2, '三': 3, '四': 4, '五': 5,
+    '六': 6, '七': 7, '八': 8, '九': 9, '十': 10,
+    '百': 100, '千': 1000
+  };
+  
+  let result = 0;
+  let current = 0;
+  
+  for (const char of str) {
+    const val = map[char];
+    if (val === undefined) continue;
+    
+    if (val >= 10) {
+      if (current === 0) current = 1;
+      result += current * val;
+      current = 0;
+    } else {
+      current = val;
+    }
+  }
+  
+  result += current;
+  return result || 1;
+}
