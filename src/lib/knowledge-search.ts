@@ -6,115 +6,6 @@
 
 import { KnowledgeClient, Config } from 'coze-coding-dev-sdk';
 
-// 16个知识库名称（13领域+书籍体系+方法论+盲派命理）
-const ALL_DATASETS = [
-  'xueye_knowledge',       // 学业
-  'hunyin_knowledge',      // 婚姻
-  'shiye_knowledge',       // 事业
-  'caiyun_knowledge',      // 财运
-  'jiankang_knowledge',    // 健康
-  'liuqin_knowledge',      // 六亲
-  'dayun_knowledge',       // 大运流年
-  'geju_knowledge',        // 格局判断
-  'shensha_knowledge',     // 神煞应用
-  'liuyao_knowledge',      // 六爻占卜
-  'meihua_knowledge',      // 梅花易数
-  'fengshui_knowledge',    // 风水地理
-  'xiangxue_knowledge',    // 面相手相
-  'book_system_knowledge', // 约400本书籍完整体系
-  'methodology_knowledge', // 方法论（26步学习路径/已验证规则/权重/四维分析/五域分析/映射表/关键词/要点/禁止事项/14个局限与改进）
-  'mangpai_knowledge',     // 盲派命理（盲派秘典/郝圣鸽/北方秘本/断事口诀）
-];
-
-// 领域关键词→数据集映射（精准搜索时使用）
-const DOMAIN_DATASET_MAP: Record<string, string[]> = {
-  '学业': ['xueye_knowledge', 'bazi_knowledge', 'ziwei_knowledge', 'xiangxue_knowledge', 'fengshui_knowledge', 'methodology_knowledge'],
-  '学习': ['xueye_knowledge', 'bazi_knowledge', 'ziwei_knowledge', 'xiangxue_knowledge', 'fengshui_knowledge', 'methodology_knowledge'],
-  '考试': ['xueye_knowledge', 'bazi_knowledge', 'ziwei_knowledge', 'methodology_knowledge'],
-  '升学': ['xueye_knowledge', 'bazi_knowledge', 'ziwei_knowledge', 'methodology_knowledge'],
-  '休学': ['xueye_knowledge', 'bazi_knowledge', 'methodology_knowledge'],
-  '复学': ['xueye_knowledge', 'bazi_knowledge', 'methodology_knowledge'],
-  '学历': ['xueye_knowledge', 'bazi_knowledge', 'methodology_knowledge'],
-  '读书': ['xueye_knowledge', 'bazi_knowledge', 'methodology_knowledge'],
-  '婚姻': ['hunyin_knowledge', 'bazi_knowledge', 'ziwei_knowledge', 'xiangxue_knowledge', 'methodology_knowledge'],
-  '结婚': ['hunyin_knowledge', 'bazi_knowledge', 'ziwei_knowledge', 'methodology_knowledge'],
-  '离婚': ['hunyin_knowledge', 'bazi_knowledge', 'ziwei_knowledge', 'methodology_knowledge'],
-  '恋爱': ['hunyin_knowledge', 'bazi_knowledge', 'ziwei_knowledge', 'xiangxue_knowledge', 'methodology_knowledge'],
-  '配偶': ['hunyin_knowledge', 'bazi_knowledge', 'ziwei_knowledge', 'methodology_knowledge'],
-  '夫妻': ['hunyin_knowledge', 'bazi_knowledge', 'ziwei_knowledge', 'methodology_knowledge'],
-  '感情': ['hunyin_knowledge', 'bazi_knowledge', 'ziwei_knowledge', 'xiangxue_knowledge', 'methodology_knowledge'],
-  '事业': ['shiye_knowledge', 'bazi_knowledge', 'ziwei_knowledge', 'xiangxue_knowledge', 'fengshui_knowledge', 'methodology_knowledge'],
-  '工作': ['shiye_knowledge', 'bazi_knowledge', 'ziwei_knowledge', 'methodology_knowledge'],
-  '职业': ['shiye_knowledge', 'bazi_knowledge', 'ziwei_knowledge', 'methodology_knowledge'],
-  '升职': ['shiye_knowledge', 'bazi_knowledge', 'ziwei_knowledge', 'methodology_knowledge'],
-  '创业': ['shiye_knowledge', 'bazi_knowledge', 'ziwei_knowledge', 'methodology_knowledge'],
-  '财运': ['caiyun_knowledge', 'bazi_knowledge', 'ziwei_knowledge', 'fengshui_knowledge', 'methodology_knowledge'],
-  '赚钱': ['caiyun_knowledge', 'bazi_knowledge', 'ziwei_knowledge', 'methodology_knowledge'],
-  '破财': ['caiyun_knowledge', 'bazi_knowledge', 'methodology_knowledge'],
-  '投资': ['caiyun_knowledge', 'bazi_knowledge', 'ziwei_knowledge', 'methodology_knowledge'],
-  '健康': ['jiankang_knowledge', 'bazi_knowledge', 'ziwei_knowledge', 'xiangxue_knowledge', 'methodology_knowledge'],
-  '疾病': ['jiankang_knowledge', 'bazi_knowledge', 'methodology_knowledge'],
-  '身体': ['jiankang_knowledge', 'bazi_knowledge', 'xiangxue_knowledge', 'methodology_knowledge'],
-  '手术': ['jiankang_knowledge', 'bazi_knowledge', 'methodology_knowledge'],
-  '父母': ['liuqin_knowledge', 'bazi_knowledge', 'ziwei_knowledge', 'methodology_knowledge'],
-  '兄弟': ['liuqin_knowledge', 'bazi_knowledge', 'ziwei_knowledge', 'methodology_knowledge'],
-  '子女': ['liuqin_knowledge', 'bazi_knowledge', 'ziwei_knowledge', 'methodology_knowledge'],
-  '六亲': ['liuqin_knowledge', 'bazi_knowledge', 'ziwei_knowledge', 'methodology_knowledge'],
-  '大运': ['dayun_knowledge'],
-  '流年': ['dayun_knowledge'],
-  '格局': ['geju_knowledge'],
-  '用神': ['geju_knowledge'],
-  '忌神': ['geju_knowledge'],
-  '神煞': ['shensha_knowledge'],
-  '桃花': ['shensha_knowledge'],
-  '驿马': ['shensha_knowledge'],
-  '华盖': ['shensha_knowledge'],
-  '六爻': ['liuyao_knowledge'],
-  '起卦': ['liuyao_knowledge'],
-  '占卜': ['liuyao_knowledge'],
-  '梅花': ['meihua_knowledge'],
-  '风水': ['fengshui_knowledge'],
-  '住房': ['fengshui_knowledge'],
-  '面相': ['xiangxue_knowledge'],
-  '手相': ['xiangxue_knowledge'],
-  '面容': ['xiangxue_knowledge'],
-  // 补充：书籍体系和方法论
-  '书籍': ['book_system_knowledge', 'methodology_knowledge'],
-  '典籍': ['book_system_knowledge', 'methodology_knowledge'],
-  '书目': ['book_system_knowledge'],
-  '盲派': ['mangpai_knowledge', 'book_system_knowledge'],
-  '口诀': ['mangpai_knowledge', 'methodology_knowledge'],
-  '铁律': ['methodology_knowledge'],
-  '已验证': ['methodology_knowledge'],
-  '局限': ['methodology_knowledge'],
-  '权重': ['methodology_knowledge'],
-  '四维': ['methodology_knowledge'],
-  '映射': ['methodology_knowledge'],
-  '检索关键词': ['methodology_knowledge'],
-  '学习路径': ['methodology_knowledge'],
-  '改进': ['methodology_knowledge'],
-  // 多领域交叉搜索
-  '命盘': ['xueye_knowledge', 'hunyin_knowledge', 'shiye_knowledge', 'caiyun_knowledge', 'jiankang_knowledge', 'liuqin_knowledge', 'dayun_knowledge', 'geju_knowledge', 'methodology_knowledge'],
-  '运势': ['dayun_knowledge', 'shiye_knowledge', 'caiyun_knowledge'],
-  '整体': ['dayun_knowledge', 'geju_knowledge', 'methodology_knowledge'],
-  '全面': ['dayun_knowledge', 'geju_knowledge', 'methodology_knowledge'],
-};
-
-/**
- * 根据查询文本识别应该搜索哪些数据集
- * 精准模式：只搜索相关领域；通用模式：搜索所有数据集
- */
-function resolveDatasets(query: string): string[] | undefined {
-  const matchedDatasets = new Set<string>();
-  for (const [keyword, datasets] of Object.entries(DOMAIN_DATASET_MAP)) {
-    if (query.includes(keyword)) {
-      datasets.forEach(d => matchedDatasets.add(d));
-    }
-  }
-  // 如果匹配到特定领域，只搜索这些领域；否则搜索全部
-  return matchedDatasets.size > 0 ? Array.from(matchedDatasets) : undefined;
-}
-
 let clientInstance: KnowledgeClient | null = null;
 
 function getKnowledgeClient(): KnowledgeClient {
@@ -148,48 +39,52 @@ export async function searchKnowledge(
     const allResults: KnowledgeSearchResult[] = [];
     const seenContents = new Set<string>();
     
-    // 第一步：识别用户问题属于哪些领域
-    const targetDatasets = resolveDatasets(query);
+    // ======== 第一轮：全量搜索（不指定数据集，搜索所有数据集）========
+    // 这是最重要的一轮：搜索所有数据集，包括用户手动添加的book knowledge base
+    // 不限定数据集名称，确保不遗漏任何来源
+    const fullResults = await doSearch(client, query, undefined, topK, 0.01);
+    for (const r of fullResults) {
+      if (!seenContents.has(r.content)) {
+        allResults.push(r);
+        seenContents.add(r.content);
+      }
+    }
     
-    // 第二步：全量搜索该领域的所有数据集（不加阈值限制，全部拉出来）
-    if (targetDatasets && targetDatasets.length > 0) {
-      for (const dataset of targetDatasets) {
-        const dsResults = await doSearch(client, query, [dataset], topK, 0.01);
-        for (const r of dsResults) {
+    // ======== 第二轮：简化查询再搜一次（更宽泛的关键词）========
+    const broadQuery = simplifyQuery(query);
+    if (broadQuery !== query) {
+      const broadResults = await doSearch(client, broadQuery, undefined, topK, 0.01);
+      for (const r of broadResults) {
+        if (!seenContents.has(r.content)) {
+          allResults.push(r);
+          seenContents.add(r.content);
+        }
+      }
+    }
+    
+    // ======== 第三轮：提取领域关键词，用精炼关键词再搜 ========
+    const domainKeywords = extractDomainKeywords(query);
+    if (domainKeywords && domainKeywords !== query && domainKeywords !== broadQuery) {
+      const domainResults = await doSearch(client, domainKeywords, undefined, topK, 0.01);
+      for (const r of domainResults) {
+        if (!seenContents.has(r.content)) {
+          allResults.push(r);
+          seenContents.add(r.content);
+        }
+      }
+    }
+    
+    // ======== 第四轮：如果结果较少，用更泛化的关键词补充 ========
+    if (allResults.length < 10) {
+      const genericQuery = extractGenericTopic(query);
+      if (genericQuery && genericQuery !== query && genericQuery !== broadQuery && genericQuery !== domainKeywords) {
+        const genericResults = await doSearch(client, genericQuery, undefined, topK, 0.01);
+        for (const r of genericResults) {
           if (!seenContents.has(r.content)) {
             allResults.push(r);
             seenContents.add(r.content);
           }
         }
-        // 再用更宽泛的关键词搜该数据集
-        const broadQuery = simplifyQuery(query);
-        if (broadQuery !== query) {
-          const broadResults = await doSearch(client, broadQuery, [dataset], topK, 0.01);
-          for (const r of broadResults) {
-            if (!seenContents.has(r.content)) {
-              allResults.push(r);
-              seenContents.add(r.content);
-            }
-          }
-        }
-      }
-    }
-    
-    // 第三步：再对相关领域做一次语义搜索（补充可能遗漏的跨领域内容）
-    const semanticResults = await doSearch(client, query, targetDatasets, topK, minScore);
-    for (const r of semanticResults) {
-      if (!seenContents.has(r.content)) {
-        allResults.push(r);
-        seenContents.add(r.content);
-      }
-    }
-    
-    // 第四步：无论结果多少，都扩大到全量搜索（无上限，确保不遗漏任何相关内容）
-    const fullResults = await doSearch(client, query, undefined, topK, minScore);
-    for (const r of fullResults) {
-      if (!seenContents.has(r.content)) {
-        allResults.push(r);
-        seenContents.add(r.content);
       }
     }
     
@@ -212,6 +107,62 @@ function simplifyQuery(query: string): string {
     simplified = simplified.replace(new RegExp(w, 'g'), '');
   }
   return simplified.trim() || query;
+}
+
+/**
+ * 提取领域关键词——从用户问题中提炼核心命理术语
+ * 例如"我八字庚金日主，问学业什么时候能恢复"→"庚金日主学业"
+ */
+function extractDomainKeywords(query: string): string {
+  const domainTerms = [
+    '八字', '四柱', '日主', '用神', '忌神', '格局', '十神', '藏干',
+    '正官', '偏官', '正印', '偏印', '正财', '偏财', '食神', '伤官',
+    '比肩', '劫财', '大运', '流年', '命宫', '胎元', '身宫',
+    '紫微', '斗数', '命宫', '财帛', '事业', '迁移', '夫妻', '福德',
+    '六爻', '占卜', '起卦', '铜钱', '纳甲', '世应',
+    '梅花', '易数', '体用', '互卦', '变卦',
+    '风水', '飞星', '八宅', '玄空', '文昌', '财位',
+    '面相', '手相', '五官', '三停', '十二宫',
+    '学业', '婚姻', '事业', '财运', '健康', '六亲',
+    '休学', '复学', '考试', '升学',
+    '桃花', '驿马', '华盖', '天乙', '文昌', '将星',
+    '冲', '合', '刑', '害', '破', '空亡',
+    '旺', '衰', '强', '弱', '从格', '化格',
+    '庚金', '辛金', '甲木', '乙木', '丙火', '丁火', '戊土', '己土', '壬水', '癸水',
+    '盲派', '口诀', '秘典',
+  ];
+  const found = domainTerms.filter(t => query.includes(t));
+  if (found.length > 0) {
+    return found.join('');
+  }
+  return '';
+}
+
+/**
+ * 提取泛化主题——将具体问题泛化为更广的主题
+ * 例如"我的学业什么时候能恢复"→"学业恢复"
+ */
+function extractGenericTopic(query: string): string {
+  const topicMap: [RegExp, string][] = [
+    [/学[业校]|考试|升学|休学|复学|读书/, '学业考试'],
+    [/婚[姻恋]|结[婚合]|离[婚婚]|感情|配偶|夫妻/, '婚姻感情'],
+    [/事[业职]|工作|升职|创业|求职/, '事业工作'],
+    [/财[运富]|赚钱|破财|投资|理财/, '财运财富'],
+    [/健[康康]|疾病|身体|手术|寿命/, '健康疾病'],
+    [/父母|兄弟|子女|六亲/, '六亲关系'],
+    [/面[相容]|五官|额头|眉毛|眼睛/, '面相分析'],
+    [/手[相纹]|掌纹|生命线|智慧线|感情线/, '手相分析'],
+    [/风水|住房|搬家|装修|朝向/, '风水布局'],
+    [/六爻|起卦|占卜|铜钱/, '六爻占卜'],
+    [/梅花|易数|数字起卦/, '梅花易数'],
+    [/大运|流年|运程/, '大运流年'],
+  ];
+  for (const [regex, topic] of topicMap) {
+    if (regex.test(query)) {
+      return topic;
+    }
+  }
+  return '';
 }
 
 async function doSearch(
