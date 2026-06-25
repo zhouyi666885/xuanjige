@@ -642,15 +642,31 @@ async function saveWithProgress(taskId: string, content: string, confirmedChapte
     }
   }
   
-  // 4. 一次性保存完整内容到知识库
+  // 4. 一次性保存完整内容到知识库（含元数据头部）
   const task = tasks.get(taskId);
   if (!task || !processingQueue.has(taskId)) return;
   
   try {
-    addBookToKnowledgeBase(task.bookName, content);
-    saveBook(task.bookName, content);
+    // 构建元数据头部：书名 + 目录结构 + 完整正文（一字不漏）
     const chapterCount = totalChapterCount > 0 ? totalChapterCount : content.split(/\n{2,}/).filter((p: string) => p.trim().length > 0).length;
-    addLog(taskId, `保存完成: ${chapterCount} ${chapterType}, ${content.length} 字`);
+    const chapterNames = finalChapters.length >= 2
+      ? finalChapters.map((c: { name: string }, i: number) => `  ${i + 1}. ${c.name}`).join('\n')
+      : '';
+    
+    const metadataHeader = [
+      `《${task.bookName}》`,
+      `来源: ${task.source || '网络采集'}`,
+      `目录结构: 共 ${chapterCount} ${chapterType}`,
+      chapterNames ? `目录:\n${chapterNames}` : '',
+      '─'.repeat(40),
+      '',  // 空行分隔元数据和正文
+    ].filter(Boolean).join('\n');
+    
+    const fullContentWithMetadata = metadataHeader + '\n' + content;
+    
+    addBookToKnowledgeBase(task.bookName, fullContentWithMetadata);
+    saveBook(task.bookName, fullContentWithMetadata);
+    addLog(taskId, `保存完成: ${chapterCount} ${chapterType}, ${fullContentWithMetadata.length} 字 (含元数据)`);
   } catch (e) {
     addLog(taskId, `保存失败: ${e instanceof Error ? e.message : String(e)}`);
     throw e;

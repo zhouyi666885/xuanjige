@@ -318,35 +318,39 @@ export function searchFullText(
   
   if (!bookCache || !bookNameList) return [];
   
-  // 确定相关书籍
-  const relevantBookNames = getRelevantBooks(message);
+  // 铁律：maxBooks=0 时遍历所有书籍，不限定范围！
+  // 先确定相关书籍（优先搜索），再补充剩余全部书籍
+  const relevantBookNames = new Set(getRelevantBooks(message));
   
-  // 从缓存中查找实际存在的书籍
-  const availableBooks: string[] = [];
+  // 从缓存中查找实际存在的相关书籍
+  const relevantAvailable: string[] = [];
   for (const name of relevantBookNames) {
     if (bookCache.has(name)) {
-      availableBooks.push(name);
+      relevantAvailable.push(name);
     }
   }
   
-  // 如果关键词匹配不到，尝试从所有书籍名中模糊匹配
-  if (availableBooks.length === 0) {
-    const msgKeywords = message.replace(/[，。！？、：；""''《》\s]/g, '').split('').filter(c => c.charCodeAt(0) > 0x4e00);
-    for (const bookName of bookNameList) {
-      for (const kw of msgKeywords) {
-        if (bookName.includes(kw)) {
-          if (!availableBooks.includes(bookName)) {
-            availableBooks.push(bookName);
-          }
-          break;
-        }
+  // 模糊匹配：从所有书籍名中补充匹配
+  const msgKeywords = message.replace(/[，。！？、：；""''《》\s]/g, '').split('').filter(c => c.charCodeAt(0) > 0x4e00);
+  for (const bookName of bookNameList) {
+    if (relevantAvailable.includes(bookName)) continue; // 已有的跳过
+    for (const kw of msgKeywords) {
+      if (bookName.includes(kw)) {
+        relevantAvailable.push(bookName);
+        break;
       }
-      if (maxBooks > 0 && availableBooks.length >= maxBooks) break;
     }
   }
   
-  // 限制搜索书籍数量（0=不限制）
-  const booksToSearch = maxBooks > 0 ? availableBooks.slice(0, maxBooks) : availableBooks;
+  // 最终搜索列表：相关书籍优先 + 所有其他书籍（maxBooks=0时遍历全部）
+  let booksToSearch: string[];
+  if (maxBooks === 0) {
+    // 不限制：相关书籍在前，其余所有书籍在后，确保全部遍历
+    const otherBooks = (bookNameList || []).filter((n: string) => !relevantAvailable.includes(n));
+    booksToSearch = [...relevantAvailable, ...otherBooks];
+  } else {
+    booksToSearch = relevantAvailable.slice(0, maxBooks);
+  }
   
   // 从用户消息中提取搜索关键词
   const searchKeywords = extractSearchKeywords(message);
