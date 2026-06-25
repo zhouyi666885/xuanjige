@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { BirthInfoForm, BirthInfo } from '@/components/birth-info-form';
@@ -260,11 +260,34 @@ export function DivinationPage({ type, icon, title, subtitle, placeholder, syste
   const [error, setError] = useState('');
   const [showForm, setShowForm] = useState(true);
 
-  // Birth info form (for bazi/ziwei)
-  const [birthInfo, setBirthInfo] = useState<BirthInfo>({
+  // Birth info form (for bazi/ziwei) - 使用 sessionStorage（退出APP自动清除，不保留使用记录）
+  const defaultBirthInfo: BirthInfo = {
     year: '', month: '', day: '', hour: '', minute: '', gender: '',
     province: '', city: '', district: '',
-  });
+  };
+  const [birthInfo, setBirthInfoState] = useState<BirthInfo>(defaultBirthInfo);
+
+  const setBirthInfo = useCallback((info: BirthInfo) => {
+    setBirthInfoState(info);
+    sessionStorage.setItem('xuanjige_birthInfo', JSON.stringify(info));
+  }, []);
+
+  // 初始化时从 sessionStorage 恢复 birthInfo（仅当次会话有效）
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem('xuanjige_birthInfo');
+      if (saved) {
+        const parsed = JSON.parse(saved) as BirthInfo;
+        // 只有有效数据才恢复（至少有年份和性别）
+        if (parsed.year || parsed.gender) {
+          setBirthInfoState(parsed);
+          setShowForm(false); // 有已保存的生辰信息，默认收起表单
+        }
+      }
+    } catch {
+      // 忽略解析错误
+    }
+  }, []);
 
   // Custom form data (for liuyao/meihua/qimen/fengshui/xingming)
   const [customData, setCustomData] = useState<Record<string, string>>({});
@@ -537,7 +560,7 @@ export function DivinationPage({ type, icon, title, subtitle, placeholder, syste
 
   const renderForm = () => {
     if (formType === 'birth') {
-      return <BirthInfoForm value={birthInfo} onChange={(info: BirthInfo | null) => setBirthInfo(info ?? birthInfo)} />;
+      return <BirthInfoForm value={birthInfo} onChange={(info: BirthInfo | null) => { if (info) setBirthInfo(info); }} />;
     }
     if (formType === 'liuyao') {
       return <LiuyaoForm value={customData} onChange={setCustomData} />;

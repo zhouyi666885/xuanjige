@@ -23,8 +23,31 @@ export function ChatInterface({ open, onClose }: ChatInterfaceProps) {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<'casual' | 'professional'>('casual');
-  const [birthInfo, setBirthInfo] = useState<BirthInfo | null>(null);
+  const [birthInfo, setBirthInfoState] = useState<BirthInfo | null>(null);
   const [showBirthForm, setShowBirthForm] = useState(false);
+
+  // 使用 sessionStorage 存储出生信息（退出APP自动清除，不保留使用记录）
+  const setBirthInfo = useCallback((info: BirthInfo | null) => {
+    setBirthInfoState(info);
+    if (info) {
+      sessionStorage.setItem('xuanjige_birthInfo', JSON.stringify(info));
+    } else {
+      sessionStorage.removeItem('xuanjige_birthInfo');
+    }
+  }, []);
+
+  // 初始化时从 sessionStorage 恢复 birthInfo（仅当次会话有效）
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem('xuanjige_birthInfo');
+      if (saved) {
+        const parsed = JSON.parse(saved) as BirthInfo;
+        setBirthInfoState(parsed);
+      }
+    } catch {
+      // 忽略解析错误
+    }
+  }, []);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
 
