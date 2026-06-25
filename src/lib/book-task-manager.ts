@@ -700,32 +700,8 @@ export function createTask(bookName: string): { task: BookTask; isNew: boolean }
   
   // 检查知识库是否已有此书
   if (isBookExists(bookName)) {
-    const id = generateId();
-    const task: BookTask = {
-      id,
-      bookName,
-      status: 'exists',
-      message: `《${bookName}》已有这本书`,
-      progress: 100,
-      currentChapter: 0,
-      totalChapters: 0,
-      currentChapterName: '',
-      remainingChapters: 0,
-      source: '',
-      size: '',
-      chars: 0,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      startedAt: Date.now(),
-      completedAt: Date.now(),
-      error: '',
-      logs: ['检测到知识库中已有此书'],
-      chapters: [],
-      chapterStructure: '',
-    };
-    tasks.set(id, task);
-    saveTasks();
-    return { task, isNew: true };
+    // 已有此书，不创建任务，直接返回标记
+    return { task: { id: '', bookName, status: 'exists', message: `《${bookName}》已有这本书`, progress: 100, currentChapter: 0, totalChapters: 0, currentChapterName: '', remainingChapters: 0, source: '', size: '', chars: 0, createdAt: Date.now(), updatedAt: Date.now(), startedAt: Date.now(), completedAt: Date.now(), error: '', logs: [], chapters: [], chapterStructure: '' } as BookTask, isNew: false };
   }
   
   const id = generateId();

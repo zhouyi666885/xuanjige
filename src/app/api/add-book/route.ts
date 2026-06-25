@@ -20,10 +20,13 @@ export async function GET() {
     const taskList = getAllTasks();
     const stats = getTaskStats();
 
+    // 过滤掉 exists 状态的旧任务（已有书不再创建任务）
+    const visibleTasks = taskList.filter(t => t.status !== 'exists');
+
     return NextResponse.json({
-      bookCount: taskList.filter(t => t.status === 'done').length,
+      bookCount: visibleTasks.filter(t => t.status === 'done').length,
       stats,
-      tasks: taskList.map(t => ({
+      tasks: visibleTasks.map(t => ({
         id: t.id,
         bookName: t.bookName,
         status: t.status,
@@ -36,6 +39,7 @@ export async function GET() {
         source: t.source,
         size: t.size,
         chars: t.chars,
+        chapterStructure: t.chapterStructure,
         createdAt: t.createdAt,
         updatedAt: t.updatedAt,
         completedAt: t.completedAt,
@@ -53,29 +57,63 @@ export async function GET() {
 /**
  * POST /api/add-book
  * 创建新的书籍录入任务
+ * 支持单本（bookName）和批量（bookNames 数组）
  * 任务在后台自动运行，不依赖HTTP连接
  */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const bookName = body.bookName?.trim();
+    const { bookName, bookNames } = body;
 
-    if (!bookName) {
+    // 收集所有书名
+    const rawNames: string[] = [];
+    if (bookNames && Array.isArray(bookNames)) {
+      rawNames.push(...bookNames);
+    } else if (bookName?.trim()) {
+      // 支持逗号/换行/顿号分隔的多个书名
+      rawNames.push(bookName.trim());
+    }
+
+    // 解析书名：按逗号、换行、顿号等分隔
+    const names: string[] = [];
+    for (const raw of rawNames) {
+      const parts = raw
+        .split(/[,，、\n\r;；]+/)
+        .map((n: string) => n.trim())
+        .filter(Boolean);
+      names.push(...parts);
+    }
+
+    if (names.length === 0) {
       return NextResponse.json(
         { error: '请输入书名' },
         { status: 400 }
       );
     }
 
-    const { task, isNew } = createTask(bookName);
+    // 批量创建任务
+    const results = names.map(name => {
+      const { task, isNew } = createTask(name);
+      return {
+        id: task.id,
+        bookName: task.bookName,
+        status: task.status,
+        message: task.message,
+        progress: task.progress,
+        isNew,
+        alreadyExists: task.status === 'exists',
+      };
+    });
+
+    if (results.length === 1) {
+      return NextResponse.json(results[0]);
+    }
 
     return NextResponse.json({
-      id: task.id,
-      bookName: task.bookName,
-      status: task.status,
-      message: task.message,
-      progress: task.progress,
-      isNew,
+      total: results.length,
+      added: results.filter(r => !r.alreadyExists).length,
+      alreadyExists: results.filter(r => r.alreadyExists).length,
+      results,
     });
   } catch (error) {
     return NextResponse.json(

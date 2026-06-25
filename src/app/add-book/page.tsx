@@ -138,20 +138,43 @@ export default function AddBookPage() {
     return () => clearInterval(interval);
   }, [fetchTasks, tasks]);
 
-  // 添加书籍
+  // 添加书籍（支持批量）
   const handleAdd = async () => {
     if (!bookName.trim()) return;
     setIsSubmitting(true);
     try {
+      // 解析书名：支持换行、逗号、顿号分隔
+      const names = bookName
+        .split(/[\n,，、;；\t]+/)
+        .map(n => n.trim())
+        .filter(Boolean);
+
+      // 去重
+      const uniqueNames = [...new Set(names)];
+
+      if (uniqueNames.length === 0) {
+        setIsSubmitting(false);
+        return;
+      }
+
       const res = await fetch('/api/add-book', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bookName: bookName.trim() }),
+        body: JSON.stringify({
+          bookName: uniqueNames.length === 1 ? uniqueNames[0] : undefined,
+          bookNames: uniqueNames.length > 1 ? uniqueNames : undefined,
+        }),
       });
       const data = await res.json();
-      if (data.status === 'exists') {
-        // 已有这本书
+
+      // 批量添加时显示结果提示
+      if (data.total && data.total > 1) {
+        const msgs: string[] = [];
+        if (data.added > 0) msgs.push(`${data.added} 本开始录入`);
+        if (data.alreadyExists > 0) msgs.push(`${data.alreadyExists} 本已有`);
+        // 可以用 alert 或 toast，这里简单通过刷新展示
       }
+
       setBookName('');
       // 立即刷新任务列表
       await fetchTasks();
@@ -268,25 +291,42 @@ export default function AddBookPage() {
         {/* 输入区 */}
         <div className="bg-[#1a1a2e] rounded-xl p-5 border border-[#2a2a3e]">
           <p className="text-sm text-[#8a8070] mb-3">
-            输入书名，系统自动搜索并摘录到知识库。退出APP不影响，后台持续录入。
+            输入书名，支持一次添加多本（换行或逗号分隔）。退出APP不影响，后台持续录入。
           </p>
           <div className="flex gap-2">
-            <input
-              type="text"
+            <textarea
               value={bookName}
               onChange={(e) => setBookName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-              placeholder="输入书名，如：滴天髓"
-              className="flex-1 bg-[#0a0a0f] border border-[#2a2a3e] rounded-lg px-4 py-3 text-[#e8e0d0] placeholder-[#5a5a6e] focus:border-[#d4a853] focus:outline-none transition-colors"
+              onKeyDown={(e) => {
+                // Ctrl+Enter 或 单行时 Enter 提交
+                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey || !e.shiftKey && !bookName.includes('\n'))) {
+                  e.preventDefault();
+                  handleAdd();
+                }
+              }}
+              placeholder="输入书名，支持批量添加&#10;每行一个，或用逗号分隔&#10;如：滴天髓&#10;      渊海子平，三命通会"
+              className="flex-1 bg-[#0a0a0f] border border-[#2a2a3e] rounded-lg px-4 py-3 text-[#e8e0d0] placeholder-[#5a5a6e] focus:border-[#d4a853] focus:outline-none transition-colors resize-none min-h-[80px]"
               disabled={isSubmitting}
+              rows={3}
             />
-            <button
-              onClick={handleAdd}
-              disabled={isSubmitting || !bookName.trim()}
-              className="bg-[#d4a853] hover:bg-[#e0b860] disabled:bg-[#3a3a4e] disabled:text-[#6a6a7e] text-[#0a0a0f] font-bold px-6 py-3 rounded-lg transition-colors whitespace-nowrap"
-            >
-              {isSubmitting ? '添加中...' : '添加'}
-            </button>
+            <div className="flex flex-col gap-1">
+              <button
+                onClick={handleAdd}
+                disabled={isSubmitting || !bookName.trim()}
+                className="bg-[#d4a853] hover:bg-[#e0b860] disabled:bg-[#3a3a4e] disabled:text-[#6a6a7e] text-[#0a0a0f] font-bold px-5 py-3 rounded-lg transition-colors whitespace-nowrap flex-1"
+              >
+                {isSubmitting ? '添加中...' : (
+                  bookName.includes('\n') || bookName.split(/[，,、;；]/).filter(Boolean).length > 1
+                    ? '批量添加'
+                    : '添加'
+                )}
+              </button>
+              {bookName.trim() && (
+                <p className="text-[10px] text-[#5a5a6e] text-center">
+                  {bookName.split(/[\n,，、;；\t]+/).filter(n => n.trim()).length} 本
+                </p>
+              )}
+            </div>
           </div>
         </div>
 
@@ -455,7 +495,7 @@ export default function AddBookPage() {
               输入书名，自动搜索摘录到知识库
             </p>
             <p className="text-[#5a5a6e] text-xs mt-1">
-              后台永久运行，退出APP不中断
+              支持批量添加，后台永久运行
             </p>
           </div>
         )}
@@ -464,12 +504,12 @@ export default function AddBookPage() {
         <div className="bg-[#1a1a2e] rounded-xl p-4 border border-[#2a2a3e]">
           <h3 className="text-sm font-bold text-[#d4a853] mb-2">使用说明</h3>
           <ul className="text-xs text-[#8a8070] space-y-1">
+            <li>• 支持批量添加：每行一个书名，或用逗号/顿号分隔</li>
             <li>• 输入书名后系统自动搜索并完整摘录</li>
             <li>• 后台永久运行，退出APP不影响录入进度</li>
             <li>• 下次打开自动恢复进度，继续录入</li>
-            <li>• 已有此书会提示「已有这本书」</li>
+            <li>• 已有此书自动跳过，不重复录入</li>
             <li>• 摘录中可取消，完成后也可删除</li>
-            <li>• 因版权限制无法获取的书籍会明确提示</li>
           </ul>
         </div>
       </div>
