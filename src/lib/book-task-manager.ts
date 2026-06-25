@@ -479,18 +479,20 @@ async function processTask(taskId: string): Promise<void> {
     const ABSOLUTE_MAX_SEARCH_TIME = 30 * 60 * 1000;
 
     // 🔴🔴🔴 核心逻辑：搜遍全网
-    // 每个searchRound都要完整跑一遍（共16轮），一轮都不能跳过
-    // 16轮全跑完后，如果还没找到，再从头循环继续搜
-    // 只有连续跑完完整16轮×2次（即32轮）都没有任何新结果，才真正判定搜遍全网
+    // 每个searchRound都要完整跑一遍，一轮都不能跳过
+    // 全跑完后，如果还没找到，再从头循环继续搜
+    // 🔴 没有连续几轮的限制！不存在"连续X轮没新结果就停"这回事
+    // 只要还在发现新结果，就继续搜；只有真正穷尽一切可能性，确认 nowhere to be found，才停下
     // "搜了三遍没找到" ≠ 搜遍全网。搜遍全网 = 真的 nowhere to be found
     const TOTAL_ROUNDS = searchRounds.length; // 16轮
-    const MUST_COMPLETE_FULL_CYCLES = 2; // 至少跑完2个完整循环（32轮）
-    const EMPTY_FULL_CYCLES_TO_STOP = 2; // 连续2个完整循环都没有新结果才停
 
     let completedFullCycles = 0;
-    let emptyFullCycles = 0;
     let resultsInCurrentCycle = 0;
 
+    // 🔴🔴🔴 没有连续几轮的限制！搜索次数无上限！
+    // 唯一的停止条件：时间到了（10分钟绝对上限）
+    // 不存在"连续X轮没新结果就停下"这回事
+    // 搜遍全网 = 真的 nowhere to be found，不是"搜了几遍没找到就算了"
     while (Date.now() - searchStartTime < ABSOLUTE_MAX_SEARCH_TIME) {
       const round = searchRounds[roundIndex % TOTAL_ROUNDS];
       const beforeCount = allResults.length;
@@ -526,23 +528,10 @@ async function processTask(taskId: string): Promise<void> {
       // 检查是否完成了一个完整循环
       if (roundIndex % TOTAL_ROUNDS === 0) {
         completedFullCycles++;
-        if (resultsInCurrentCycle > 0) {
-          emptyFullCycles = 0;
-          addLog(taskId, `完成第${completedFullCycles}轮完整搜索循环，发现 ${resultsInCurrentCycle} 个新来源，继续搜`);
-        } else {
-          emptyFullCycles++;
-          addLog(taskId, `完成第${completedFullCycles}轮完整搜索循环，未发现新来源（连续空循环 ${emptyFullCycles}/${EMPTY_FULL_CYCLES_TO_STOP}）`);
-        }
+        addLog(taskId, `完成第${completedFullCycles}轮完整搜索循环，${resultsInCurrentCycle > 0 ? `发现 ${resultsInCurrentCycle} 个新来源` : '未发现新来源'}，继续搜`);
         resultsInCurrentCycle = 0;
-
-        // 🔴 只有满足以下两个条件之一才停止：
-        // 1. 至少跑完MUST_COMPLETE_FULL_CYCLES个完整循环（确保真的搜遍了）
-        //    且连续EMPTY_FULL_CYCLES_TO_STOP个完整循环都没有新结果
-        // 2. 超过绝对最大时间
-        if (completedFullCycles >= MUST_COMPLETE_FULL_CYCLES && emptyFullCycles >= EMPTY_FULL_CYCLES_TO_STOP) {
-          addLog(taskId, `已跑完${completedFullCycles}个完整搜索循环，连续${emptyFullCycles}个循环无新结果，确认全网已搜遍`);
-          break;
-        }
+        // 🔴 不停！没有"连续几轮没结果就停下"的逻辑
+        // 唯一停止条件是上面的 while 时间判断
       }
 
       // 🔴 搜索次数无上限！只要还在发现新结果，就继续搜
