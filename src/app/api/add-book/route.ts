@@ -23,11 +23,24 @@ export async function GET() {
     // 过滤掉 exists 状态的旧任务（已有书不再创建任务）
     const nonExistsTasks = taskList.filter(t => t.status !== 'exists');
 
+    // 版权问题/录入失败的任务：本次显示，但立即从持久化中清除（下次进入就消失）
+    const copyrightAndFailedTasks = nonExistsTasks.filter(t => 
+      t.status === 'copyright' || t.status === 'failed'
+    );
+    if (copyrightAndFailedTasks.length > 0) {
+      for (const t of copyrightAndFailedTasks) {
+        try { deleteTask(t.id); } catch {}
+      }
+    }
+
     // 历史记录显示规则：
     // - 已100%完整录入成功、且不缺任何章节的书籍 → 隐藏
     // - 没录完的书籍 → 显示
     // - 进度100%但实际缺章节的书籍 → 显示并标注"缺章节"
+    // - 版权问题/录入失败 → 本次显示（已从持久化清除，下次消失）
     const visibleTasks = nonExistsTasks.filter(t => {
+      // 版权问题和录入失败：本次显示
+      if (t.status === 'copyright' || t.status === 'failed') return true;
       if (t.status !== 'done') return true; // 没录完的继续显示
       // done 状态：检查是否缺章节
       const total = t.totalChapters || 0;
