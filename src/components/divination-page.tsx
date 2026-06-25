@@ -447,14 +447,45 @@ export function DivinationPage({ type, icon, title, subtitle, placeholder, syste
     setChatLoading(true);
 
     try {
-      const contextMessage = `【${title}测算结果】\n${result.slice(0, 2000)}\n\n【用户追问】${userMsg}`;
+      // 构建完整的上下文，包含用户填写的生辰信息
+      let userContext = `用户正在使用「${title}」功能。\n`;
+      if (birthInfo.year || birthInfo.gender || birthInfo.province) {
+        userContext += `\n【用户生辰信息】`;
+        if (birthInfo.gender) userContext += `\n性别：${birthInfo.gender === 'male' ? '男' : '女'}`;
+        if (birthInfo.year && birthInfo.month && birthInfo.day) {
+          let dateStr = `出生日期：${birthInfo.year}年${birthInfo.month}月${birthInfo.day}日`;
+          if (birthInfo.hour) dateStr += ` ${birthInfo.hour}时`;
+          if (birthInfo.minute) dateStr += `${birthInfo.minute}分`;
+          userContext += `\n${dateStr}`;
+        }
+        if (birthInfo.province) {
+          let locStr = `出生地：${birthInfo.province}`;
+          if (birthInfo.city) locStr += ` ${birthInfo.city}`;
+          if (birthInfo.district) locStr += ` ${birthInfo.district}`;
+          userContext += `\n${locStr}`;
+        }
+        userContext += `\n`;
+      }
+      userContext += `\n【测算结果】\n${result.slice(0, 3000)}\n\n【用户追问】${userMsg}`;
+
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: userMsg,
           mode,
-          context: `用户正在使用「${title}」功能，以下是测算结果：\n${result.slice(0, 2000)}`,
+          context: userContext,
+          birthInfo: formType === 'birth' && birthInfo.gender ? {
+            gender: birthInfo.gender === 'male' ? '男' : '女',
+            birthYear: birthInfo.year || 0,
+            birthMonth: birthInfo.month || 0,
+            birthDay: birthInfo.day || 0,
+            birthHour: birthInfo.hour || 0,
+            birthMinute: birthInfo.minute || 0,
+            province: birthInfo.province || '',
+            city: birthInfo.city || '',
+            district: birthInfo.district || '',
+          } : undefined,
           history: chatMessages.slice(-6).map(m => ({ role: m.role, content: m.content })),
         }),
       });
