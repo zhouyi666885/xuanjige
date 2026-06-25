@@ -61,6 +61,8 @@ function parseBookChapters(content: string): BookChapter[] {
     { regex: /^[\s]*第[一二三四五六七八九十百千万零\d]+卷[\s]*[·\s]*第[一二三四五六七八九十百千万零\d]+章/, type: '卷/章' },
     // 纯卷格式：第一卷、卷一、卷上、卷下、卷之上、卷之中、卷之下
     { regex: /^[\s]*第?[一二三四五六七八九十百千万零\d]+卷/, type: '卷' },
+    // 卦格式：第一卦、乾卦、坤卦、屯卦等六十四卦
+    { regex: /^[\s]*第[一二三四五六七八九十百千万零\d]+卦|^[\s]*(乾|坤|屯|蒙|需|讼|师|比|小畜|履|泰|否|同人|大有|谦|豫|随|蛊|临|观|噬嗑|贲|剥|复|无妄|大畜|颐|大过|坎|离|咸|恒|遯|大壮|晋|明夷|家人|睽|蹇|解|损|益|夬|姤|萃|升|困|井|革|鼎|震|艮|渐|归妹|丰|旅|巽|兑|涣|节|中孚|小过|既济|未济)卦/, type: '卦' },
     // 纯章格式：第一章、章一、章一·标题
     { regex: /^[\s]*第[一二三四五六七八九十百千万零\d]+章/, type: '章' },
     // 篇格式：第一篇、篇一、上篇、下篇、正篇、续篇
@@ -317,7 +319,7 @@ async function processTask(taskId: string): Promise<void> {
         const detected = detectBookChapters(fullTocContent);
         if (detected.chapterNames.length > 0) {
           confirmedChapterInfo = detected;
-          addLog(taskId, `确认原书章节: ${detected.structureType || '章'}, 共 ${detected.totalChapters} 章`);
+          addLog(taskId, `确认原书章节: ${detected.structureType || '章'}, 共 ${detected.totalChapters} ${detected.structureType || '章'}`);
         }
       }
     } catch {

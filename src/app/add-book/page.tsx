@@ -293,7 +293,7 @@ export default function AddBookPage() {
                   <div className="grid grid-cols-3 gap-2 mt-2 text-xs">
                     <div className="bg-[#0a0a0f] rounded-lg p-2 text-center">
                       <p className="text-[#8a8070]">全书结构</p>
-                      <p className="text-[#d4a853] font-bold text-sm">{task.chapterStructure || `${task.totalChapters} 章`}</p>
+                      <p className="text-[#d4a853] font-bold text-sm">{task.chapterStructure ? `${task.totalChapters} ${task.chapterStructure}` : `${task.totalChapters} 章`}</p>
                     </div>
                     <div className="bg-[#0a0a0f] rounded-lg p-2 text-center">
                       <p className="text-[#8a8070]">当前</p>
@@ -320,7 +320,7 @@ export default function AddBookPage() {
                       已进入知识库
                     </p>
                     <div className="flex justify-center gap-4 mt-1 text-xs text-green-400/70">
-                      <span>{task.chapterStructure || `${task.totalChapters} 章`}</span>
+                      <span>{task.chapterStructure ? `${task.totalChapters} ${task.chapterStructure}` : `${task.totalChapters} 章`}</span>
                       <span>{task.size}</span>
                       <span>{task.chars?.toLocaleString()} 字</span>
                     </div>
