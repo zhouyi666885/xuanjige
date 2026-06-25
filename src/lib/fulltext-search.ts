@@ -8,7 +8,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { saveBook as saveBookToS3, getBookContent as getBookFromS3 } from './book-storage';
+import { saveBook as saveBookToS3, getBookContent as getBookFromS3, deleteBookFromS3 } from './book-storage';
 
 // 书籍内容缓存
 let bookCache: Map<string, string> | null = null;
@@ -542,6 +542,60 @@ export function addBookToKnowledgeBase(bookName: string, content: string): strin
   });
   
   return filePath;
+}
+
+/**
+ * 从知识库中删除书籍
+ * @param bookName 书名
+ * @returns 是否删除成功
+ */
+export function removeBookFromKnowledgeBase(bookName: string): boolean {
+  loadBookCache();
+  
+  // 找到精确匹配或模糊匹配的书名
+  let matchedName: string | null = null;
+  if (bookNameList && bookCache) {
+    // 先精确匹配
+    if (bookCache.has(bookName)) {
+      matchedName = bookName;
+    } else {
+      // 模糊匹配
+      for (const name of bookNameList) {
+        if (name === bookName || name.includes(bookName) || bookName.includes(name)) {
+          matchedName = name;
+          break;
+        }
+      }
+    }
+  }
+  
+  if (!matchedName) return false;
+  
+  const dir = getBookContentDir();
+  const safeName = matchedName.replace(/[<>:"/\\|?*]/g, '_').trim();
+  const fileName = `${safeName}.txt`;
+  const filePath = path.join(dir, fileName);
+  
+  // 删除本地文件
+  if (fs.existsSync(filePath)) {
+    fs.unlinkSync(filePath);
+  }
+  
+  // 从缓存中移除
+  bookCache?.delete(matchedName);
+  if (bookNameList) {
+    const idx = bookNameList.indexOf(matchedName);
+    if (idx >= 0) bookNameList.splice(idx, 1);
+  }
+  
+  // 异步从S3删除
+  deleteBookFromS3(matchedName).then(() => {
+    console.log(`[S3] 书籍《${matchedName}》已从云存储删除`);
+  }).catch((err: unknown) => {
+    console.error(`[S3] 书籍《${matchedName}》从云存储删除失败:`, err);
+  });
+  
+  return true;
 }
 
 /**

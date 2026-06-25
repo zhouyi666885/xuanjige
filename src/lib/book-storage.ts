@@ -255,6 +255,35 @@ export async function getS3Stats(): Promise<{
 }
 
 /**
+ * 从S3删除书籍
+ */
+export async function deleteBookFromS3(bookName: string): Promise<boolean> {
+  const index = loadIndex();
+  const entry = index[bookName];
+  if (!entry) return false;
+
+  try {
+    // 从S3删除
+    await storage.deleteFile({ fileKey: entry.s3Key });
+
+    // 从索引中移除
+    delete index[bookName];
+    saveIndex(index);
+
+    // 删除本地缓存
+    const localPath = path.join(LOCAL_CACHE_DIR, `${bookName.replace(/[<>:"/\\|?*]/g, '_').trim()}.txt`);
+    if (fs.existsSync(localPath)) {
+      fs.unlinkSync(localPath);
+    }
+
+    return true;
+  } catch (err) {
+    console.error(`从S3删除书籍失败: ${bookName}`, err);
+    return false;
+  }
+}
+
+/**
  * 保存书籍（同时写入本地缓存和S3）
  */
 export async function saveBook(

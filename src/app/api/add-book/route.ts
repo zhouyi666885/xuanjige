@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { SearchClient, FetchClient, Config, HeaderUtils, LLMClient } from 'coze-coding-dev-sdk';
-import { isBookExists, addBookToKnowledgeBase, getBookDir } from '@/lib/fulltext-search';
+import { isBookExists, addBookToKnowledgeBase, removeBookFromKnowledgeBase, getBookDir } from '@/lib/fulltext-search';
 import * as fs from 'fs';
 
 // 类型定义：fetch API 返回的内容项
@@ -546,4 +546,38 @@ async function translateToChinese(
   }
 
   return translations.join('\n\n');
+}
+
+/**
+ * DELETE /api/add-book — 从知识库删除书籍
+ * Body: { bookName: string }
+ */
+export async function DELETE(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { bookName } = body as { bookName: string };
+
+    if (!bookName) {
+      return NextResponse.json({ error: '请提供书名' }, { status: 400 });
+    }
+
+    const deleted = removeBookFromKnowledgeBase(bookName);
+
+    if (deleted) {
+      return NextResponse.json({
+        status: 'deleted',
+        message: `《${bookName}》已从知识库中删除`,
+        bookName,
+      });
+    } else {
+      return NextResponse.json({
+        status: 'not_found',
+        message: `知识库中未找到《${bookName}》`,
+        bookName,
+      });
+    }
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : '删除失败';
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
 }
