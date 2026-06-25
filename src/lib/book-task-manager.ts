@@ -319,6 +319,11 @@ async function processTask(taskId: string): Promise<void> {
         const detected = detectBookChapters(fullTocContent);
         if (detected.chapterNames.length > 0) {
           confirmedChapterInfo = detected;
+          // 立即更新结构信息，让前端可以显示原书叫法
+          updateTask(taskId, {
+            chapterStructure: detected.structureType || '章',
+            totalChapters: detected.totalChapters,
+          });
           addLog(taskId, `确认原书章节: ${detected.structureType || '章'}, 共 ${detected.totalChapters} ${detected.structureType || '章'}`);
         }
       }
@@ -568,8 +573,9 @@ async function saveWithProgress(taskId: string, content: string, confirmedChapte
       totalChapters: totalChapterCount,
       currentChapter: 0,
       remainingChapters: totalChapterCount,
-      currentChapterName: '准备摘录...',
+      currentChapterName: `准备摘录...`,
       message: `原书结构: 共 ${totalChapterCount} ${chapterType}`,
+      chapterStructure: chapterType,
     });
 
     // 按字符位置分段写入，以真实章节为进度单位
@@ -589,8 +595,9 @@ async function saveWithProgress(taskId: string, content: string, confirmedChapte
       // 根据当前字符位置确定所在章节
       const currentChapterInfo = getCurrentChapterAtPosition(contentChapters, writtenChars);
       const currentChapterIdx = currentChapterInfo.index;
-      // 优先显示确认的章节名
-      const currentChapterName = (finalChapters[currentChapterIdx - 1] || currentChapterInfo).name;
+      // 优先显示确认的章节名，否则用原书结构类型生成名称
+      const rawName = (finalChapters[currentChapterIdx - 1] || currentChapterInfo).name;
+      const currentChapterName = rawName || `第${currentChapterIdx}${chapterType}`;
 
       // 只在章节变化时更新章节信息
       if (currentChapterIdx !== lastChapterIdx || progress >= 99) {
@@ -600,8 +607,8 @@ async function saveWithProgress(taskId: string, content: string, confirmedChapte
           currentChapter: currentChapterIdx,
           totalChapters: totalChapterCount,
           remainingChapters: totalChapterCount - currentChapterIdx,
-          currentChapterName: currentChapterName,
-          message: `正在摘录: ${currentChapterName.substring(0, 20)} (${currentChapterIdx}/${totalChapterCount})`,
+          currentChapterName,
+          message: `正在摘录: ${currentChapterName.substring(0, 20)} (${currentChapterIdx}/${totalChapterCount}${chapterType})`,
         });
       }
 

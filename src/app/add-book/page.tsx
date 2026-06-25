@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 
 interface TaskInfo {
@@ -21,6 +21,90 @@ interface TaskInfo {
   updatedAt: number;
   completedAt: number | null;
   error: string;
+}
+
+// 平滑进度条组件：在轮询间隔内插值动画
+function SmoothProgressBar({ progress, status, message }: {
+  progress: number;
+  status: string;
+  message: string;
+}) {
+  const [displayProgress, setDisplayProgress] = useState(progress);
+  const [prevProgress, setPrevProgress] = useState(progress);
+  const animRef = useRef<number | null>(null);
+  const startTimeRef = useRef(0);
+
+  useEffect(() => {
+    if (progress !== prevProgress) {
+      // 新进度到来，启动插值动画
+      setPrevProgress(displayProgress);
+      startTimeRef.current = Date.now();
+      const fromProgress = displayProgress;
+      const toProgress = progress;
+      const duration = 1800; // 1.8秒内平滑过渡到新进度
+
+      const animate = () => {
+        const elapsed = Date.now() - startTimeRef.current;
+        const t = Math.min(elapsed / duration, 1);
+        // easeOutCubic
+        const eased = 1 - Math.pow(1 - t, 3);
+        const current = fromProgress + (toProgress - fromProgress) * eased;
+        setDisplayProgress(current);
+        if (t < 1) {
+          animRef.current = requestAnimationFrame(animate);
+        }
+      };
+      if (animRef.current) cancelAnimationFrame(animRef.current);
+      animRef.current = requestAnimationFrame(animate);
+    }
+  }, [progress, prevProgress, displayProgress]);
+
+  useEffect(() => {
+    return () => {
+      if (animRef.current) cancelAnimationFrame(animRef.current);
+    };
+  }, []);
+
+  const getProgressColor = (s: string) => {
+    switch (s) {
+      case 'done': return 'bg-green-500';
+      case 'failed': return 'bg-red-500';
+      case 'copyright': return 'bg-orange-500';
+      default: return 'bg-gradient-to-r from-[#d4a853] to-[#f0c674]';
+    }
+  };
+
+  const getIsActive = (s: string) =>
+    ['pending', 'searching', 'downloading', 'translating', 'saving'].includes(s);
+
+  return (
+    <div className="mb-2">
+      <div className="flex justify-between text-xs text-[#8a8070] mb-1">
+        <span>{message}</span>
+        <span>{Math.round(displayProgress)}%</span>
+      </div>
+      <div className="h-2.5 bg-[#0a0a0f] rounded-full overflow-hidden relative">
+        <div
+          className={`h-full rounded-full ${getProgressColor(status)}`}
+          style={{
+            width: `${displayProgress}%`,
+            transition: getIsActive(status) ? 'none' : 'width 0.5s ease-out',
+          }}
+        />
+        {/* 活跃状态流光效果 */}
+        {getIsActive(status) && displayProgress > 0 && (
+          <div
+            className="absolute top-0 left-0 h-full rounded-full opacity-60"
+            style={{
+              width: `${displayProgress}%`,
+              background: 'linear-gradient(90deg, transparent 0%, rgba(212,168,83,0.4) 50%, transparent 100%)',
+              animation: 'shimmer 2s infinite',
+            }}
+          />
+        )}
+      </div>
+    </div>
+  );
 }
 
 export default function AddBookPage() {
@@ -116,17 +200,6 @@ export default function AddBookPage() {
       case 'failed': return 'bg-red-900/60 text-red-300 border border-red-700';
       case 'copyright': return 'bg-orange-900/60 text-orange-300 border border-orange-700';
       default: return 'bg-blue-900/60 text-blue-300 border border-blue-700';
-    }
-  };
-
-  // 进度条颜色
-  const getProgressColor = (status: string) => {
-    switch (status) {
-      case 'done': return 'bg-green-500';
-      case 'exists': return 'bg-amber-500';
-      case 'failed': return 'bg-red-500';
-      case 'copyright': return 'bg-orange-500';
-      default: return 'bg-gradient-to-r from-[#d4a853] to-[#f0c674]';
     }
   };
 
@@ -274,18 +347,11 @@ export default function AddBookPage() {
 
                 {/* 进度条 */}
                 {(isActive(task.status) || task.status === 'done') && (
-                  <div className="mb-2">
-                    <div className="flex justify-between text-xs text-[#8a8070] mb-1">
-                      <span>{task.message}</span>
-                      <span>{task.progress}%</span>
-                    </div>
-                    <div className="h-2 bg-[#0a0a0f] rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full transition-all duration-500 ${getProgressColor(task.status)}`}
-                        style={{ width: `${task.progress}%` }}
-                      />
-                    </div>
-                  </div>
+                  <SmoothProgressBar
+                    progress={task.progress}
+                    status={task.status}
+                    message={task.message}
+                  />
                 )}
 
                 {/* 章节进度 */}
@@ -297,11 +363,13 @@ export default function AddBookPage() {
                     </div>
                     <div className="bg-[#0a0a0f] rounded-lg p-2 text-center">
                       <p className="text-[#8a8070]">当前</p>
-                      <p className="text-[#d4a853] font-bold text-sm truncate" title={task.currentChapterName}>{task.currentChapterName || `${task.currentChapter}/${task.totalChapters}`}</p>
+                      <p className="text-[#d4a853] font-bold text-sm truncate" title={task.currentChapterName}>
+                        {task.currentChapterName || `第${task.currentChapter}${task.chapterStructure || '章'}`}
+                      </p>
                     </div>
                     <div className="bg-[#0a0a0f] rounded-lg p-2 text-center">
                       <p className="text-[#8a8070]">剩余</p>
-                      <p className="text-[#d4a853] font-bold text-sm">{task.remainingChapters}</p>
+                      <p className="text-[#d4a853] font-bold text-sm">{task.remainingChapters} {task.chapterStructure || '章'}</p>
                     </div>
                   </div>
                 )}
