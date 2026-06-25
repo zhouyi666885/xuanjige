@@ -287,7 +287,8 @@ ${bookContent.content}`;
       + (classicKnowledgeStr ? '\n\n【关键词匹配补充知识】\n' + classicKnowledgeStr : '')
       + (extendedKnowledgeStr ? '\n\n【全部典籍核心论断——必须全部引用】\n' + extendedKnowledgeStr : '')
       + (fullTextStr ? '\n\n【典籍原文摘录（来自知识库藏书全文）——优先引用原文】\n' + fullTextStr : '')
-      + (specificBookFullText ? specificBookFullText : '');
+      + (specificBookFullText ? specificBookFullText : '')
+      + '\n\n【知识库学习指引——学思路不学结果】以上知识库内容不是让你照搬原文，而是让你学习其中的分析思路和方法论。重点关注：1.宗师看到某组合时按什么逻辑推理；2.用神忌神在实际案例中如何运用；3.宫位星曜配合的判断规则；4.大运流年叠加的具体方法。理解其分析逻辑后融入你自己的推理链，不是机械复制原文凑数。';
 
     // 知识库强制引用铁律（追加到systemPrompt最末尾，确保最高优先级）
     const knowledgeIronLaw = knowledgeResults.length > 0 || fullTextStr.length > 0 || extendedKnowledgeResults.length > 0 || specificBookFullText
