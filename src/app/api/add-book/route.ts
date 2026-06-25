@@ -99,6 +99,17 @@ export async function GET() {
           } : null,
         };
       }),
+      // 已完成录入但仍在学习的书籍（被隐藏的任务，学习进度仍需显示）
+      learningBooks: learningProgressList
+        .filter(p => !p.learned && p.totalChapters > 0)
+        .map(p => ({
+          name: p.name,
+          learnedChapters: p.learnedChapters,
+          totalChapters: p.totalChapters,
+          chapterStructure: p.chapterStructure,
+          learned: p.learned,
+          charCount: p.charCount,
+        })),
     });
   } catch (error) {
     return NextResponse.json(

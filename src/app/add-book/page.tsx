@@ -32,6 +32,16 @@ interface TaskInfo {
   error: string;
 }
 
+interface LearningBook {
+  name: string;
+  learnedChapters: number;
+  totalChapters: number;
+  chapterStructure: string;
+  learned: boolean;
+  charCount: number;
+  learningProgress: number;
+}
+
 // 平滑进度条组件：在轮询间隔内插值动画
 function SmoothProgressBar({ progress, status, message }: {
   progress: number;
@@ -123,6 +133,7 @@ export default function AddBookPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [stats, setStats] = useState({ total: 0, active: 0, done: 0, failed: 0 });
   const [bookCount, setBookCount] = useState(0);
+  const [learningBooks, setLearningBooks] = useState<LearningBook[]>([]);
 
   // 轮询获取任务列表
   const fetchTasks = useCallback(async () => {
@@ -132,6 +143,7 @@ export default function AddBookPage() {
       setTasks(data.tasks || []);
       setStats(data.stats || { total: 0, active: 0, done: 0, failed: 0 });
       setBookCount(data.bookCount || 0);
+      setLearningBooks(data.learningBooks || []);
     } catch {
       // 静默失败
     }
@@ -675,6 +687,64 @@ export default function AddBookPage() {
             <p className="text-[#5a5a6e] text-xs mt-1">
               支持批量添加，后台永久运行
             </p>
+          </div>
+        )}
+
+        {/* 学习中的书籍 */}
+        {learningBooks.length > 0 && (
+          <div className="mt-6">
+            <h3 className="text-sm font-bold text-[#8b5cf6] mb-3 flex items-center gap-2">
+              <span className="animate-pulse">🧠</span>
+              深度学习中（{learningBooks.length}本）
+            </h3>
+            <div className="space-y-3">
+              {learningBooks.map((book: LearningBook) => {
+                const lp = book.learningProgress || 0;
+                const structure = book.chapterStructure || '章';
+                const learned = book.learnedChapters || 0;
+                const total = book.totalChapters || 0;
+                const isLearned = lp >= 100;
+                return (
+                  <div
+                    key={book.name}
+                    className="bg-[#1a1a2e] rounded-lg p-3 border border-[#2a2a3e]"
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-sm text-[#e8e0d0] font-medium truncate max-w-[60%]">
+                        {book.name}
+                      </span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${
+                        isLearned
+                          ? 'bg-green-900/50 text-green-400'
+                          : 'bg-purple-900/50 text-purple-400'
+                      }`}>
+                        {isLearned ? '已吃透' : '学习中'}
+                      </span>
+                    </div>
+                    <div className="relative h-2 bg-[#0a0a0f] rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-1000 ease-out ${
+                          isLearned
+                            ? 'bg-gradient-to-r from-green-600 to-emerald-400'
+                            : 'bg-gradient-to-r from-purple-600 to-violet-400'
+                        }`}
+                        style={{ width: `${Math.min(lp, 100)}%` }}
+                      />
+                    </div>
+                    <div className="flex justify-between mt-1">
+                      <span className="text-xs text-[#8a8070]">
+                        {total > 0
+                          ? `第${learned}${structure}/共${total}${structure}`
+                          : `${lp.toFixed(0)}%`}
+                      </span>
+                      <span className="text-xs text-[#8a8070]">
+                        {(book.charCount || 0).toLocaleString()}字
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 
