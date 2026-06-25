@@ -15,7 +15,7 @@ import { paiPan as qimenPaiPan, formatQiMenPaiPan as qimenFormat } from '@/lib/q
 import { paiPan as liurenPaiPan, formatLiuRenPaiPan as liurenFormat } from '@/lib/liuren';
 import { paiPan as fengshuiPaiPan, formatFengShuiPaiPan as fengshuiFormat } from '@/lib/fengshui';
 import { calculateXingMing as xingmingCalculate, formatXingMingPaiPan as xingmingFormat } from '@/lib/xingming';
-import { searchFullText, formatFullTextResults, getDetailedBookStats, findBooksByName, getBookFullText, getBookChapterContent, parseChapterRange, getLearnedBookCount } from '@/lib/fulltext-search';
+import { searchFullText, formatFullTextResults, getDetailedBookStats, findBooksByName, getBookFullText, getBookChapterContent, parseChapterRange, getLearnedBookCount, getBookLearnStatus } from '@/lib/fulltext-search';
 
 export const dynamic = 'force-dynamic';
 
@@ -129,7 +129,22 @@ ${bookContent.content}
     const learnStats = getLearnedBookCount();
     const learnInfo = `\n\n🔴【学习状态】系统已自动学习知识库中全部${learnStats.learned}本书籍（从第一页第一个字到最后一页最后一个字全部学会），你已是一位通读万卷书的学者，回答问题时要像消化吸收过一样专业、精准、有深度！`;
 
-    let systemPrompt = baseSystemPrompt + learnInfo + finalKnowledgeStr + knowledgeBaseInfo + bookContentInfo + knowledgeIronLaw;
+    // 检测书籍结构问题（多少章/卦/卷/学到第几章）
+    let bookStructureInfo = '';
+    const structureQuestionMatch = input.match(/(.+?)(?:一共有|总共有|有多少)(多少|几|几多)(?:个|个的)?(章|卦|卷|篇|部|节|回|品|门|诀|式|局)/);
+    const learningProgressMatch = input.match(/(.+?)(?:学到|学完|学到了|学到第|学到了第)(第?.+)/);
+    const bookStructureNameMatch = input.match(/《(.+?)》.*(?:结构|目录|章|卦|卷|篇)/);
+    const structureBookName = structureQuestionMatch?.[1]?.replace(/[《》？?]/g, '').trim()
+      || learningProgressMatch?.[1]?.replace(/[《》？?]/g, '').trim()
+      || bookStructureNameMatch?.[1]?.trim();
+    if (structureBookName) {
+      const status = getBookLearnStatus(structureBookName);
+      if (status) {
+        bookStructureInfo = `\n\n📚【书籍结构信息 - ${structureBookName}】\n- 总${status.chapterStructure || '章'}数：${status.totalChapters || '未知'}\n- 已学习：${status.learnedChapters || 0} / ${status.totalChapters || '未知'}\n- 学习进度：${status.totalChapters ? Math.round((status.learnedChapters || 0) / status.totalChapters * 100) : 0}%\n- 章节结构类型：${status.chapterStructure || '未知'}\n请根据以上数据准确回答用户关于书籍结构的问题。`;
+      }
+    }
+
+    let systemPrompt = baseSystemPrompt + learnInfo + bookStructureInfo + finalKnowledgeStr + knowledgeBaseInfo + bookContentInfo + knowledgeIronLaw;
 
     const modeInstruction = mode === 'professional'
       ? '请用专业术语进行解读，将典籍知识融入分析逻辑中，禁止出现任何书名。'

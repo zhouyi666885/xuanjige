@@ -9,7 +9,7 @@ import { searchKnowledge, formatKnowledgeResults } from '@/lib/knowledge-search'
 import { generateSanHeCanDuanPrompt, getSanHeCanDuanByTopic, SAN_HE_CAN_DUAN_GUIDE } from '@/lib/sanhe-canduan';
 import { generateMianXiangFramework, getMianXiangPredictionGuide } from '@/lib/xiangxue';
 import { generateShouXiangFramework, getShouXiangPredictionGuide } from '@/lib/shouxiang';
-import { searchFullText, formatFullTextResults, getBookFullText, findBooksByName, getDetailedBookStats, getBookChapterContent, parseChapterRange, getLearnedBookCount } from '@/lib/fulltext-search';
+import { searchFullText, formatFullTextResults, getBookFullText, findBooksByName, getDetailedBookStats, getBookChapterContent, parseChapterRange, getLearnedBookCount, getBookLearnStatus } from '@/lib/fulltext-search';
 import { tongQianQiGua, shiJianQiGua as liuyaoShiJian, formatLiuYaoPaiPan as liuyaoFormat } from '@/lib/liuyao';
 import { shiJianQiGua as meihuaShiJian, shuZiQiGua, wenZiQiGua, formatMeiHuaPaiPan as meihuaFormat } from '@/lib/meihua';
 import { paiPan as qimenPaiPan, formatQiMenPaiPan as qimenFormat } from '@/lib/qimen';
@@ -211,10 +211,14 @@ export async function POST(request: NextRequest) {
     // 检测用户是否要求查看某本书的全文或章节
     const isBookContentRequest = /全文|内容|发给我|发过来|给我看|看看|查看|读一读|章节|第[一二三四五六七八九十百千零\d]+[卦篇章卷部节回]|前[一二三四五六七八九十百千零\d]+[卦篇章卷部节回]|原文|原文内容|书里.*写|书上.*说/.test(message);
     
+    // 检测用户是否在问书籍结构问题（多少章/卦/卷/学到哪了）
+    const isBookStructureQuestion = /多少[卦篇章卷部节回]|几[卦篇章卷部节回]|总共.*[卦篇章卷部节回]|[卦篇章卷部节回].*数量|学到.*第|学习.*进度|学完.*多少|学到哪/.test(message);
+    
     let knowledgeBaseInfo = '';
     let fullTextStr = '';
     let specificBookFullText = '';
     let bookContentInstruction = '';
+    let bookStructureInfo = '';
     
     if (isKnowledgeBaseQuestion && !isBookContentRequest) {
       // 知识库相关问题：只注入统计数据，跳过全文检索（避免超上下文窗口）
@@ -239,7 +243,27 @@ ${stats.sampleBooks.map(b => `  《${b.name}》${b.chars.toLocaleString()}字 [$
 5. 知识库内容是AI回答的唯一来源，不允许编造知识库中没有的内容
 
 请根据以上实时统计数据如实回答用户关于知识库的问题。`;
-    } else {
+    }
+    
+    // 检测书籍结构问题（多少章/卦/卷/学到哪了）
+    if (isBookStructureQuestion) {
+      const bookNameMatches = findBooksByName(message);
+      if (bookNameMatches.length > 0) {
+        const bookInfos = bookNameMatches.slice(0, 5).map(b => {
+          const status = getBookLearnStatus(b.name);
+          if (status) {
+            const structure = status.chapterStructure || '章';
+            const total = status.totalChapters || 0;
+            const learned = status.learnedChapters || 0;
+            return `《${b}》：共${total}${structure}，已学习${learned}${structure}（学习进度${total > 0 ? Math.round(learned/total*100) : 0}%）`;
+          }
+          return `《${b}》：未找到学习记录`;
+        });
+        bookStructureInfo = `\n\n【书籍结构信息】\n${bookInfos.join('\n')}\n\n请根据以上数据准确回答用户关于书籍结构的问题。`;
+      }
+    }
+    
+    if (!isKnowledgeBaseQuestion) {
       // 非知识库统计问题：正常全文检索
       // 全文检索：从本地txt文件中搜索相关古籍原文段落（不限制！从第一个字到最后一个字完整收录！）
       const fullTextPassages = searchFullText(message, 0, 0, 0);
@@ -309,7 +333,7 @@ ${bookContent.content}`;
     const learnStats = getLearnedBookCount();
     const learnInfo = `\n\n🔴【学习状态】系统已自动学习知识库中全部${learnStats.learned}本书籍（从第一页第一个字到最后一页最后一个字全部学会），你已是一位通读万卷书的学者，回答问题时要像消化吸收过一样专业、精准、有深度！`;
 
-    let systemPrompt = basePrompt + learnInfo + '\n\n' + finalKnowledgeStr + knowledgeBaseInfo + bookContentInstruction + '\n\n' + topicGuide + autoQiGuaResult + contextStr + knowledgeIronLaw;
+    let systemPrompt = basePrompt + learnInfo + bookStructureInfo + '\n\n' + finalKnowledgeStr + knowledgeBaseInfo + bookContentInstruction + '\n\n' + topicGuide + autoQiGuaResult + contextStr + knowledgeIronLaw;
 
     // 智能截断：确保总token不超模型上下文窗口（约128K tokens，中文约1.7字/token）
     // 书籍内容请求时：优先保留书籍内容，截断其他检索结果

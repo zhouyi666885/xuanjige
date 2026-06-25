@@ -23,6 +23,9 @@ interface TaskInfo {
   learningCurrentChunk: number;
   learningTotalChunks: number;
   learningMessage: string;
+  learningChapterStructure: string;
+  learningTotalChapters: number;
+  learningLearnedChapters: number;
   createdAt: number;
   updatedAt: number;
   completedAt: number | null;
@@ -421,31 +424,63 @@ export default function AddBookPage() {
                   </div>
                 </div>
 
-                {/* 进度条 - 录入 */}
+                {/* 进度条1 - 录入进度 */}
                 {(isActive(task.status)) && (
                   <div className="mb-1">
                     <div className="flex justify-between text-[10px] text-[#8a8070] mb-0.5">
                       <span>录入进度</span>
-                      <span>{task.progress}%</span>
+                      <span>
+                        {task.totalChapters > 0
+                          ? `第${task.currentChapter}${task.chapterStructure || '章'}/共${task.totalChapters}${task.chapterStructure || '章'}`
+                          : `${task.progress}%`}
+                      </span>
                     </div>
                     <SmoothProgressBar
                       progress={task.progress}
                       status={task.status}
                       message={task.message}
                     />
+                    {/* 章节结构指示 */}
+                    {task.totalChapters > 0 && (
+                      <div className="grid grid-cols-3 gap-2 mt-1 text-xs">
+                        <div className="bg-[#0a0a0f] rounded-lg p-1.5 text-center">
+                          <p className="text-[#8a8070] text-[9px]">全书</p>
+                          <p className="text-[#d4a853] font-bold">{task.totalChapters}{task.chapterStructure || '章'}</p>
+                        </div>
+                        <div className="bg-[#0a0a0f] rounded-lg p-1.5 text-center">
+                          <p className="text-[#8a8070] text-[9px]">当前</p>
+                          <p className="text-[#d4a853] font-bold truncate" title={task.currentChapterName}>
+                            {task.currentChapterName || `第${task.currentChapter}${task.chapterStructure || '章'}`}
+                          </p>
+                        </div>
+                        <div className="bg-[#0a0a0f] rounded-lg p-1.5 text-center">
+                          <p className="text-[#8a8070] text-[9px]">剩余</p>
+                          <p className="text-[#d4a853] font-bold">{task.remainingChapters}{task.chapterStructure || '章'}</p>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
-                {/* 进度条 - AI深度学习（录入完成后显示） */}
+                {/* 进度条2 - AI深度学习（录入完成后显示） */}
                 {(task.status === 'done' && task.learningStatus && task.learningStatus !== 'pending') && (
                   <div className="mb-1">
                     <div className="flex justify-between text-[10px] text-[#8a8070] mb-0.5">
                       <span>AI深度学习进度</span>
-                      <span>{task.learningProgress}%</span>
+                      <span>
+                        {task.learningChapterStructure && task.learningTotalChapters > 0
+                          ? `第${task.learningLearnedChapters}${task.learningChapterStructure}/共${task.learningTotalChapters}${task.learningChapterStructure}`
+                          : `${task.learningProgress}%`}
+                      </span>
                     </div>
                     <div className="mb-2">
                       <div className="flex justify-between text-xs text-[#8a8070] mb-1">
-                        <span>{task.learningMessage || 'AI深度学习中...'}</span>
+                        <span>
+                          {task.learningStatus === 'done' ? '已学完全部内容' :
+                           task.learningChapterStructure && task.learningTotalChapters > 0
+                             ? `正在学习第${task.learningLearnedChapters}${task.learningChapterStructure}...`
+                             : (task.learningMessage || 'AI深度学习中...')}
+                        </span>
                         <span>{task.learningProgress}%</span>
                       </div>
                       <div className="h-2 bg-[#0a0a0f] rounded-full overflow-hidden relative">
@@ -468,6 +503,23 @@ export default function AddBookPage() {
                           />
                         )}
                       </div>
+                      {/* 章节结构学习进度 */}
+                      {task.learningChapterStructure && task.learningTotalChapters > 0 && task.learningStatus === 'learning' && (
+                        <div className="grid grid-cols-3 gap-2 mt-1 text-xs">
+                          <div className="bg-[#0a0a0f] rounded-lg p-1.5 text-center">
+                            <p className="text-[#8a8070] text-[9px]">全书</p>
+                            <p className="text-[#4ade80] font-bold">{task.learningTotalChapters}{task.learningChapterStructure}</p>
+                          </div>
+                          <div className="bg-[#0a0a0f] rounded-lg p-1.5 text-center">
+                            <p className="text-[#8a8070] text-[9px]">已学到</p>
+                            <p className="text-[#4ade80] font-bold">第{task.learningLearnedChapters}{task.learningChapterStructure}</p>
+                          </div>
+                          <div className="bg-[#0a0a0f] rounded-lg p-1.5 text-center">
+                            <p className="text-[#8a8070] text-[9px]">剩余</p>
+                            <p className="text-[#4ade80] font-bold">{task.learningTotalChapters - task.learningLearnedChapters}{task.learningChapterStructure}</p>
+                          </div>
+                        </div>
+                      )}
                       {/* 4层学习进度指示 */}
                       {task.learningStatus === 'learning' && task.learningTotalChunks > 0 && (
                         <div className="flex items-center gap-1 mt-1 flex-wrap">

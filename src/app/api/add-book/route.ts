@@ -7,6 +7,7 @@ import {
   deleteTask,
   getTaskStats,
 } from '@/lib/book-task-manager';
+import { getLearningProgress } from '@/lib/fulltext-search';
 
 // 确保任务管理器初始化
 initTaskManager();
@@ -51,6 +52,10 @@ export async function GET() {
       return current < total;
     });
 
+    // 获取所有书籍的学习进度
+    const learningProgressList = getLearningProgress();
+    const learningMap = new Map(learningProgressList.map(p => [p.name, p]));
+
     return NextResponse.json({
       bookCount: nonExistsTasks.filter(t => t.status === 'done').length,
       stats,
@@ -58,6 +63,8 @@ export async function GET() {
         const total = t.totalChapters || 0;
         const current = t.currentChapter || 0;
         const hasMissingChapters = t.status === 'done' && total > 0 && current < total;
+        // 从知识库学习进度中获取
+        const learnProgress = learningMap.get(t.bookName);
         return {
           id: t.id,
           bookName: t.bookName,
@@ -82,6 +89,14 @@ export async function GET() {
           completedAt: t.completedAt,
           error: t.error,
           hasMissingChapters, // 缺章节标记
+          // 知识库学习进度（按原书章节结构）
+          knowledgeLearning: learnProgress ? {
+            learnedChapters: learnProgress.learnedChapters,
+            totalChapters: learnProgress.totalChapters,
+            chapterStructure: learnProgress.chapterStructure,
+            learned: learnProgress.learned,
+            charCount: learnProgress.charCount,
+          } : null,
         };
       }),
     });

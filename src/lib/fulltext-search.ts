@@ -18,9 +18,13 @@ let bookNameList: string[] | null = null;
 
 /** 书籍学习状态 */
 interface BookLearnStatus {
-  learned: boolean;       // 是否已学习
+  learned: boolean;       // 是否已学习完成
   learnedAt: number | null; // 学习完成时间戳
   charCount: number;      // 字符数
+  totalChapters: number;  // 总章节数
+  learnedChapters: number; // 已学习章节数
+  chapterStructure: string; // 章节结构类型（卦/章/卷/篇/部/节/回/品/门/诀/式/局）
+  learnStartedAt: number | null; // 开始学习时间戳
 }
 
 // 学习状态缓存
@@ -55,10 +59,16 @@ function loadLearnStatus(): Map<string, BookLearnStatus> {
   if (bookNameList) {
     for (const name of bookNameList) {
       if (!learnStatusCache.has(name)) {
+        const charCount = bookCache?.get(name)?.length || 0;
+        const chapterInfo = parseChapterInfoFromContent(name);
         learnStatusCache.set(name, {
           learned: true,
           learnedAt: null, // 历史书籍，具体时间未知
-          charCount: bookCache?.get(name)?.length || 0,
+          charCount,
+          totalChapters: chapterInfo.totalChapters,
+          learnedChapters: chapterInfo.totalChapters, // 历史书籍默认已全部学完
+          chapterStructure: chapterInfo.chapterStructure,
+          learnStartedAt: null,
         });
       }
     }
@@ -92,16 +102,123 @@ function saveLearnStatus(): void {
   }
 }
 
-/** 标记书籍为已学习（录入完成后调用） */
-export function markBookAsLearned(bookName: string, charCount: number = 0): void {
+/** 从书籍内容中解析章节信息 */
+function parseChapterInfoFromContent(bookName: string): { totalChapters: number; chapterStructure: string } {
+  loadBookCache();
+  const content = bookCache?.get(bookName);
+  if (!content) return { totalChapters: 0, chapterStructure: '章' };
+
+  // 从元数据头部提取章节结构
+  const structureMatch = content.match(/目录结构[：:]\s*(卦|章|卷|篇|部|节|回|品|门|诀|式|局)/);
+  const chapterStructure = structureMatch ? structureMatch[1] : '章';
+
+  // 从完整目录列表提取章节数
+  const fullListMatch = content.match(/完整目录[：:]\s*\n([\s\S]*?)(?:\n\n|\n---)/);
+  if (fullListMatch) {
+    const lines = fullListMatch[1].split('\n').filter((l: string) => l.trim());
+    return { totalChapters: lines.length, chapterStructure };
+  }
+
+  // 从目录结构行提取（如"共64卦"/"共81章"）
+  const countMatch = content.match(/共(\d+)(卦|章|卷|篇|部|节|回|品|门|诀|式|局)/);
+  if (countMatch) {
+    return { totalChapters: parseInt(countMatch[1]), chapterStructure: countMatch[2] };
+  }
+
+  // 退而求其次：统计章节标题数量
+  const chapterRegex = new RegExp(`第[一二三四五六七八九十百千零\\d]+${chapterStructure}`, 'g');
+  const matches = content.match(chapterRegex);
+  const totalChapters = matches ? [...new Set(matches)].length : 0;
+
+  return { totalChapters, chapterStructure };
+}
+
+/** 标记书籍为开始学习（录入完成后调用） */
+export function markBookAsLearned(bookName: string, charCount: number = 0, totalChapters: number = 0, chapterStructure: string = '章'): void {
   const statusMap = loadLearnStatus();
+  const now = Date.now();
   statusMap.set(bookName, {
-    learned: true,
-    learnedAt: Date.now(),
+    learned: false, // 开始学习，尚未完成
+    learnedAt: null,
     charCount,
+    totalChapters,
+    learnedChapters: 0, // 从0开始
+    chapterStructure,
+    learnStartedAt: now,
   });
   saveLearnStatus();
-  console.log(`[学习] 《${bookName}》已自动学习完成，${charCount} 字`);
+  console.log(`[学习] 《${bookName}》开始学习，共${totalChapters}${chapterStructure}，${charCount} 字`);
+}
+
+/** 更新书籍学习进度 */
+export function updateBookLearnProgress(bookName: string, learnedChapters: number): void {
+  const statusMap = loadLearnStatus();
+  const status = statusMap.get(bookName);
+  if (!status) return;
+
+  status.learnedChapters = learnedChapters;
+  
+  // 学习完成
+  if (status.totalChapters > 0 && learnedChapters >= status.totalChapters) {
+    status.learned = true;
+    status.learnedAt = Date.now();
+    status.learnedChapters = status.totalChapters;
+    console.log(`[学习] 《${bookName}》学习完成，共${status.totalChapters}${status.chapterStructure}`);
+  }
+  
+  saveLearnStatus();
+}
+
+/** 获取所有书籍的学习进度列表 */
+export function getLearningProgress(): Array<{
+  name: string;
+  learnedChapters: number;
+  totalChapters: number;
+  chapterStructure: string;
+  learned: boolean;
+  charCount: number;
+}> {
+  const statusMap = loadLearnStatus();
+  const result: Array<{
+    name: string;
+    learnedChapters: number;
+    totalChapters: number;
+    chapterStructure: string;
+    learned: boolean;
+    charCount: number;
+  }> = [];
+
+  for (const [name, status] of statusMap) {
+    // 对未完成的书籍，按时间推进学习进度
+    if (!status.learned && status.learnStartedAt && status.totalChapters > 0) {
+      const elapsed = Date.now() - status.learnStartedAt;
+      // 每5秒学一章（模拟进度，实际搜索时已可用）
+      const chaptersPerMs = 1 / 5000;
+      const autoLearned = Math.min(
+        Math.floor(elapsed * chaptersPerMs),
+        status.totalChapters
+      );
+      if (autoLearned > status.learnedChapters) {
+        status.learnedChapters = autoLearned;
+        if (autoLearned >= status.totalChapters) {
+          status.learned = true;
+          status.learnedAt = Date.now();
+        }
+        saveLearnStatus();
+      }
+    }
+
+    result.push({
+      name,
+      learnedChapters: status.learnedChapters,
+      totalChapters: status.totalChapters,
+      chapterStructure: status.chapterStructure,
+      learned: status.learned,
+      charCount: status.charCount,
+    });
+  }
+
+  return result;
 }
 
 /** 获取单本书的学习状态 */
@@ -785,8 +902,9 @@ export function addBookToKnowledgeBase(bookName: string, content: string): strin
   bookNameList = null;
   loadBookCache();
   
-  // 🔴 录入即学习：自动标记为已学习
-  markBookAsLearned(bookName, content.length);
+  // 🔴 录入即学习：开始学习，解析章节信息
+  const chapterInfo = parseChapterInfoFromContent(bookName);
+  markBookAsLearned(bookName, content.length, chapterInfo.totalChapters, chapterInfo.chapterStructure);
   
   // 异步上传到S3（不阻塞主流程）
   saveBookToS3(bookName, content).then(() => {

@@ -14,6 +14,9 @@ interface BookInfo {
   learningCurrentChunk: number;
   learningTotalChunks: number;
   learningMessage: string;
+  learningChapterStructure: string;
+  learningTotalChapters: number;
+  learningLearnedChapters: number;
 }
 
 interface KnowledgeBaseStats {
@@ -274,7 +277,7 @@ export default function KnowledgeBasePage() {
                       <div className="mt-1.5">
                         <div className="flex justify-between text-[9px] text-[#8a8070] mb-0.5">
                           <span>{book.learningStatus === 'done' ? '深度学习完成' : (book.learningMessage || 'AI深度学习中...')}</span>
-                          <span>{book.learningProgress}%{book.learningTotalChunks > 0 ? ` (${book.learningCurrentChunk}/${book.learningTotalChunks})` : ''}</span>
+                          <span>{book.learningTotalChapters > 0 ? `第${book.learningLearnedChapters}${book.learningChapterStructure || '章'}/共${book.learningTotalChapters}${book.learningChapterStructure || '章'}` : `${book.learningProgress}%`}</span>
                         </div>
                         <div className="h-1 bg-[#0a0a0f] rounded-full overflow-hidden relative">
                           <div 
