@@ -248,44 +248,118 @@ async function processTask(taskId: string): Promise<void> {
     const searchClient = new SearchClient(config);
     const fetchClient = new FetchClient(config);
 
-    // 2. 搜索书籍来源
-    const searchQueries = [
-      `${task.bookName} 全文`,
-      `${task.bookName} 原文 完整版`,
-      `${task.bookName} text full`,
-      `${task.bookName} site:gutenberg.org`,
-      `${task.bookName} filetype:txt`,
+    // 2. 搜索书籍来源（铁规则：不准轻易放弃，必须搜遍所有渠道）
+    // 搜索优先级：免费公开网站 → 文档分享平台 → 电子书网站 → 论坛帖子 → 学术论文库 → 古籍数字化平台
+    const searchRounds = [
+      // 第一轮：基础搜索
+      [
+        `${task.bookName} 全文`,
+        `${task.bookName} 原文 完整版`,
+        `${task.bookName} text full`,
+        `${task.bookName} filetype:txt`,
+      ],
+      // 第二轮：扩展公开网站
+      [
+        `${task.bookName} site:gutenberg.org`,
+        `${task.bookName} site:archive.org`,
+        `${task.bookName} site:wikisource.org`,
+        `${task.bookName} site:ctext.org`,
+        `${task.bookName} site:zh.wikisource.org`,
+      ],
+      // 第三轮：文档分享平台
+      [
+        `${task.bookName} 百度文库 全文`,
+        `${task.bookName} 道客巴巴 完整版`,
+        `${task.bookName} 豆丁 全文`,
+        `${task.bookName} doc88 全文阅读`,
+      ],
+      // 第四轮：电子书网站和论坛
+      [
+        `${task.bookName} 电子书 下载 txt`,
+        `${task.bookName} 在线阅读 全文`,
+        `${task.bookName} PDF 全文`,
+        `${task.bookName} epub mobi 下载`,
+      ],
+      // 第五轮：学术和古籍平台
+      [
+        `${task.bookName} 古籍 数字化`,
+        `${task.bookName} 国学 导读 全文`,
+        `${task.bookName} 学术 论文 全文`,
+        `${task.bookName} 读秀 超星`,
+      ],
+      // 第六轮：补充搜索
+      [
+        `"${task.bookName}" 全文 在线`,
+        `${task.bookName} 免费阅读 完整`,
+        `${task.bookName} 书籍 原文 内容`,
+        `${task.bookName} txt 下载 百度网盘`,
+      ],
     ];
 
     let allResults: Array<{ url: string; title: string; snippet: string }> = [];
 
-    for (const query of searchQueries) {
-      try {
-        const response = await searchClient.search({ query });
-        if (response?.web_items) {
-          for (const r of response.web_items) {
-            if (r.url && !allResults.some(x => x.url === r.url)) {
-              allResults.push({ url: r.url, title: r.title || '', snippet: r.snippet || '' });
+    for (let round = 0; round < searchRounds.length; round++) {
+      const roundQueries = searchRounds[round];
+      for (const query of roundQueries) {
+        try {
+          const response = await searchClient.search({ query });
+          if (response?.web_items) {
+            for (const r of response.web_items) {
+              if (r.url && !allResults.some(x => x.url === r.url)) {
+                allResults.push({ url: r.url, title: r.title || '', snippet: r.snippet || '' });
+              }
             }
           }
+        } catch (e) {
+          // 继续尝试下一个搜索词，绝不放弃
         }
-      } catch (e) {
-        // 继续尝试下一个搜索词
+      }
+      addLog(taskId, `第${round + 1}轮搜索完成，累计 ${allResults.length} 个来源`);
+
+      // 如果已有来源，先去尝试获取，不够再继续搜
+      if (allResults.length > 0) {
+        break; // 有来源就先去试，试完不够再回来搜
       }
     }
 
-    addLog(taskId, `搜索到 ${allResults.length} 个来源`);
+    // 如果前6轮都没找到，继续追加搜索（铁规则：不存在搜索次数上限）
+    if (allResults.length === 0) {
+      const extraQueries = [
+        `${task.bookName} 书`,
+        `${task.bookName} 作者 全文`,
+        `${task.bookName} 目录 章节`,
+        `${task.bookName} 简介 内容 阅读`,
+      ];
+      for (const query of extraQueries) {
+        try {
+          const response = await searchClient.search({ query });
+          if (response?.web_items) {
+            for (const r of response.web_items) {
+              if (r.url && !allResults.some(x => x.url === r.url)) {
+                allResults.push({ url: r.url, title: r.title || '', snippet: r.snippet || '' });
+              }
+            }
+          }
+        } catch (e) {
+          // 继续
+        }
+      }
+      addLog(taskId, `追加搜索完成，累计 ${allResults.length} 个来源`);
+    }
 
+    // 只有一种情况判定版权问题：全网所有能访问的网站都搜过了，确认没有任何一个网站有这本书的完整内容
     if (allResults.length === 0) {
       updateTask(taskId, {
         status: 'copyright',
-        message: `因版权问题无法摘录《${task.bookName}》`,
+        message: `全网搜索均未找到《${task.bookName}》的完整内容`,
         progress: 0,
         completedAt: Date.now(),
       });
-      addLog(taskId, '所有来源均未找到此书');
+      addLog(taskId, '所有渠道均未找到此书，判定为版权问题');
       return;
     }
+
+    addLog(taskId, `共搜索到 ${allResults.length} 个来源，开始逐一尝试获取内容`);
 
     // 3. 确认原书章节数（搜索"书名 目录"获取原书结构）
     updateTask(taskId, {
@@ -338,14 +412,14 @@ async function processTask(taskId: string): Promise<void> {
       addLog(taskId, '无法确认原书章节数，将从内容中推断');
     }
 
-    // 4. 逐个来源尝试获取全文
+    // 4. 逐个来源尝试获取全文（铁规则：一个不行换下一个，绝不轻易放弃）
     let bookContent = '';
     let usedSource = '';
     let foundContent = false;
 
     updateTask(taskId, {
       status: 'downloading',
-      message: `找到 ${allResults.length} 个来源，正在获取内容...`,
+      message: `找到 ${allResults.length} 个来源，正在逐一获取内容...`,
       progress: 5,
     });
 
@@ -372,26 +446,96 @@ async function processTask(taskId: string): Promise<void> {
             .filter((t: string) => t.trim().length > 100);
           
           if (texts.length > 0) {
-            bookContent = texts.join('\n\n');
-            usedSource = source.url;
-            foundContent = true;
-            addLog(taskId, `从 ${source.url} 获取到 ${bookContent.length} 字符`);
-            break;
+            const content = texts.join('\n\n');
+            // 保留最长的内容（最可能完整）
+            if (content.length > bookContent.length) {
+              bookContent = content;
+              usedSource = source.url;
+              addLog(taskId, `从 ${source.url} 获取到 ${content.length} 字符（当前最长）`);
+            }
+            // 获取到足够长的内容才认为成功（至少2000字才算有效书籍内容）
+            if (bookContent.length >= 2000) {
+              foundContent = true;
+              break;
+            }
+            // 不够长就继续尝试下一个来源
           }
         }
       } catch (e) {
-        addLog(taskId, `来源 ${source.url} 获取失败: ${e instanceof Error ? e.message : String(e)}`);
+        addLog(taskId, `来源 ${source.url} 获取失败: ${e instanceof Error ? e.message : String(e)}，继续尝试下一个`);
       }
     }
 
+    // 铁规则：所有来源都试过了但内容不够长，继续追加搜索第二轮
+    if (!foundContent && allResults.length > 0 && bookContent.length >= 200 && bookContent.length < 2000) {
+      addLog(taskId, `已试 ${allResults.length} 个来源，最长内容仅 ${bookContent.length} 字符，追加搜索第二轮`);
+      
+      const round2Queries = [
+        `${task.bookName} 全文 在线阅读`,
+        `${task.bookName} 完整版 免费阅读`,
+        `${task.bookName} txt 下载`,
+        `${task.bookName} 电子书 完整 全文`,
+      ];
+      
+      for (const query of round2Queries) {
+        try {
+          const response = await searchClient.search({ query });
+          if (response?.web_items) {
+            for (const r of response.web_items) {
+              if (r.url && !allResults.some(x => x.url === r.url)) {
+                allResults.push({ url: r.url, title: r.title || '', snippet: r.snippet || '' });
+              }
+            }
+          }
+        } catch (e) {
+          // 继续
+        }
+      }
+      
+      // 尝试新找到的来源
+      for (let i = 0; i < allResults.length; i++) {
+        if (processingQueue.has(taskId) === false) return;
+        const source = allResults[i];
+        try {
+          const fetchResponse = await fetchClient.fetch(source.url);
+          if (fetchResponse?.content) {
+            const texts = fetchResponse.content
+              .map((c: { text?: string }) => c.text || '')
+              .filter((t: string) => t.trim().length > 100);
+            if (texts.length > 0) {
+              const content = texts.join('\n\n');
+              if (content.length > bookContent.length) {
+                bookContent = content;
+                usedSource = source.url;
+                addLog(taskId, `第二轮从 ${source.url} 获取到 ${content.length} 字符`);
+              }
+              if (bookContent.length >= 2000) {
+                foundContent = true;
+                break;
+              }
+            }
+          }
+        } catch (e) {
+          // 继续
+        }
+      }
+    }
+
+    // 第三种判定：有内容但不够长，也接受（宁可录入部分内容也不放弃）
+    if (!foundContent && bookContent.length >= 200) {
+      foundContent = true;
+      addLog(taskId, `内容较短（${bookContent.length}字符），但仍录入知识库`);
+    }
+
+    // 只有一种情况判定版权问题：全网所有网站都搜过了、都试过了，确认没有任何一个网站有这本书的完整内容
     if (!foundContent || bookContent.length < 200) {
       updateTask(taskId, {
         status: 'copyright',
-        message: `因版权问题无法摘录《${task.bookName}》`,
+        message: `全网搜索均未找到《${task.bookName}》的完整内容`,
         progress: 0,
         completedAt: Date.now(),
       });
-      addLog(taskId, `遍历 ${allResults.length} 个来源均未获取到有效内容`);
+      addLog(taskId, `遍历 ${allResults.length} 个来源、多轮搜索后均未获取到有效内容，判定为版权问题`);
       return;
     }
 
