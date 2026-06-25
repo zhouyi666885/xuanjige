@@ -14,6 +14,112 @@ import { saveBook as saveBookToS3, getBookContent as getBookFromS3, deleteBookFr
 let bookCache: Map<string, string> | null = null;
 let bookNameList: string[] | null = null;
 
+// ============ 学习状态系统 ============
+
+/** 书籍学习状态 */
+interface BookLearnStatus {
+  learned: boolean;       // 是否已学习
+  learnedAt: number | null; // 学习完成时间戳
+  charCount: number;      // 字符数
+}
+
+// 学习状态缓存
+let learnStatusCache: Map<string, BookLearnStatus> | null = null;
+
+/** 获取学习状态文件路径 */
+function getLearnStatusFilePath(): string {
+  const dir = getBookContentDir();
+  return path.join(dir, '..', 'book-learn-status.json');
+}
+
+/** 加载学习状态 */
+function loadLearnStatus(): Map<string, BookLearnStatus> {
+  if (learnStatusCache) return learnStatusCache;
+  
+  learnStatusCache = new Map();
+  const filePath = getLearnStatusFilePath();
+  
+  try {
+    if (fs.existsSync(filePath)) {
+      const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+      for (const [name, status] of Object.entries(data)) {
+        learnStatusCache.set(name, status as BookLearnStatus);
+      }
+    }
+  } catch {
+    // 文件损坏或不存在，从当前书籍列表重建
+  }
+  
+  // 同步：已存在于知识库的书如果没有学习记录，自动标记为已学习
+  loadBookCache();
+  if (bookNameList) {
+    for (const name of bookNameList) {
+      if (!learnStatusCache.has(name)) {
+        learnStatusCache.set(name, {
+          learned: true,
+          learnedAt: null, // 历史书籍，具体时间未知
+          charCount: bookCache?.get(name)?.length || 0,
+        });
+      }
+    }
+  }
+  
+  // 保存同步后的状态
+  saveLearnStatus();
+  
+  return learnStatusCache;
+}
+
+/** 保存学习状态到文件 */
+function saveLearnStatus(): void {
+  if (!learnStatusCache) return;
+  
+  const filePath = getLearnStatusFilePath();
+  const dir = path.dirname(filePath);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  
+  const data: Record<string, BookLearnStatus> = {};
+  for (const [name, status] of learnStatusCache) {
+    data[name] = status;
+  }
+  
+  try {
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+  } catch {
+    // 写入失败不影响主流程
+  }
+}
+
+/** 标记书籍为已学习（录入完成后调用） */
+export function markBookAsLearned(bookName: string, charCount: number = 0): void {
+  const statusMap = loadLearnStatus();
+  statusMap.set(bookName, {
+    learned: true,
+    learnedAt: Date.now(),
+    charCount,
+  });
+  saveLearnStatus();
+  console.log(`[学习] 《${bookName}》已自动学习完成，${charCount} 字`);
+}
+
+/** 获取单本书的学习状态 */
+export function getBookLearnStatus(bookName: string): BookLearnStatus | null {
+  const statusMap = loadLearnStatus();
+  return statusMap.get(bookName) || null;
+}
+
+/** 获取所有已学习书籍数量 */
+export function getLearnedBookCount(): { total: number; learned: number; learning: number } {
+  const statusMap = loadLearnStatus();
+  let learned = 0;
+  for (const [, status] of statusMap) {
+    if (status.learned) learned++;
+  }
+  return { total: statusMap.size, learned, learning: statusMap.size - learned };
+}
+
 // 书籍文件目录（生产环境使用/tmp，开发环境使用public）
 function getBookContentDir(): string {
   const devDir = path.join(process.cwd(), 'public', 'book-content');
@@ -679,6 +785,9 @@ export function addBookToKnowledgeBase(bookName: string, content: string): strin
   bookNameList = null;
   loadBookCache();
   
+  // 🔴 录入即学习：自动标记为已学习
+  markBookAsLearned(bookName, content.length);
+  
   // 异步上传到S3（不阻塞主流程）
   saveBookToS3(bookName, content).then(() => {
     console.log(`[S3] 书籍《${bookName}》已同步到云存储`);
@@ -749,6 +858,12 @@ export function removeBookFromKnowledgeBase(bookName: string): boolean {
   if (bookNameList) {
     const idx = bookNameList.indexOf(matchedName);
     if (idx >= 0) bookNameList.splice(idx, 1);
+  }
+  
+  // 从学习状态中移除
+  if (learnStatusCache) {
+    learnStatusCache.delete(matchedName);
+    saveLearnStatus();
   }
   
   // 异步从S3删除

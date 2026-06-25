@@ -372,7 +372,7 @@ export default function AddBookPage() {
                       </h3>
                       <span className={`inline-block text-xs px-2 py-0.5 rounded-full mt-1 ${getStatusStyle(task.status)}`}>
                         {task.status === 'exists' ? '已有这本书' :
-                         task.status === 'done' ? '已进入知识库' :
+                         task.status === 'done' ? '已学习' :
                          task.status === 'copyright' ? '因版权问题无法摘录' :
                          task.status === 'failed' ? '摘录失败' :
                          task.status === 'pending' ? '等待开始' :
@@ -444,7 +444,10 @@ export default function AddBookPage() {
                 {task.status === 'done' && (
                   <div className="mt-2 bg-green-900/20 border border-green-800/30 rounded-lg p-3">
                     <p className="text-green-300 font-bold text-center text-sm">
-                      已进入知识库
+                      已录入并自动学习
+                    </p>
+                    <p className="text-green-400/50 text-center text-[10px] mt-0.5">
+                      全文已学会，回答问题时可随时调用
                     </p>
                     <div className="flex justify-center gap-4 mt-1 text-xs text-green-400/70">
                       <span>{task.chapterStructure ? `${task.totalChapters} ${task.chapterStructure}` : `${task.totalChapters} 章`}</span>

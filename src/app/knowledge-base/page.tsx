@@ -6,18 +6,22 @@ import { useRouter } from 'next/navigation';
 interface BookInfo {
   name: string;
   category: string;
+  learned: boolean;
+  learnedAt: number | null;
+  charCount: number;
 }
 
 interface KnowledgeBaseStats {
   total: number;
   totalChars: number;
   bookCount: number;
+  learnedCount: number;
 }
 
 export default function KnowledgeBasePage() {
   const router = useRouter();
   const [books, setBooks] = useState<BookInfo[]>([]);
-  const [stats, setStats] = useState<KnowledgeBaseStats>({ total: 0, totalChars: 0, bookCount: 0 });
+  const [stats, setStats] = useState<KnowledgeBaseStats>({ total: 0, totalChars: 0, bookCount: 0, learnedCount: 0 });
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -42,6 +46,7 @@ export default function KnowledgeBasePage() {
         total: data.total,
         totalChars: data.totalChars,
         bookCount: data.bookCount,
+        learnedCount: data.learnedCount || 0,
       });
       setTotalPages(data.totalPages || 1);
     } catch {
@@ -134,10 +139,14 @@ export default function KnowledgeBasePage() {
       <div className="max-w-2xl mx-auto px-4 py-4 space-y-4">
         {/* 统计概览 */}
         <div className="bg-[#1a1a2e] rounded-xl p-4 border border-[#2a2a3e]">
-          <div className="grid grid-cols-3 gap-3 text-center">
+          <div className="grid grid-cols-4 gap-3 text-center">
             <div>
               <p className="text-2xl font-bold text-[#d4a853]">{stats.bookCount}</p>
               <p className="text-xs text-[#8a8070]">收录书籍</p>
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-[#4ade80]">{stats.learnedCount}</p>
+              <p className="text-xs text-[#8a8070]">已学习</p>
             </div>
             <div>
               <p className="text-2xl font-bold text-[#d4a853]">{formatChars(stats.totalChars)}</p>
@@ -146,6 +155,19 @@ export default function KnowledgeBasePage() {
             <div>
               <p className="text-2xl font-bold text-[#d4a853]">{stats.total}</p>
               <p className="text-xs text-[#8a8070]">{searchQuery ? '搜索结果' : '当前显示'}</p>
+            </div>
+          </div>
+          {/* 学习进度条 */}
+          <div className="mt-3">
+            <div className="flex justify-between text-[10px] text-[#8a8070] mb-1">
+              <span>学习进度</span>
+              <span>{stats.bookCount > 0 ? Math.round(stats.learnedCount / stats.bookCount * 100) : 0}%</span>
+            </div>
+            <div className="h-1.5 bg-[#0a0a0f] rounded-full overflow-hidden">
+              <div 
+                className="h-full bg-gradient-to-r from-[#4ade80] to-[#d4a853] rounded-full transition-all duration-500"
+                style={{ width: `${stats.bookCount > 0 ? (stats.learnedCount / stats.bookCount * 100) : 0}%` }}
+              />
             </div>
           </div>
         </div>
@@ -212,12 +234,26 @@ export default function KnowledgeBasePage() {
                 <div className="flex items-center gap-3">
                   <span className="text-lg flex-shrink-0">{getCategoryIcon(book.category)}</span>
                   <div className="flex-1 min-w-0">
-                    <h3 className="text-sm text-[#e8e0d0] truncate font-medium">
-                      《{book.name}》
-                    </h3>
-                    <span className="text-[10px] bg-[#0a0a0f] text-[#8a8070] px-2 py-0.5 rounded-full">
-                      {book.category}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-sm text-[#e8e0d0] truncate font-medium">
+                        《{book.name}》
+                      </h3>
+                      {book.learned && (
+                        <span className="text-[10px] bg-[#4ade80]/10 text-[#4ade80] px-1.5 py-0.5 rounded-full flex-shrink-0 border border-[#4ade80]/20">
+                          已学习
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-[10px] bg-[#0a0a0f] text-[#8a8070] px-2 py-0.5 rounded-full">
+                        {book.category}
+                      </span>
+                      {book.charCount > 0 && (
+                        <span className="text-[10px] text-[#5a5a6e]">
+                          {formatChars(book.charCount)}字
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <button
                     onClick={() => setShowDeleteConfirm(book.name)}

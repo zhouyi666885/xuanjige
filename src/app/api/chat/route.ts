@@ -9,7 +9,7 @@ import { searchKnowledge, formatKnowledgeResults } from '@/lib/knowledge-search'
 import { generateSanHeCanDuanPrompt, getSanHeCanDuanByTopic, SAN_HE_CAN_DUAN_GUIDE } from '@/lib/sanhe-canduan';
 import { generateMianXiangFramework, getMianXiangPredictionGuide } from '@/lib/xiangxue';
 import { generateShouXiangFramework, getShouXiangPredictionGuide } from '@/lib/shouxiang';
-import { searchFullText, formatFullTextResults, getBookFullText, findBooksByName, getDetailedBookStats, getBookChapterContent, parseChapterRange } from '@/lib/fulltext-search';
+import { searchFullText, formatFullTextResults, getBookFullText, findBooksByName, getDetailedBookStats, getBookChapterContent, parseChapterRange, getLearnedBookCount } from '@/lib/fulltext-search';
 import { tongQianQiGua, shiJianQiGua as liuyaoShiJian, formatLiuYaoPaiPan as liuyaoFormat } from '@/lib/liuyao';
 import { shiJianQiGua as meihuaShiJian, shuZiQiGua, wenZiQiGua, formatMeiHuaPaiPan as meihuaFormat } from '@/lib/meihua';
 import { paiPan as qimenPaiPan, formatQiMenPaiPan as qimenFormat } from '@/lib/qimen';
@@ -303,7 +303,12 @@ ${bookContent.content}`;
     // 加入自动起卦/排盘
     const autoQiGuaResult = autoQiGua(message, birthInfo ? (birthInfo as BirthInfo) : null);
     const contextStr = context ? `\n\n【前置分析结果】\n${context}\n请在以上分析结果基础上，继续深入回答用户的问题。` : '';
-    let systemPrompt = basePrompt + '\n\n' + finalKnowledgeStr + knowledgeBaseInfo + bookContentInstruction + '\n\n' + topicGuide + autoQiGuaResult + contextStr + knowledgeIronLaw;
+
+    // 加入学习状态信息
+    const learnStats = getLearnedBookCount();
+    const learnInfo = `\n\n🔴【学习状态】系统已自动学习知识库中全部${learnStats.learned}本书籍（从第一页第一个字到最后一页最后一个字全部学会），你已是一位通读万卷书的学者，回答问题时要像消化吸收过一样专业、精准、有深度！`;
+
+    let systemPrompt = basePrompt + learnInfo + '\n\n' + finalKnowledgeStr + knowledgeBaseInfo + bookContentInstruction + '\n\n' + topicGuide + autoQiGuaResult + contextStr + knowledgeIronLaw;
 
     // 智能截断：确保总token不超模型上下文窗口（约128K tokens，中文约1.7字/token）
     // 书籍内容请求时：优先保留书籍内容，截断其他检索结果

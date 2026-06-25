@@ -15,7 +15,7 @@ import { paiPan as qimenPaiPan, formatQiMenPaiPan as qimenFormat } from '@/lib/q
 import { paiPan as liurenPaiPan, formatLiuRenPaiPan as liurenFormat } from '@/lib/liuren';
 import { paiPan as fengshuiPaiPan, formatFengShuiPaiPan as fengshuiFormat } from '@/lib/fengshui';
 import { calculateXingMing as xingmingCalculate, formatXingMingPaiPan as xingmingFormat } from '@/lib/xingming';
-import { searchFullText, formatFullTextResults, getDetailedBookStats, findBooksByName, getBookFullText, getBookChapterContent, parseChapterRange } from '@/lib/fulltext-search';
+import { searchFullText, formatFullTextResults, getDetailedBookStats, findBooksByName, getBookFullText, getBookChapterContent, parseChapterRange, getLearnedBookCount } from '@/lib/fulltext-search';
 
 export const dynamic = 'force-dynamic';
 
@@ -124,7 +124,11 @@ ${bookContent.content}
       }
     }
 
-    let systemPrompt = baseSystemPrompt + finalKnowledgeStr + knowledgeBaseInfo + bookContentInfo + knowledgeIronLaw;
+    // 加入学习状态信息
+    const learnStats = getLearnedBookCount();
+    const learnInfo = `\n\n🔴【学习状态】系统已自动学习知识库中全部${learnStats.learned}本书籍（从第一页第一个字到最后一页最后一个字全部学会），你已是一位通读万卷书的学者，回答问题时要像消化吸收过一样专业、精准、有深度！`;
+
+    let systemPrompt = baseSystemPrompt + learnInfo + finalKnowledgeStr + knowledgeBaseInfo + bookContentInfo + knowledgeIronLaw;
 
     const modeInstruction = mode === 'professional'
       ? '请用专业术语进行解读，将典籍知识融入分析逻辑中，禁止出现任何书名。'

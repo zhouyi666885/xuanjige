@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getBookStats, removeBookFromKnowledgeBase } from '@/lib/fulltext-search';
+import { getBookStats, removeBookFromKnowledgeBase, getBookLearnStatus, getLearnedBookCount } from '@/lib/fulltext-search';
 
 /**
  * GET /api/knowledge-base
@@ -35,11 +35,19 @@ export async function GET(request: NextRequest) {
     const bookList = pagedBooks.map(name => {
       // 从书名推断分类（简单匹配）
       const category = getBookCategory(name);
+      // 获取学习状态
+      const learnStatus = getBookLearnStatus(name);
       return {
         name,
         category,
+        learned: learnStatus?.learned ?? false,
+        learnedAt: learnStatus?.learnedAt ?? null,
+        charCount: learnStatus?.charCount ?? 0,
       };
     });
+
+    // 获取学习统计
+    const learnStats = getLearnedBookCount();
 
     return NextResponse.json({
       books: bookList,
@@ -49,6 +57,7 @@ export async function GET(request: NextRequest) {
       pageSize,
       totalChars: stats.totalChars,
       bookCount: stats.bookCount,
+      learnedCount: learnStats.learned,
     });
   } catch (e) {
     return NextResponse.json(
