@@ -248,79 +248,40 @@ async function processTask(taskId: string): Promise<void> {
     const searchClient = new SearchClient(config);
     const fetchClient = new FetchClient(config);
 
-    // 2. 搜索书籍来源（铁规则：不准轻易放弃，必须搜遍所有渠道）
+    // 2. 搜索书籍来源（铁规则：搜索次数无上限，不设任何限制）
+    // 🔴 搜索次数无上限，不设任何限制。想搜多少次就搜多少次，不存在"达到搜索上限就停止"
     // 搜索优先级：免费公开网站 → 文档分享平台 → 电子书网站 → 论坛帖子 → 学术论文库 → 古籍数字化平台
-    const searchRounds = [
-      // 第一轮：基础搜索
-      [
-        `${task.bookName} 全文`,
-        `${task.bookName} 原文 完整版`,
-        `${task.bookName} text full`,
-        `${task.bookName} filetype:txt`,
-      ],
-      // 第二轮：扩展公开网站
-      [
-        `${task.bookName} site:gutenberg.org`,
-        `${task.bookName} site:archive.org`,
-        `${task.bookName} site:wikisource.org`,
-        `${task.bookName} site:ctext.org`,
-        `${task.bookName} site:zh.wikisource.org`,
-      ],
-      // 第三轮：文档分享平台
-      [
-        `${task.bookName} 百度文库 全文`,
-        `${task.bookName} 道客巴巴 完整版`,
-        `${task.bookName} 豆丁 全文`,
-        `${task.bookName} doc88 全文阅读`,
-      ],
-      // 第四轮：电子书网站和论坛
-      [
-        `${task.bookName} 电子书 下载 txt`,
-        `${task.bookName} 在线阅读 全文`,
-        `${task.bookName} PDF 全文`,
-        `${task.bookName} epub mobi 下载`,
-      ],
-      // 第五轮：学术和古籍平台
-      [
-        `${task.bookName} 古籍 数字化`,
-        `${task.bookName} 国学 导读 全文`,
-        `${task.bookName} 学术 论文 全文`,
-        `${task.bookName} 读秀 超星`,
-      ],
-      // 第六轮：补充搜索
-      [
-        `"${task.bookName}" 全文 在线`,
-        `${task.bookName} 免费阅读 完整`,
-        `${task.bookName} 书籍 原文 内容`,
-        `${task.bookName} txt 下载 百度网盘`,
-      ],
+    const initialSearchQueries = [
+      `${task.bookName} 全文`,
+      `${task.bookName} 原文 完整版`,
+      `${task.bookName} text full`,
+      `${task.bookName} filetype:txt`,
+      `${task.bookName} site:gutenberg.org OR site:archive.org`,
+      `${task.bookName} site:ctext.org OR site:zh.wikisource.org`,
+      `${task.bookName} 百度文库 OR 道客巴巴 OR 豆丁 全文`,
+      `${task.bookName} 电子书 下载 txt OR PDF`,
+      `${task.bookName} 古籍 数字化 OR 读秀 OR 超星`,
+      `"${task.bookName}" 全文 在线 OR 免费阅读`,
     ];
 
     let allResults: Array<{ url: string; title: string; snippet: string }> = [];
 
-    for (let round = 0; round < searchRounds.length; round++) {
-      const roundQueries = searchRounds[round];
-      for (const query of roundQueries) {
-        try {
-          const response = await searchClient.search({ query });
-          if (response?.web_items) {
-            for (const r of response.web_items) {
-              if (r.url && !allResults.some(x => x.url === r.url)) {
-                allResults.push({ url: r.url, title: r.title || '', snippet: r.snippet || '' });
-              }
+    // 基础搜索：先快速搜一遍
+    for (const query of initialSearchQueries) {
+      try {
+        const response = await searchClient.search({ query });
+        if (response?.web_items) {
+          for (const r of response.web_items) {
+            if (r.url && !allResults.some(x => x.url === r.url)) {
+              allResults.push({ url: r.url, title: r.title || '', snippet: r.snippet || '' });
             }
           }
-        } catch (e) {
-          // 继续尝试下一个搜索词，绝不放弃
         }
-      }
-      addLog(taskId, `第${round + 1}轮搜索完成，累计 ${allResults.length} 个来源`);
-
-      // 如果已有来源，先去尝试获取，不够再继续搜
-      if (allResults.length > 0) {
-        break; // 有来源就先去试，试完不够再回来搜
+      } catch (e) {
+        // 继续
       }
     }
+    addLog(taskId, `基础搜索完成，找到 ${allResults.length} 个来源`);
 
     // 铁规则：不存在搜索次数上限！必须搜遍全网所有渠道才能判定版权问题
     if (allResults.length === 0) {
@@ -348,15 +309,76 @@ async function processTask(taskId: string): Promise<void> {
       addLog(taskId, `追加搜索第1批完成，累计 ${allResults.length} 个来源`);
     }
 
-    // 如果第一批追加还是没找到，继续搜更多渠道
-    if (allResults.length === 0) {
-      const extraQueries2 = [
-        `${task.bookName} pdf 下载`,
-        `${task.bookName} 电子书 在线阅读`,
-        `${task.bookName} txt 全本`,
-        `${task.bookName} epub 免费下载`,
-      ];
-      for (const query of extraQueries2) {
+    // 🔴 搜索次数无上限，不设任何限制。想搜多少次就搜多少次，不存在"达到搜索上限就停止"
+    // 只有连续3轮搜索都没有发现任何新结果时，才认为已经搜遍全网
+    const searchRounds: Array<{ name: string; queries: string[] }> = [
+      {
+        name: 'PDF/电子书搜索',
+        queries: [
+          `${task.bookName} pdf 下载`,
+          `${task.bookName} 电子书 在线阅读`,
+          `${task.bookName} txt 全本`,
+          `${task.bookName} epub 免费下载`,
+          `${task.bookName} mobi 全本下载`,
+        ],
+      },
+      {
+        name: '文档平台搜索',
+        queries: [
+          `${task.bookName} site:wenku.baidu.com`,
+          `${task.bookName} site:doc88.com OR site:docin.com`,
+          `${task.bookName} site:ishare.iask.sina.com.cn`,
+          `${task.bookName} site:m.book118.com`,
+        ],
+      },
+      {
+        name: '论坛/社区搜索',
+        queries: [
+          `${task.bookName} site:douban.com`,
+          `${task.bookName} site:zhihu.com`,
+          `${task.bookName} site:tieba.baidu.com`,
+          `${task.bookName} site:xiaohongshu.com OR site:weibo.com`,
+        ],
+      },
+      {
+        name: '古籍库/藏书搜索',
+        queries: [
+          `${task.bookName} site:gugeyingshu.com OR site:guji.nlpc.org.cn OR site:shuge.org`,
+          `${task.bookName} 古籍库 OR 典籍 OR 藏书 OR 图书馆`,
+          `${task.bookName} site:nlc.cn OR site:calis.edu.cn`,
+          `${task.bookName} 国家图书馆 OR 数字古籍`,
+        ],
+      },
+      {
+        name: '内容引用搜索',
+        queries: [
+          `${task.bookName} 内容 摘录`,
+          `${task.bookName} 原文 引用 片段`,
+          `${task.bookName} 读后感 书评 内容介绍`,
+          `${task.bookName} 目录 全部章节 完整版`,
+        ],
+      },
+      {
+        name: '作者/别名搜索',
+        queries: [
+          `${task.bookName} 作者 全集 作品`,
+          `${task.bookName} 又名 OR 别名 OR 古称`,
+          `"${task.bookName}" 全文 OR 完整 OR 原版`,
+          `${task.bookName} 扫描版 OR 影印版 OR 原书`,
+        ],
+      },
+    ];
+
+    let noNewResultCount = 0;
+    let roundIndex = 0;
+
+    // 无上限搜索循环：只要还在发现新结果，就继续搜
+    // 只有连续3轮都没发现新结果，才认为搜遍全网
+    while (noNewResultCount < 3) {
+      const round = searchRounds[roundIndex % searchRounds.length];
+      const beforeCount = allResults.length;
+
+      for (const query of round.queries) {
         try {
           const response = await searchClient.search({ query });
           if (response?.web_items) {
@@ -367,70 +389,36 @@ async function processTask(taskId: string): Promise<void> {
             }
           }
         } catch (e) {
-          // 继续
+          // 继续搜索下一个
         }
       }
-      addLog(taskId, `追加搜索第2批完成，累计 ${allResults.length} 个来源`);
-    }
 
-    // 如果第二批追加还是没找到，搜文档平台和论坛
-    if (allResults.length === 0) {
-      const extraQueries3 = [
-        `${task.bookName} site:wenku.baidu.com OR site:doc88.com OR site:docin.com`,
-        `${task.bookName} site:douban.com OR site:zhihu.com OR site:tieba.baidu.com`,
-        `${task.bookName} site:gugeyingshu.com OR site:guji.nlpc.org.cn OR site:shuge.org`,
-        `${task.bookName} 古籍库 OR 典籍 OR 藏书 OR 图书馆`,
-      ];
-      for (const query of extraQueries3) {
-        try {
-          const response = await searchClient.search({ query });
-          if (response?.web_items) {
-            for (const r of response.web_items) {
-              if (r.url && !allResults.some(x => x.url === r.url)) {
-                allResults.push({ url: r.url, title: r.title || '', snippet: r.snippet || '' });
-              }
-            }
-          }
-        } catch (e) {
-          // 继续
-        }
+      const newResults = allResults.length - beforeCount;
+      if (newResults > 0) {
+        noNewResultCount = 0;
+        addLog(taskId, `第${roundIndex + 1}轮搜索「${round.name}」发现 ${newResults} 个新来源，累计 ${allResults.length} 个`);
+      } else {
+        noNewResultCount++;
+        addLog(taskId, `第${roundIndex + 1}轮搜索「${round.name}」未发现新来源（连续空轮 ${noNewResultCount}/3）`);
       }
-      addLog(taskId, `追加搜索第3批（文档平台/古籍库）完成，累计 ${allResults.length} 个来源`);
+
+      roundIndex++;
+
+      // 🔴 搜索次数无上限！只要连续3轮没新结果才停下（说明全网已搜遍）
+      // 不设轮次上限，想搜多少次搜多少次
     }
 
-    // 如果第三批追加还是没找到，最后再试一次模糊搜索
-    if (allResults.length === 0) {
-      const extraQueries4 = [
-        `${task.bookName} 内容 摘录`,
-        `${task.bookName} 原文 引用`,
-        `${task.bookName} 读后感 书评 内容介绍`,
-      ];
-      for (const query of extraQueries4) {
-        try {
-          const response = await searchClient.search({ query });
-          if (response?.web_items) {
-            for (const r of response.web_items) {
-              if (r.url && !allResults.some(x => x.url === r.url)) {
-                allResults.push({ url: r.url, title: r.title || '', snippet: r.snippet || '' });
-              }
-            }
-          }
-        } catch (e) {
-          // 继续
-        }
-      }
-      addLog(taskId, `追加搜索第4批（模糊搜索）完成，累计 ${allResults.length} 个来源`);
-    }
+    addLog(taskId, `搜索完成：共 ${roundIndex} 轮，累计 ${allResults.length} 个来源`);
 
-    // 只有一种情况判定版权问题：全网所有渠道（免费网站、文档平台、电子书站、论坛、古籍库等）全部搜遍，确认找不到
+    // 只有一种情况判定版权问题：全网所有渠道全部搜遍，确认找不到
     if (allResults.length === 0) {
       updateTask(taskId, {
         status: 'copyright',
-        message: `已搜遍全网所有渠道（免费网站、文档平台、电子书站、论坛、古籍库），均未找到《${task.bookName}》的完整内容`,
+        message: `已搜遍全网所有渠道（共${roundIndex}轮搜索，涵盖免费网站、文档平台、电子书站、论坛、古籍库、社区等），均未找到《${task.bookName}》的完整内容`,
         progress: 0,
         completedAt: Date.now(),
       });
-      addLog(taskId, '所有渠道均未找到此书，判定为版权问题');
+      addLog(taskId, `共${roundIndex}轮搜索均未找到此书，判定为版权问题`);
       return;
     }
 
