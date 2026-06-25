@@ -1106,7 +1106,8 @@ export function initTaskManager(): void {
         }
       }, Math.random() * 5000 + 3000);
     } else if (task.status === 'done' && task.learningStatus === 'learning') {
-      // 学习中断，恢复学习
+      // 学习中断，恢复学习（先重置为pending让processLearning能重新开始）
+      updateTask(id, { learningStatus: 'pending', learningProgress: 0, learningMessage: '等待恢复学习...' });
       resumed++;
       setTimeout(async () => {
         const { getBookFullText } = require('./fulltext-search');
