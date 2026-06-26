@@ -543,7 +543,9 @@ export async function forceSyncSeedDataToDb(): Promise<{ synced: number; total: 
     const seeds: SeedItem[] = [];
     try {
       const seedMod = await import('./seed-data/books');
-      for (const s of seedMod.SEED_BOOKS) {
+      // 懒加载：只在需要同步时才读 fs，避免常驻 heap
+      const loaded = seedMod.getSeedBooks();
+      for (const s of loaded) {
         seeds.push({ name: s.name, content: s.content, chapters: s.chapters, charCount: s.charCount });
       }
     } catch (e) {
@@ -599,7 +601,8 @@ async function syncSeedDataToDb(): Promise<void> {
     const seeds: SeedItem[] = [];
     try {
       const seedMod = await import('./seed-data/books');
-      for (const s of seedMod.SEED_BOOKS) {
+      const loaded = seedMod.getSeedBooks();
+      for (const s of loaded) {
         seeds.push({ name: s.name, content: s.content, chapters: s.chapters, charCount: s.charCount });
       }
     } catch (e) {

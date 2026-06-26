@@ -2501,7 +2501,7 @@ export function getTaskStats(): { total: number; active: number; done: number; f
 // ==================== 本地书籍学习 ====================
 
 /** 学习并发控制 */
-const MAX_CONCURRENT_LEARNING = 3;
+const MAX_CONCURRENT_LEARNING = 1;
 let localLearningActive = 0;
 let localLearningQueue: string[] = []; // taskId队列
 let localLearningStarted = false;
