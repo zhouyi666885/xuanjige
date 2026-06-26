@@ -14,7 +14,10 @@ interface BookInfo {
   learningCurrentChunk: number;
   learningTotalChunks: number;
   learningMessage: string;
+  learningCurrentChapter?: number;
+  learningCurrentChapterName?: string;
   hasMissingChapters: boolean;
+  missingChapterNames?: string[];
   currentChapter: number;
   totalChapters: number;
   chapterStructure: string;
@@ -37,8 +40,13 @@ export default function KnowledgeBasePage() {
   const [totalPages, setTotalPages] = useState(1);
   const [deletingBook, setDeletingBook] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
+  const [showMissingFor, setShowMissingFor] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState<string>('全部');
   const [isStartingLearning, setIsStartingLearning] = useState(false);
+  // 单本书启动状态：bookName → true
+  const [startingOne, setStartingOne] = useState<Record<string, boolean>>({});
+  // 缺失章节弹层
+  const [showMissing, setShowMissing] = useState<{ name: string; list: string[] } | null>(null);
   const pageSize = 50;
 
   const fetchBooks = useCallback(async (search = '', p = 1, silent = false) => {
@@ -243,6 +251,38 @@ export default function KnowledgeBasePage() {
     // 这样即使 fetchBooks 返回时后端还没更新完，按钮也不会闪回
   };
 
+  // 单本书启动学习
+  const handleStartLearningOne = async (bookName: string) => {
+    setStartingOne(prev => ({ ...prev, [bookName]: true }));
+    // 乐观更新：立即把这本书设为 learning
+    setBooks(prev => prev.map(b =>
+      b.name === bookName
+        ? { ...b, learningStatus: 'learning' as const, learningMessage: '正在启动学习...', learningProgress: 0 }
+        : b
+    ));
+    try {
+      const res = await fetch('/api/knowledge-base', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'start-learning-one', bookName }),
+      });
+      await res.json();
+      await new Promise(r => setTimeout(r, 1200));
+      await fetchBooks(searchQuery, page, true);
+    } catch {
+      // 失败回滚
+      setBooks(prev => prev.map(b =>
+        b.name === bookName ? { ...b, learningStatus: 'pending' as const } : b
+      ));
+    } finally {
+      setStartingOne(prev => {
+        const next = { ...prev };
+        delete next[bookName];
+        return next;
+      });
+    }
+  };
+
   // 格式化字符数
   const formatChars = (chars: number) => {
     if (chars >= 100000000) return `${(chars / 100000000).toFixed(1)}亿`;
@@ -438,9 +478,20 @@ export default function KnowledgeBasePage() {
                         </span>
                       )}
                       {book.hasMissingChapters && (
-                        <span className="text-[10px] bg-amber-900/30 text-amber-400 px-1.5 py-0.5 rounded-full flex-shrink-0 border border-amber-700/30">
-                          缺 {book.totalChapters - book.currentChapter} 章
-                        </span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShowMissing({
+                              name: book.name,
+                              list: book.missingChapterNames || [],
+                            });
+                          }}
+                          className="text-[10px] bg-amber-900/30 text-amber-400 px-1.5 py-0.5 rounded-full flex-shrink-0 border border-amber-700/30 hover:bg-amber-900/50 transition-colors"
+                          title="点击查看缺失章节详情"
+                        >
+                          缺 {(book.missingChapterNames?.length) || (book.totalChapters - book.currentChapter)} {book.chapterStructure || '章'}
+                        </button>
                       )}
                     </div>
                     <div className="flex items-center gap-2 mt-0.5 flex-wrap">
@@ -462,18 +513,20 @@ export default function KnowledgeBasePage() {
                     {/* 学习进度条（pending/learning/done 全部显示） */}
                     <div className="mt-1.5">
                       <div className="flex justify-between text-[9px] text-[#8a8070] mb-0.5">
-                        <span>
+                        <span className="truncate flex-1 mr-2">
                           {book.learningStatus === 'done'
                             ? '深度学习完成'
                             : book.learningStatus === 'learning'
-                              ? (book.learningMessage || 'AI深度学习中...')
-                              : '待学习（点上方按钮统一开始）'}
+                              ? (book.learningCurrentChapter && book.learningCurrentChapter > 0
+                                  ? `📖 学到第 ${book.learningCurrentChapter}/${book.totalChapters} ${book.chapterStructure || '章'}${book.learningCurrentChapterName ? `「${book.learningCurrentChapterName.substring(0, 14)}」` : ''}`
+                                  : (book.learningMessage || 'AI深度学习中...'))
+                              : '⏳ 待学习'}
                         </span>
-                        <span>
+                        <span className="flex-shrink-0">
                           {book.learningStatus === 'pending'
                             ? '0%'
                             : book.learningTotalChunks > 0
-                              ? `已分析 ${book.learningCurrentChunk}/${book.learningTotalChunks} 个学习块`
+                              ? `${book.learningProgress}%`
                               : `${book.learningProgress}%`}
                         </span>
                       </div>
@@ -515,6 +568,20 @@ export default function KnowledgeBasePage() {
                           <span className="text-[8px] px-1 py-0.5 rounded bg-green-900/20 text-green-400">✓关联</span>
                           <span className="text-[8px] px-1 py-0.5 rounded bg-green-900/20 text-green-400">✓应用</span>
                         </div>
+                      )}
+                      {/* 🔴 单本书"开始学习"按钮：仅 pending 状态显示 */}
+                      {book.learningStatus === 'pending' && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleStartLearningOne(book.name);
+                          }}
+                          disabled={!!startingOne[book.name]}
+                          className="mt-2 text-[10px] px-2 py-1 rounded bg-[#d4a853]/10 text-[#d4a853] border border-[#d4a853]/30 hover:bg-[#d4a853]/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors w-full"
+                        >
+                          {startingOne[book.name] ? '⏳ 启动中...' : `📖 开始深度学习《${book.name}》`}
+                        </button>
                       )}
                     </div>
                   </div>
@@ -590,6 +657,41 @@ export default function KnowledgeBasePage() {
           </div>
         </div>
       )}
+
+      {/* 缺失章节详情弹窗 */}
+      {showMissingFor && (() => {
+        const book = books.find((b) => b.name === showMissingFor);
+        if (!book) return null;
+        const unit = book.chapterStructure || '章';
+        const missing = book.missingChapterNames || [];
+        return (
+          <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={() => setShowMissingFor(null)}>
+            <div className="bg-[#1a1a2e] border border-[#2a2a3e] rounded-xl p-5 max-w-md w-full max-h-[70vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+              <h3 className="text-[#e8e0d0] font-bold mb-1">《{book.name}》缺失{unit}节</h3>
+              <p className="text-xs text-[#8a8070] mb-3">
+                已抓 {book.currentChapter}/{book.totalChapters} {unit}，共缺 {missing.length} {unit}
+              </p>
+              {missing.length === 0 ? (
+                <p className="text-sm text-[#8a8070]">未检测到具体缺失{unit}节名。</p>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {missing.map((n) => (
+                    <span key={n} className="text-[11px] px-2 py-1 rounded bg-[#2a1818] text-red-300 border border-red-900/40">
+                      {n}
+                    </span>
+                  ))}
+                </div>
+              )}
+              <button
+                onClick={() => setShowMissingFor(null)}
+                className="mt-4 w-full text-sm py-2 rounded-lg border border-[#2a2a3e] text-[#8a8070] hover:text-[#e8e0d0]"
+              >
+                关闭
+              </button>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

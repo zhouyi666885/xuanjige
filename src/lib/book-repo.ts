@@ -39,6 +39,10 @@ export interface BookTaskRow {
   learning_started_at: string | null;
   learning_completed_at: string | null;
   logs: Array<{ time: string; level: string; message: string }> | null;
+  has_missing_chapters: boolean | null;
+  missing_chapter_names: string[] | null;
+  learning_current_chapter: number | null;
+  learning_current_chapter_name: string | null;
   created_at: string;
   updated_at: string | null;
   completed_at: string | null;

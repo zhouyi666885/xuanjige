@@ -47,6 +47,9 @@ interface BookTask {
   learningMessage: string; // 学习状态消息
   learningLayersDone: number[]; // 已完成的学习层次 [1,2,3,4]
   hasMissingChapters: boolean; // 是否缺章节
+  missingChapterNames: string[]; // 缺失的章节名列表（如 ['第十五章','第二十章']）
+  learningCurrentChapter: number; // 学习时进行到第几章/卦/卷
+  learningCurrentChapterName: string; // 学习时当前章节名
   isLocalBook?: boolean; // 是否为系统内置本地书籍
   createdAt: number;
   updatedAt: number;
@@ -138,6 +141,98 @@ function detectBookChapters(content: string): { totalChapters: number; structure
     structureType,
     chapterNames: chapters.map(c => c.name),
   };
+}
+
+// 中文数字→阿拉伯数字（仅支持 0~9999）
+function cnNumToInt(cn: string): number {
+  const digitMap: Record<string, number> = {
+    零: 0, 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10, 百: 100, 千: 1000, 万: 10000,
+  };
+  if (/^\d+$/.test(cn)) return parseInt(cn, 10);
+  let result = 0;
+  let section = 0;
+  let lastUnit = 1;
+  for (const ch of cn) {
+    const v = digitMap[ch];
+    if (v === undefined) continue;
+    if (v >= 10) {
+      // 单位字
+      section = section === 0 ? v : section * v;
+      result += section;
+      section = 0;
+      lastUnit = v;
+    } else {
+      section = section * 10 + v;
+    }
+  }
+  result += section;
+  // "十一"→11 这种特例
+  if (result === 0 && cn.includes('十')) {
+    // 类似"十"=10, "十五"=15
+    const idx = cn.indexOf('十');
+    const before = cn.substring(0, idx);
+    const after = cn.substring(idx + 1);
+    const b = before ? cnNumToInt(before) : 1;
+    const a = after ? cnNumToInt(after) : 0;
+    return b * 10 + a;
+  }
+  return result || lastUnit;
+}
+
+/**
+ * 检测原书"应有"的章节范围 + 缺失章节列表
+ * 原理：扫描内容里出现的所有"第X章/卦/卷..."，取最大序号 N，对比 1~N 看哪些没出现
+ */
+function detectMissingChapters(content: string, structureType: string): {
+  maxIndex: number;
+  presentIndices: number[];
+  missingIndices: number[];
+  missingNames: string[];
+} {
+  if (!content || !structureType) {
+    return { maxIndex: 0, presentIndices: [], missingIndices: [], missingNames: [] };
+  }
+  // 只对"章/卦/卷/篇/回/部/辑/节"这类有明确序号的结构做缺失检测
+  const supportedUnits = ['章', '卦', '卷', '篇', '回', '部', '辑', '节'];
+  // 兼容"卷/章"复合结构：按第一个字符判定主单位
+  const primaryUnit = structureType.split(/[\/+·]/)[0] || structureType;
+  if (!supportedUnits.includes(primaryUnit)) {
+    return { maxIndex: 0, presentIndices: [], missingIndices: [], missingNames: [] };
+  }
+  const numPattern = '[一二三四五六七八九十百千万零\\d]+';
+  const regex = new RegExp(`第(${numPattern})${primaryUnit}`, 'g');
+  const seen = new Set<number>();
+  let match;
+  while ((match = regex.exec(content)) !== null) {
+    const idx = cnNumToInt(match[1]);
+    if (idx >= 1 && idx <= 9999) seen.add(idx);
+  }
+  if (seen.size === 0) {
+    return { maxIndex: 0, presentIndices: [], missingIndices: [], missingNames: [] };
+  }
+  const maxIndex = Math.max(...seen);
+  // 仅当 maxIndex >= 3 才认为这是按序号编排的书（防止"第一章 总论"类单章误报）
+  if (maxIndex < 3) {
+    return { maxIndex, presentIndices: Array.from(seen).sort((a, b) => a - b), missingIndices: [], missingNames: [] };
+  }
+  const present: number[] = [];
+  const missing: number[] = [];
+  for (let i = 1; i <= maxIndex; i++) {
+    if (seen.has(i)) present.push(i);
+    else missing.push(i);
+  }
+  const toCN = (n: number): string => {
+    if (n <= 10) return ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十'][n];
+    if (n < 20) return '十' + ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九'][n - 10];
+    if (n < 100) {
+      const tens = Math.floor(n / 10);
+      const ones = n % 10;
+      return ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九'][tens] + '十' + (ones ? ['', '一', '二', '三', '四', '五', '六', '七', '八', '九'][ones] : '');
+    }
+    return String(n); // 100+ 直接阿拉伯
+  };
+  const missingNames = missing.map(i => `第${toCN(i)}${primaryUnit}`);
+  return { maxIndex, presentIndices: present, missingIndices: missing, missingNames };
 }
 
 /**
@@ -308,6 +403,10 @@ function bookTaskToRow(t: BookTask): BookTaskRow {
           message: typeof m === 'string' ? m : String(m),
         }))
       : null,
+    has_missing_chapters: t.hasMissingChapters ?? false,
+    missing_chapter_names: t.missingChapterNames ?? [],
+    learning_current_chapter: t.learningCurrentChapter ?? 0,
+    learning_current_chapter_name: t.learningCurrentChapterName ?? '',
   };
 }
 
@@ -349,7 +448,10 @@ function rowToBookTask(row: BookTaskRow): BookTask {
     remainingChapters: 0,
     size: '',
     chapters: [],
-    hasMissingChapters: false,
+    hasMissingChapters: row.has_missing_chapters ?? false,
+    missingChapterNames: Array.isArray(row.missing_chapter_names) ? row.missing_chapter_names : [],
+    learningCurrentChapter: row.learning_current_chapter ?? 0,
+    learningCurrentChapterName: row.learning_current_chapter_name ?? '',
     error: '',
   };
 }
@@ -1303,13 +1405,27 @@ async function processTask(taskId: string): Promise<void> {
       index: i + 1,
     }));
 
+    // 🔴 缺失章节检测：扫描内容里"应有"的最大章号 vs 实际识别到的章
+    const missingInfo = detectMissingChapters(bookContent, finalChapterInfo.structureType);
+    const hasMissing = missingInfo.missingNames.length > 0;
+    if (hasMissing) {
+      addLog(
+        taskId,
+        `⚠️ 检测到缺失：原书应有 ${missingInfo.maxIndex} ${finalChapterInfo.structureType}，` +
+        `实际录入 ${missingInfo.presentIndices.length}，缺失 ${missingInfo.missingNames.length} 个：` +
+        `${missingInfo.missingNames.slice(0, 10).join('、')}${missingInfo.missingNames.length > 10 ? '...' : ''}`
+      );
+    }
+
     updateTask(taskId, {
       status: 'done',
-      message: `《${task.bookName}》已录入知识库，准备开始AI学习...`,
+      message: hasMissing
+        ? `《${task.bookName}》已录入（⚠️ 缺 ${missingInfo.missingNames.length} ${finalChapterInfo.structureType}，已穷尽所有网站仍未找到）`
+        : `《${task.bookName}》已完整录入知识库，准备开始AI学习...`,
       progress: 100,
-      totalChapters: finalChapterCount,
+      totalChapters: hasMissing ? missingInfo.maxIndex : finalChapterCount,
       currentChapter: finalChapterCount,
-      remainingChapters: 0,
+      remainingChapters: hasMissing ? missingInfo.missingNames.length : 0,
       source: usedSource,
       size: `${sizeKB}KB`,
       chars: bookContent.length,
@@ -1320,6 +1436,8 @@ async function processTask(taskId: string): Promise<void> {
         type: finalChapterInfo.structureType,
         startIndex: i,
       })),
+      hasMissingChapters: hasMissing,
+      missingChapterNames: missingInfo.missingNames,
     });
     addLog(taskId, `摘录完成: ${finalChapterCount} ${finalChapterInfo.structureType}, ${bookContent.length} 字`);
 
@@ -1669,31 +1787,57 @@ async function processLearning(taskId: string, bookContent: string): Promise<voi
 
     // ======== 第一步：分块 ========
     // 按段落边界分块，每块约3000字符，适合LLM理解+向量化
+    // 同时记录每块的起始字符位置，用于反查"学到了第几章"
     const CHUNK_SIZE = 3000;
     const chunks: string[] = [];
-    
+    const chunkStartPositions: number[] = []; // 每块在原文中的起始字符位置
+
+    // 解析原书章节结构，用于按章节展示学习进度
+    const bookChapters = parseBookChapters(bookContent);
+    const bookChapterInfo = detectBookChapters(bookContent);
+    const learningStructureUnit = bookChapterInfo.structureType && bookChapterInfo.structureType !== '未知'
+      ? bookChapterInfo.structureType
+      : (task.chapterStructure || '块');
+
     const paragraphs = bookContent.split(/\n{2,}/).filter((p: string) => p.trim().length > 0);
     let currentChunk = '';
-    
+    let currentChunkStart = 0;
+    let cursor = 0; // 在原文中的累计位置（按段落顺序累加）
+
     for (const para of paragraphs) {
+      // 在原文中定位本段落（使用 indexOf 从当前 cursor 之后开始找）
+      const paraIdx = bookContent.indexOf(para, cursor);
+      if (paraIdx >= 0) cursor = paraIdx;
+
       if (currentChunk.length + para.length + 2 > CHUNK_SIZE && currentChunk.length > 0) {
         chunks.push(currentChunk.trim());
+        chunkStartPositions.push(currentChunkStart);
         currentChunk = para;
+        currentChunkStart = cursor;
       } else {
+        if (!currentChunk) currentChunkStart = cursor;
         currentChunk += (currentChunk ? '\n\n' : '') + para;
       }
+      cursor += para.length;
     }
     if (currentChunk.trim()) {
       chunks.push(currentChunk.trim());
+      chunkStartPositions.push(currentChunkStart);
     }
 
     const totalChunks = chunks.length;
+    // 计算"原书共有多少章/卷/卦"用于显示
+    const totalUnits = bookChapters.length > 0 ? bookChapters.length : totalChunks;
     updateTask(taskId, {
       learningTotalChunks: totalChunks,
       learningCurrentChunk: 0,
-      learningMessage: `AI学习中: 共${totalChunks}块内容待学习...`,
+      learningCurrentChapter: 0,
+      learningCurrentChapterName: bookChapters.length > 0 ? bookChapters[0].name : '',
+      learningMessage: bookChapters.length > 0
+        ? `AI学习中: 准备学习 共${totalUnits}${learningStructureUnit}（按段落切分为 ${totalChunks} 个学习块）...`
+        : `AI学习中: 共${totalChunks}块内容待学习...`,
     });
-    addLog(taskId, `学习分块: ${totalChunks} 块, 目标表: ${tableName}`);
+    addLog(taskId, `学习分块: ${totalChunks} 块, 原书 ${totalUnits} ${learningStructureUnit}, 目标表: ${tableName}`);
 
     // ======== 第二步：逐块深度学习 ========
     // 对每一块内容，AI进行4层理解：术语→逻辑→关联→应用
@@ -1774,11 +1918,27 @@ ${chunk}
       if (progress >= 25) layersDone.push(1); // ①术语理解
       if (progress >= 50) layersDone.push(2); // ②逻辑推理
       if (progress >= 75) layersDone.push(3); // ③交叉关联
+
+      // 🔴 反查"学到了第几章/卦/卷"：根据当前块的起始字符位置找出原书章节
+      let curChapterIdx = 0;
+      let curChapterName = '';
+      if (bookChapters.length > 0) {
+        const chunkPos = chunkStartPositions[i] ?? 0;
+        const located = getCurrentChapterAtPosition(bookChapters, chunkPos);
+        curChapterIdx = located.index;
+        curChapterName = located.name;
+      }
+      const friendlyMsg = bookChapters.length > 0
+        ? `📖 学习中：第${curChapterIdx}/${totalUnits}${learningStructureUnit}「${curChapterName}」（块 ${processedChunks}/${totalChunks}，${progress}%）`
+        : `AI学习中: ${processedChunks}/${totalChunks}块 (${progress}%) - 正在理解术语/逻辑/关联/应用`;
+
       updateTask(taskId, {
         learningProgress: progress,
         learningCurrentChunk: processedChunks,
+        learningCurrentChapter: curChapterIdx,
+        learningCurrentChapterName: curChapterName,
         learningLayersDone: layersDone,
-        learningMessage: `AI学习中: ${processedChunks}/${totalChunks}块 (${progress}%) - 正在理解术语/逻辑/关联/应用`,
+        learningMessage: friendlyMsg,
       });
       
       // 🔴 学习铁律：进度持久化到 local-learn-tasks.json
@@ -1791,7 +1951,7 @@ ${chunk}
           learningCurrentChunk: processedChunks,
           learningTotalChunks: totalChunks,
           learningLayersDone: layersDone,
-          learningMessage: `AI学习中: ${processedChunks}/${totalChunks}块 (${progress}%)`,
+          learningMessage: friendlyMsg,
         });
       }
 
@@ -2117,6 +2277,9 @@ export function createTask(bookName: string): { task: BookTask; isNew: boolean }
       : '等待录入完成...',
     learningLayersDone: [],
     hasMissingChapters: false,
+    missingChapterNames: [],
+    learningCurrentChapter: 0,
+    learningCurrentChapterName: '',
     createdAt: Date.now(),
     updatedAt: Date.now(),
     startedAt: localFileExists ? Date.now() : null,
@@ -2421,6 +2584,9 @@ export async function startLearningPendingBooks(): Promise<{ started: number; al
             learningMessage: '',
             learningLayersDone: [],
             hasMissingChapters: false,
+    missingChapterNames: [],
+    learningCurrentChapter: 0,
+    learningCurrentChapterName: '',
             isLocalBook: true,
             logs: [`自动发现本地书籍: ${bookName}`],
             createdAt: Date.now(),
@@ -2687,6 +2853,9 @@ export async function startLearningAllLocalBooks(): Promise<{ total: number; sta
       learningMessage: '学习已加入队列',
       learningLayersDone: [],
       hasMissingChapters: false,
+    missingChapterNames: [],
+    learningCurrentChapter: 0,
+    learningCurrentChapterName: '',
       createdAt: now,
       updatedAt: now,
       startedAt: now,
@@ -2743,6 +2912,121 @@ export async function startLearningAllLocalBooks(): Promise<{ total: number; sta
       ? `已启动 ${started} 本书的学习（${skipped} 本已学完跳过），并发数 ${MAX_CONCURRENT_LEARNING}` 
       : `共 ${localBooks.total} 本书，${skipped} 本已学完，无需再学习`
   };
+}
+
+/**
+ * 启动单本书的学习
+ * 用户在知识库每本书旁边点"开始学习"按钮调用此函数
+ */
+export async function startLearningSingleBook(bookName: string): Promise<{ success: boolean; message: string; taskId?: string }> {
+  if (!isInitialized) initTaskManager();
+  if (!bookName) return { success: false, message: '书名不能为空' };
+
+  // 预加载书目 + 同步 db 任务
+  try {
+    const { loadBookCacheAsync } = await import('./fulltext-search');
+    await loadBookCacheAsync();
+  } catch (e) {
+    console.warn('[startLearningSingleBook] 预加载失败', e);
+  }
+  try {
+    await loadTasksFromDb();
+  } catch (e) {
+    console.warn('[startLearningSingleBook] loadTasksFromDb 失败', e);
+  }
+
+  // 检查 db 是否已 done
+  try {
+    const dbTask = await repoGetTaskByName(bookName);
+    if (dbTask?.learning_status === 'done') {
+      return { success: false, message: `《${bookName}》已学完，无需再学` };
+    }
+  } catch { /* 忽略 */ }
+
+  // 检查是否已有任务
+  let existingTask = Array.from(tasks.values()).find(t => t.bookName === bookName);
+  
+  const now = Date.now();
+  if (existingTask) {
+    if (existingTask.learningStatus === 'done') {
+      return { success: false, message: `《${bookName}》已学完，无需再学` };
+    }
+    // 强制标记为 learning + 入队
+    if (!localLearningQueue.includes(existingTask.id)) {
+      localLearningQueue.push(existingTask.id);
+    }
+    existingTask.learningStatus = 'learning';
+    existingTask.learningMessage = '学习已加入队列（单本启动）';
+    existingTask.startedAt = existingTask.startedAt || now;
+    existingTask.updatedAt = now;
+    existingTask.isLocalBook = true;
+  } else {
+    // 创建新本地学习任务
+    const id = `local-${now}-${Math.random().toString(36).slice(2, 8)}`;
+    const task: BookTask = {
+      id,
+      bookName,
+      status: 'done',
+      progress: 100,
+      totalChapters: 0,
+      currentChapter: 0,
+      currentChapterName: '',
+      remainingChapters: 0,
+      chapterStructure: '',
+      message: '本地内置书籍，内容已就绪',
+      source: 'local',
+      size: '',
+      chars: 0,
+      chapters: [],
+      isLocalBook: true,
+      logs: ['本地书籍，单本启动学习'],
+      learningStatus: 'learning',
+      learningProgress: 0,
+      learningCurrentChunk: 0,
+      learningTotalChunks: 0,
+      learningMessage: '学习已加入队列（单本启动）',
+      learningLayersDone: [],
+      hasMissingChapters: false,
+      missingChapterNames: [],
+      learningCurrentChapter: 0,
+      learningCurrentChapterName: '',
+      createdAt: now,
+      updatedAt: now,
+      startedAt: now,
+      completedAt: null,
+      error: '',
+    };
+    tasks.set(id, task);
+    localLearningQueue.push(id);
+    existingTask = task;
+  }
+
+  // 持久化到 local-learn-tasks.json
+  try {
+    const learnTaskFile = path.join(TASKS_DIR, 'local-learn-tasks.json');
+    let learnTasks: Record<string, Record<string, unknown>> = {};
+    if (fs.existsSync(learnTaskFile)) {
+      try { learnTasks = JSON.parse(fs.readFileSync(learnTaskFile, 'utf-8')); } catch {}
+    }
+    learnTasks[bookName] = {
+      learningStatus: 'learning',
+      learningProgress: 0,
+      learningMessage: '学习已加入队列（单本启动）',
+      taskId: existingTask.id,
+      startedAt: now,
+    };
+    fs.writeFileSync(learnTaskFile, JSON.stringify(learnTasks, null, 2), 'utf-8');
+  } catch (e) {
+    console.warn('[startLearningSingleBook] 写 local-learn-tasks.json 失败', e);
+  }
+
+  // 写主任务文件 + Supabase
+  try { saveTasks(); } catch (e) { console.warn('[startLearningSingleBook] saveTasks 异常', e); }
+
+  // 启动队列处理
+  processLocalLearningQueue();
+  
+  return { success: true, message: `已启动《${bookName}》的学习`, taskId: existingTask.id };
 }
 
 /**

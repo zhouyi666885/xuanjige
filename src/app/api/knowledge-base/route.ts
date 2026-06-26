@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getBookStats, removeBookFromKnowledgeBase, getBookLearnStatus, getLearnedBookCount, invalidateCache, loadBookCacheAsync } from '@/lib/fulltext-search';
-import { getAllTasks, startLearningAllLocalBooks, getLocalLearningProgress, deleteTask } from '@/lib/book-task-manager';
+import { getAllTasks, startLearningAllLocalBooks, startLearningSingleBook, getLocalLearningProgress, deleteTask } from '@/lib/book-task-manager';
 import { upsertTask, getTaskByBookName, listTasks } from '@/lib/book-repo';
 import fsRaw from 'fs';
 import pathRaw from 'path';
@@ -136,6 +136,10 @@ export async function GET(request: NextRequest) {
       learning_current_chunk?: number;
       learning_total_chunks?: number;
       learning_message?: string | null;
+      missing_chapter_names?: string[] | null;
+      has_missing_chapters?: boolean | null;
+      learning_current_chapter?: number | null;
+      learning_current_chapter_name?: string | null;
     }> = new Map();
     try {
       const dbTasks = await listTasks();
@@ -234,6 +238,13 @@ export async function GET(request: NextRequest) {
       const finalLearningMessage = best.m ?? '';
       const finalLearningCurrentChunk = doneCandidate ? (best.t ?? 0) : (best.c ?? 0);
       const finalLearningTotalChunks = best.t ?? 0;
+      // 从 task/dbTask 中提取缺失章节信息 + 学习当前章节
+      const missingNames = (task?.missingChapterNames && task.missingChapterNames.length > 0)
+        ? task.missingChapterNames
+        : (Array.isArray(dbTask?.missing_chapter_names) ? dbTask!.missing_chapter_names : []);
+      const hasMissing = missingNames.length > 0 || !!task?.hasMissingChapters || !!dbTask?.has_missing_chapters;
+      const learningCurChapter = (dbTask?.learning_current_chapter ?? task?.learningCurrentChapter ?? 0) || 0;
+      const learningCurChapterName = dbTask?.learning_current_chapter_name ?? task?.learningCurrentChapterName ?? '';
       return {
         name,
         category,
@@ -245,7 +256,10 @@ export async function GET(request: NextRequest) {
         learningCurrentChunk: finalLearningCurrentChunk,
         learningTotalChunks: finalLearningTotalChunks,
         learningMessage: finalLearningMessage,
-        hasMissingChapters: false, // 本地物理文件存在 = 完整录入，永远不缺章节
+        learningCurrentChapter: learningCurChapter,
+        learningCurrentChapterName: learningCurChapterName,
+        hasMissingChapters: hasMissing,
+        missingChapterNames: missingNames,
         currentChapter: realCurrentChapter,
         totalChapters: realTotalChapters,
         chapterStructure: detectedStructure || learnStatus?.chapterStructure || task?.chapterStructure || '章',
@@ -391,6 +405,35 @@ export async function POST(request: NextRequest) {
       }
 
       return NextResponse.json({ success: true, data: result });
+    }
+
+    // 启动单本书学习
+    if (action === 'start-learning-one') {
+      const bookName: string = body.bookName;
+      if (!bookName) {
+        return NextResponse.json({ success: false, error: 'bookName 必填' }, { status: 400 });
+      }
+      const result = await startLearningSingleBook(bookName);
+      // 同步写 statusFile，让下次 GET 立即看到 learning 状态
+      try {
+        const fs = await import('fs');
+        const path = await import('path');
+        const STATUS_DIR = getStatusFileDir();
+        const statusFile = path.join(STATUS_DIR, 'local-learn-tasks.json');
+        let learningStatus: Record<string, any> = {};
+        try { learningStatus = JSON.parse(fs.readFileSync(statusFile, 'utf-8')); } catch {}
+        learningStatus[bookName] = {
+          learningStatus: 'learning',
+          learningProgress: 0,
+          learningCurrentChunk: 0,
+          learningTotalChunks: 0,
+          learningMessage: '学习已加入队列（单本启动）',
+          learningLayersDone: [],
+          startedAt: Date.now(),
+        };
+        try { fs.writeFileSync(statusFile, JSON.stringify(learningStatus, null, 2)); } catch {}
+      } catch {}
+      return NextResponse.json({ success: result.success, data: result });
     }
 
     if (action === 'refresh-cache') {
