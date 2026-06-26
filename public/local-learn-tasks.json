@@ -32,13 +32,15 @@
     "error": ""
   },
   "滴天髓": {
-    "learningStatus": "failed",
-    "learningMessage": "🔍 已读取全文 144517 字，准备深度学习...",
-    "updatedAt": 1782499316204,
-    "learningProgress": 0,
-    "learningLayersDone": [],
-    "learningCurrentChunk": 0,
+    "learningStatus": "learning",
+    "learningMessage": "📖 学习中：第13/64章「第13章 滴天髓阐微·上篇·八格-滴天髓阐微-国学梦」（块 14/56，25%）",
+    "updatedAt": 1782499787277,
+    "learningProgress": 25,
+    "learningLayersDone": [
+      1
+    ],
+    "learningCurrentChunk": 14,
     "learningTotalChunks": 56,
-    "completedAt": 1782499316204
+    "completedAt": 1782499571559
   }
 }
