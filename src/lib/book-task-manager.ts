@@ -2279,3 +2279,143 @@ export function getLocalLearningProgress(): {
   
   return { total: localTasks.length, learned, learning, pending, failed, currentBooks };
 }
+
+// ============================================================================
+// 🌐 Universal Crawler 一路到底的搜索-爬取-入库流程
+//   - 这是 APP 的唯一搜索工具，按用户指令固化
+//   - 替代之前的 webSearch + xuanji_fetch.py 双路并行
+// ============================================================================
+import { runCrawler, extractCandidateLinks, extractChapterLinks, buildSeedUrls } from './universal-crawler-client';
+
+/**
+ * 用 Universal Crawler 一路到底完成搜索 → 爬取目录 → 爬全部章节 → 拼接 → 入库
+ * 成功返回 true（已写知识库 + 标记 done），失败返回 false（调用方可走兜底）
+ */
+async function tryUniversalCrawlerPipeline(taskId: string): Promise<boolean> {
+  const task = tasks.get(taskId);
+  if (!task) return false;
+  const bookName = task.bookName;
+
+  try {
+    // ============ Step 1: 爬种子 URL（搜索引擎 + 全数据源搜索页）============
+    updateTask(taskId, { status: 'searching', message: `🌐 Universal Crawler 搜索《${bookName}》中...` });
+    addLog(taskId, `[Universal] Step 1: 爬种子 URL（搜索引擎 + 17 个数据源搜索页）`);
+
+    const seedUrls = buildSeedUrls(bookName);
+    const seedResult = await runCrawler({ urls: seedUrls, delay: 0.6, timeoutMs: 90_000 });
+    const seedPagesOk = (seedResult.pages || []).filter(p => p.status_code === 200).length;
+    addLog(taskId, `[Universal] 种子页爬完: ${seedPagesOk}/${seedUrls.length} 成功`);
+
+    if (seedPagesOk === 0) {
+      addLog(taskId, `[Universal] ⚠️ 所有种子 URL 均失败，回退兜底`);
+      return false;
+    }
+
+    // ============ Step 2: 从种子页提取候选 URL ============
+    const candidates = extractCandidateLinks(seedResult, bookName, 80);
+    addLog(taskId, `[Universal] Step 2: 提取候选 URL ${candidates.length} 个`);
+
+    if (candidates.length === 0) {
+      addLog(taskId, `[Universal] ⚠️ 候选 URL 为 0，回退兜底`);
+      return false;
+    }
+
+    // ============ Step 3: 爬候选 URL（拿到目录页 / 详情页） ============
+    updateTask(taskId, { status: 'downloading', message: `🌐 Universal Crawler 抓取目录页...` });
+    addLog(taskId, `[Universal] Step 3: 爬候选目录页 ${Math.min(candidates.length, 30)} 个...`);
+    const dirResult = await runCrawler({ urls: candidates.slice(0, 30), delay: 0.6, timeoutMs: 120_000 });
+    const dirPagesOk = (dirResult.pages || []).filter(p => p.status_code === 200);
+    addLog(taskId, `[Universal] 目录页爬完: ${dirPagesOk.length}/30 成功`);
+
+    // ============ Step 4: 提取章节链接 ============
+    const chapterUrls = extractChapterLinks(dirResult, bookName, 300);
+    addLog(taskId, `[Universal] Step 4: 发现章节链接 ${chapterUrls.length} 个`);
+
+    let bookFullText = '';
+    let chapterCount = 0;
+
+    if (chapterUrls.length >= 3) {
+      // ====== 走"目录 + 多章节"模式 ======
+      updateTask(taskId, {
+        status: 'downloading',
+        message: `🌐 Universal Crawler 抓取 ${chapterUrls.length} 章正文...`,
+      });
+      addLog(taskId, `[Universal] Step 5: 批量爬 ${chapterUrls.length} 个章节...`);
+
+      const chResult = await runCrawler({
+        urls: chapterUrls,
+        delay: 0.6,
+        timeoutMs: 5 * 60_000,
+      });
+      const chPages = (chResult.pages || []).filter(p => p.status_code === 200 && (p.word_count ?? 0) > 100);
+      chapterCount = chPages.length;
+      addLog(taskId, `[Universal] 章节爬完: ${chapterCount}/${chapterUrls.length} 成功`);
+
+      if (chapterCount < 3) {
+        addLog(taskId, `[Universal] ⚠️ 有效章节数 < 3，回退兜底`);
+        return false;
+      }
+
+      // 按 url 内的数字 ID 排序（章节通常按 ID 递增）
+      chPages.sort((a, b) => {
+        const numA = (a.url.match(/(\d{3,})/) || ['', '0'])[1];
+        const numB = (b.url.match(/(\d{3,})/) || ['', '0'])[1];
+        return Number(numA) - Number(numB);
+      });
+
+      const chapterContents: string[] = [];
+      for (const p of chPages) {
+        const title = (p.title || '').replace(/[-_].*$/, '').trim();
+        chapterContents.push(`========== ${title} ==========\n\n${p.content_text}\n`);
+      }
+      bookFullText = chapterContents.join('\n\n');
+    } else {
+      // ====== 走"单页全文"模式（如维基文库/CText/archive.org）======
+      addLog(taskId, `[Universal] 未识别多章节结构，启用单页全文模式`);
+      const longestPage = dirPagesOk
+        .filter(p => p.content_text && p.content_text.includes(bookName.slice(0, 2)))
+        .sort((a, b) => b.word_count - a.word_count)[0];
+      if (!longestPage || longestPage.word_count < 500) {
+        addLog(taskId, `[Universal] ⚠️ 单页全文模式下未找到有效正文，回退兜底`);
+        return false;
+      }
+      bookFullText = `========== ${longestPage.title} ==========\n\n${longestPage.content_text}`;
+      chapterCount = 1;
+      addLog(taskId, `[Universal] 单页全文: ${longestPage.word_count} 字`);
+    }
+
+    // ============ Step 5: 入库 ============
+    updateTask(taskId, { status: 'saving', message: `🌐 录入知识库...` });
+    addLog(taskId, `[Universal] Step 6: 入库 (${bookFullText.length} 字, ${chapterCount} 章)`);
+
+    const sources = (dirResult.pages || []).map(p => p.url).filter(Boolean).slice(0, 10);
+    const metadataHeader = [
+      `《${bookName}》`,
+      `来源: ${sources.join(' | ')}`,
+      `字数: ${bookFullText.length}`,
+      `章节: ${chapterCount}`,
+      `录入方式: Universal Crawler`,
+      ``,
+    ].join('\n');
+
+    const fullContent = metadataHeader + '\n' + bookFullText;
+    addBookToKnowledgeBase(bookName, fullContent);
+    saveBook(bookName, fullContent);
+
+    // ============ Step 6: 完成 → 待学习 ============
+    updateTask(taskId, {
+      status: 'done',
+      progress: 100,
+      message: `✅ 已录入 ${chapterCount} 章, ${bookFullText.length} 字`,
+      completedAt: Date.now(),
+      learningStatus: 'pending',
+      learningMessage: `✅ 录入完成。当前状态：待学习。请到知识库页面点击「开始学习」按钮统一启动学习。`,
+    });
+    addLog(taskId, `[Universal] ✅ 录入完成，等待用户手动开始学习`);
+    return true;
+  } catch (e) {
+    addLog(taskId, `[Universal] ❌ 异常: ${e instanceof Error ? e.message : String(e)}`);
+    return false;
+  }
+}
+
