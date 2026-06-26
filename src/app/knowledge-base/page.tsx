@@ -55,14 +55,31 @@ export default function KnowledgeBasePage() {
       // 数据变化才 setState，避免不必要的 re-render
       setBooks(prev => {
         const raw = data.books || [];
+        // 检测"用户在 5 分钟内点过开始学习"的乐观标记
+        let learningStartedRecently = false;
+        try {
+          const ts = parseInt(sessionStorage.getItem('xjg_learning_started') || '0', 10);
+          if (ts && Date.now() - ts < 5 * 60 * 1000) {
+            learningStartedRecently = true;
+          }
+        } catch { /* ignore */ }
         // 保护乐观更新：前端已 learning 的书，不被后端 pending 覆盖
         const next = raw.map((b: BookInfo) => {
           const prevBook = prev.find(p => p.name === b.name);
           if (prevBook && prevBook.learningStatus === 'learning' && b.learningStatus === 'pending') {
             return prevBook; // 保持前端的 learning 状态
           }
+          // sessionStorage 乐观标记：跨页面切换后，pending 状态强制视为 learning（5分钟内）
+          if (learningStartedRecently && b.learningStatus === 'pending') {
+            return { ...b, learningStatus: 'learning' as const, learningMessage: b.learningMessage || '准备学习...' };
+          }
           return b;
         });
+        // 如果后端真的返回了至少一本 learning/done，清除 sessionStorage 标记
+        const hasRealLearning = raw.some((b: BookInfo) => b.learningStatus === 'learning' || b.learningStatus === 'done');
+        if (hasRealLearning) {
+          try { sessionStorage.removeItem('xjg_learning_started'); } catch { /* ignore */ }
+        }
         // 浅比较：数量、book.name + learningProgress + learningCurrentChunk 全等则跳过
         if (prev.length === next.length) {
           let allEqual = true;
@@ -199,13 +216,17 @@ export default function KnowledgeBasePage() {
   // 开始学习所有书籍
   const handleStartLearning = async () => {
     setIsStartingLearning(true);
+    // 持久化"用户已点击开始学习"的乐观标记 → 跨页面切换也能保住按钮状态
+    try {
+      sessionStorage.setItem('xjg_learning_started', String(Date.now()));
+    } catch { /* ignore */ }
     try {
       const res = await fetch('/api/knowledge-base', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'start-learning' }),
       });
-      const data = await res.json();
+      await res.json();
       // 前端乐观更新：立即把 pending 的书设为 learning
       setBooks(prev => prev.map(b =>
         b.learningStatus === 'pending'

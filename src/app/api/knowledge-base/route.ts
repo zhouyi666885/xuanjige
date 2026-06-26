@@ -385,7 +385,23 @@ export async function POST(request: NextRequest) {
             startedAt: Date.now(),
           };
           started++;
-          
+
+          // ⚠️ 关键：立即同步写文件 + db，确保下次 GET 能立刻拿到 learning 状态
+          // 不能等 setImmediate 内的 chunk 循环——那要好几秒才会触发第一次写入
+          try { fs.writeFileSync(statusFile, JSON.stringify(learningStatus, null, 2)); } catch (writeErr) { console.warn('[start-learning] 立即写 statusFile 失败:', writeErr); }
+          // 同步 await 写 Supabase，确保跨页面切换后能恢复状态
+          try {
+            await syncLearningStatusToDb(bookName, {
+              learningStatus: 'learning',
+              learningProgress: 0,
+              learningCurrentChunk: 0,
+              learningTotalChunks: 0,
+              learningMessage: '准备学习...',
+            });
+          } catch (dbErr) {
+            console.warn('[start-learning] 立即写 Supabase 失败:', dbErr);
+          }
+
           // 异步执行学习（不阻塞 API 响应）
           setImmediate(async () => {
             try {
