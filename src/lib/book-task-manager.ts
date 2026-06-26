@@ -1062,25 +1062,21 @@ async function processTask(taskId: string): Promise<void> {
     let noNewResultCount = 0;
     let roundIndex = 0;
     const searchStartTime = Date.now();
-    // 🔴🔴🔴 没有搜索时间限制！没有搜索次数限制！没有搜索轮数限制！
-    // 用户明确要求：不限时间、不限轮数、不限次数
-    // 唯一的停止条件：连续3个完整循环都没有新结果 = 真正穷尽了所有可能性
-
-    // 🔴🔴🔴 核心逻辑：搜遍全网
-    // 每个searchRound都要完整跑一遍，一轮都不能跳过
-    // 全跑完后，如果还没找到，再从头循环继续搜
-    // 🔴 没有连续几轮的限制！不存在"连续X轮没新结果就停"这回事
-    // 只要还在发现新结果，就继续搜；只有真正穷尽一切可能性，确认 nowhere to be found，才停下
-    // "搜了三遍没找到" ≠ 搜遍全网。搜遍全网 = 真的 nowhere to be found
+    // 🔴🔴🔴 自动衔接：搜到够多来源就立刻进入下载阶段，不等"穷尽搜索"
+    // 用户明确要求：搜到了就立刻录入，没搜到才继续搜
+    // 双重退出条件（任一满足即跳出搜索进下载）：
+    //   1. 已收集 ≥ 8 个来源 → 进入下载尝试
+    //   2. 跑完一整轮（16个渠道）且本轮无新结果 → 也进入下载（去看看现有来源能不能取到）
     const TOTAL_ROUNDS = searchRounds.length; // 16轮
+    const EARLY_ENTER_DOWNLOAD = 8; // 达到这个来源数就立刻进下载
 
     let completedFullCycles = 0;
     let resultsInCurrentCycle = 0;
     let consecutiveEmptyCycles = 0;
 
-    // 🔴🔴🔴 没有时间限制！没有轮数限制！没有次数限制！
-    // 唯一停止条件：连续3个完整循环都没发现新结果（真正穷尽了）
-    while (consecutiveEmptyCycles < 3) {
+    // 🔴🔴🔴 自动衔接：搜到够多就立刻下载，没搜到再继续
+    // 退出条件：来源≥8 OR 完整轮跑完无新结果
+    while (allResults.length < EARLY_ENTER_DOWNLOAD && consecutiveEmptyCycles < 1) {
       // 🔴 检查暂停/取消
       const checkResult = checkTaskControl(taskId);
       if (checkResult === 'cancelled') return;
@@ -1115,9 +1111,18 @@ async function processTask(taskId: string): Promise<void> {
         updateTask(taskId, {
           message: `🔎 第${roundIndex + 1}轮「${round.name}」${qi + 1}/${round.queries.length}（累计 ${allResults.length} 个来源）`,
         });
+
+        // 🚀 自动衔接：已经收集到足够来源，立刻跳出搜索去尝试下载
+        if (allResults.length >= EARLY_ENTER_DOWNLOAD) {
+          addLog(taskId, `✅ 已收集 ${allResults.length} 个来源（≥${EARLY_ENTER_DOWNLOAD}），立刻进入下载阶段`);
+          break;
+        }
         // 每个查询之间间隔1.5秒，避免触发搜索API限流
         await new Promise(r => setTimeout(r, 1500));
       }
+
+      // 内层 break 后也要让外层 while 退出
+      if (allResults.length >= EARLY_ENTER_DOWNLOAD) break;
 
       const newResults = allResults.length - beforeCount;
       resultsInCurrentCycle += newResults;
