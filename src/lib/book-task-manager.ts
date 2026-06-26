@@ -1052,7 +1052,7 @@ async function processTask(taskId: string): Promise<void> {
     //   1. 已收集 ≥ 8 个来源 → 进入下载尝试
     //   2. 跑完一整轮（16个渠道）且本轮无新结果 → 也进入下载（去看看现有来源能不能取到）
     const TOTAL_ROUNDS = searchRounds.length; // 16轮
-    const EARLY_ENTER_DOWNLOAD = 8; // 达到这个来源数就立刻进下载
+    const EARLY_ENTER_DOWNLOAD = 30; // 至少凑齐 30 个来源才考虑进下载，用户要求完整内容
 
     let completedFullCycles = 0;
     let resultsInCurrentCycle = 0;
@@ -1268,12 +1268,19 @@ async function processTask(taskId: string): Promise<void> {
       }
     }
 
-    // 跨网站拼接：如果单个来源不够长，尝试将多个来源的内容拼接
-    if (bookContent.length < 2000 && contentFragments.length >= 2) {
-      addLog(taskId, `单个来源最长仅 ${bookContent.length} 字符，尝试跨网站拼接 ${contentFragments.length} 个来源的内容...`);
-      bookContent = mergeContentFragments(contentFragments, taskId);
-      usedSource = contentFragments.map(f => f.source).join(' + ');
-      addLog(taskId, `拼接后总内容: ${bookContent.length} 字符`);
+    // 🔥 跨网站拼接：只要有 2 个以上来源，无脑全部拼接（不限字数门槛）
+    // 用户要求：从第一页第一个字到最后一页最后一个字，一个字都不能少
+    if (contentFragments.length >= 2) {
+      addLog(taskId, `共收集 ${contentFragments.length} 个来源，开始跨网站拼接合并全部内容...`);
+      const mergedAll = mergeContentFragments(contentFragments, taskId);
+      // 取拼接结果与单源最长两者更长者
+      if (mergedAll.length > bookContent.length) {
+        bookContent = mergedAll;
+        usedSource = contentFragments.map(f => f.source).join(' + ');
+        addLog(taskId, `✅ 跨源拼接成功，总内容: ${bookContent.length} 字符`);
+      } else {
+        addLog(taskId, `单源已优于拼接（${bookContent.length} > ${mergedAll.length}），保留单源`);
+      }
     }
 
     // 铁规则：所有来源都试过了但内容不够长，继续追加搜索第二轮
@@ -1359,7 +1366,100 @@ async function processTask(taskId: string): Promise<void> {
     }
 
     // 4. 翻译（如果需要）
-    const cnChars = [...bookContent.substring(0, 2000)].filter(c => c.charCodeAt(0) >= 0x4e00 && c.charCodeAt(0) <= 0x9fff).length;
+    // 🔥 完整性补救循环：用户要求"录就要录全本"，字数不达标自动跨网站继续搜
+    const MIN_COMPLETE_CHARS = 30000;
+    const MAX_SUPPLEMENT_ROUNDS = 5;
+    let supplementRound = 0;
+    while (bookContent.length < MIN_COMPLETE_CHARS && supplementRound < MAX_SUPPLEMENT_ROUNDS) {
+      supplementRound++;
+      const beforeChars = bookContent.length;
+      updateTask(taskId, {
+        status: 'searching',
+        message: `⚠️ 当前仅 ${beforeChars} 字（不足完整书量），第 ${supplementRound}/${MAX_SUPPLEMENT_ROUNDS} 轮跨网站补搜中...`,
+        progress: 20,
+      });
+      addLog(taskId, `🔁 补救轮 #${supplementRound}: 当前 ${beforeChars} 字，继续跨网站搜索补齐`);
+
+      const supplementQueries = [
+        `"${task.bookName}" 全文 txt`,
+        `"${task.bookName}" 完整版 下载`,
+        `"${task.bookName}" pdf 电子书`,
+        `${task.bookName} 在线阅读 全本`,
+        `${task.bookName} 全文 章节`,
+        `${task.bookName} 目录 完整`,
+        `${task.bookName} site:zhuanlan.zhihu.com`,
+        `${task.bookName} site:douban.com`,
+        `${task.bookName} site:book.douban.com`,
+        `${task.bookName} site:ishare.iask.sina.com.cn`,
+        `${task.bookName} site:wenku.baidu.com`,
+        `${task.bookName} site:max.book118.com`,
+      ];
+
+      const newSources: { url: string; title: string; snippet: string }[] = [];
+      const seenUrls = new Set(allResults.map(r => r.url));
+      for (const q of supplementQueries) {
+        try {
+          const resp = await withTimeout(searchClient.webSearch(q, 10), 12000);
+          if (resp?.web_items) {
+            for (const r of resp.web_items) {
+              if (r.url && !seenUrls.has(r.url)) {
+                seenUrls.add(r.url);
+                newSources.push({ url: r.url, title: r.title || '', snippet: r.snippet || '' });
+                allResults.push({ url: r.url, title: r.title || '', snippet: r.snippet || '' });
+              }
+            }
+          }
+        } catch {
+          // 单包失败不影响整体
+        }
+      }
+      addLog(taskId, `补救轮 #${supplementRound} 找到 ${newSources.length} 个新来源`);
+
+      if (newSources.length === 0) {
+        addLog(taskId, `补救轮 #${supplementRound} 无新来源，停止补救`);
+        break;
+      }
+
+      updateTask(taskId, {
+        status: 'downloading',
+        message: `📥 补救轮 ${supplementRound}：从 ${newSources.length} 个新来源拉取内容...`,
+      });
+
+      for (let i = 0; i < newSources.length; i++) {
+        const suspended = checkTaskControl(taskId);
+        if (suspended === 'paused' || suspended === 'cancelled') break;
+        const source = newSources[i];
+        try {
+          const fetchResponse = await fetchClient.fetch(source.url);
+          if (fetchResponse?.content) {
+            const texts = fetchResponse.content
+              .map((c: { text?: string }) => c.text || '')
+              .filter((t: string) => t.trim().length > 100);
+            if (texts.length > 0) {
+              const content = texts.join('\n\n');
+              contentFragments.push({ source: source.url, content });
+              addLog(taskId, `补救：从 ${source.url} 又拿到 ${content.length} 字符`);
+            }
+          }
+        } catch {
+          // 单源失败继续
+        }
+      }
+
+      // 重新跨源合并
+      const mergedSupplement = mergeContentFragments(contentFragments, taskId);
+      if (mergedSupplement.length > bookContent.length) {
+        bookContent = mergedSupplement;
+        usedSource = contentFragments.map(f => f.source).join(' + ');
+        addLog(taskId, `补救轮 #${supplementRound} 拼接后总内容: ${bookContent.length} 字符（+${bookContent.length - beforeChars}）`);
+      } else {
+        addLog(taskId, `补救轮 #${supplementRound} 未带来字数增长，停止补救`);
+        break;
+      }
+    }
+
+    // 4. 翻译为中文（如有外文）
+    const cnChars = [...bookContent.substring(0, 2000)].filter(c => /[\u4e00-\u9fa5]/.test(c)).length;
     const enChars = [...bookContent.substring(0, 2000)].filter(c => c.toLowerCase() >= 'a' && c.toLowerCase() <= 'z').length;
     const needsTranslation = cnChars < enChars * 2;
 
