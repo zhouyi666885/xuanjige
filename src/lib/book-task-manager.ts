@@ -155,21 +155,64 @@ function getCurrentChapterAtPosition(chapters: BookChapter[], position: number):
 // ==================== 全局状态 ====================
 
 const TASKS_FILE = path.join(process.cwd(), 'public', 'book-tasks.json');
+// 独立的墓碑文件（旧 HMR 闭包不会触碰它，确保已删除任务不会被旧逻辑复活）
+const TOMBSTONE_FILE = path.join(process.cwd(), 'public', 'book-tasks-tombstones.json');
 let tasks: Map<string, BookTask> = new Map();
 let processingQueue: Set<string> = new Set();
 let isInitialized = false;
+
+// ==================== 状态控制集合（必须在持久化函数之前声明，TDZ 保护） ====================
+// 使用 globalThis 跨 HMR 重载持久化（dev 模式下模块会被重置）
+type GlobalTaskState = {
+  pausedTasks?: Set<string>;
+  cancelledTasks?: Set<string>;
+  deletedTaskIds?: Set<string>;
+};
+const _globalTaskState = (globalThis as unknown as { __bookTaskState?: GlobalTaskState }).__bookTaskState ??= {};
+const pausedTasks: Set<string> = _globalTaskState.pausedTasks ??= new Set<string>();
+const cancelledTasks: Set<string> = _globalTaskState.cancelledTasks ??= new Set<string>();
+const deletedTaskIds: Set<string> = _globalTaskState.deletedTaskIds ??= new Set<string>();
 
 // ==================== 持久化 ====================
 
 function loadTasks(): void {
   try {
+    // 先从独立墓碑文件加载已删除 ID（旧 HMR 闭包不会触碰它）
+    if (fs.existsSync(TOMBSTONE_FILE)) {
+      try {
+        const tomb = JSON.parse(fs.readFileSync(TOMBSTONE_FILE, 'utf-8'));
+        const ids: string[] = tomb.deletedIds || [];
+        const names: string[] = tomb.deletedNames || [];
+        for (const id of ids) {
+          deletedTaskIds.add(id);
+          cancelledTasks.add(id);
+        }
+        // 把书名级墓碑也存进 globalThis，方便 saveTasks 过滤旧闭包写回的同名新任务
+        const g = globalThis as unknown as { __deletedBookNames?: Set<string> };
+        if (!g.__deletedBookNames) g.__deletedBookNames = new Set();
+        for (const n of names) g.__deletedBookNames.add(n);
+      } catch { /* 忽略 */ }
+    }
     if (fs.existsSync(TASKS_FILE)) {
       const data = JSON.parse(fs.readFileSync(TASKS_FILE, 'utf-8'));
+      // 兼容旧版：从主文件也读 deletedIds（如果有）
+      const deletedIds: string[] = data.deletedIds || [];
+      for (const id of deletedIds) {
+        deletedTaskIds.add(id);
+        cancelledTasks.add(id);
+      }
+      const g = globalThis as unknown as { __deletedBookNames?: Set<string> };
       const arr: BookTask[] = data.tasks || [];
       for (const task of arr) {
+        // 跳过已被墓碑标记的任务（防止后台异步循环复活）
+        if (deletedTaskIds.has(task.id)) continue;
+        if (g.__deletedBookNames?.has(task.bookName)) {
+          deletedTaskIds.add(task.id);
+          continue;
+        }
         tasks.set(task.id, task);
       }
-      console.log(`[TaskManager] 已加载 ${tasks.size} 个任务`);
+      console.log(`[TaskManager] 已加载 ${tasks.size} 个任务，${deletedTaskIds.size} 个墓碑（ID），${g.__deletedBookNames?.size || 0} 个墓碑（书名）`);
     }
   } catch (e) {
     console.error('[TaskManager] 加载任务失败:', e);
@@ -183,8 +226,34 @@ function saveTasks(): void {
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
-    const arr = Array.from(tasks.values());
-    fs.writeFileSync(TASKS_FILE, JSON.stringify({ tasks: arr }, null, 2));
+    // 写盘前先合并独立墓碑文件（防止 HMR 后旧 processTask 闭包绕过内存墓碑）
+    const g = globalThis as unknown as { __deletedBookNames?: Set<string> };
+    if (fs.existsSync(TOMBSTONE_FILE)) {
+      try {
+        const tomb = JSON.parse(fs.readFileSync(TOMBSTONE_FILE, 'utf-8'));
+        for (const id of (tomb.deletedIds || [])) {
+          deletedTaskIds.add(id);
+          cancelledTasks.add(id);
+          tasks.delete(id);
+        }
+        if (!g.__deletedBookNames) g.__deletedBookNames = new Set();
+        for (const n of (tomb.deletedNames || [])) {
+          g.__deletedBookNames.add(n);
+        }
+        // 同步清掉内存中可能被旧闭包重新写入的同名任务
+        for (const [id, t] of tasks) {
+          if (g.__deletedBookNames.has(t.bookName)) {
+            deletedTaskIds.add(id);
+            tasks.delete(id);
+          }
+        }
+      } catch { /* 忽略 */ }
+    }
+    const arr = Array.from(tasks.values()).filter(t =>
+      !deletedTaskIds.has(t.id) && !g.__deletedBookNames?.has(t.bookName)
+    );
+    const deletedIds = Array.from(deletedTaskIds);
+    fs.writeFileSync(TASKS_FILE, JSON.stringify({ tasks: arr, deletedIds }, null, 2));
   } catch (e) {
     console.error('[TaskManager] 保存任务失败:', e);
   }
@@ -195,9 +264,6 @@ export function forceSaveTasks(): void {
 }
 
 // ==================== 暂停/继续/取消操作 ====================
-
-const pausedTasks = new Set<string>(); // 暂停的任务ID集合
-const cancelledTasks = new Set<string>(); // 取消的任务ID集合
 
 export function pauseTask(taskId: string): boolean {
   const task = tasks.get(taskId);
@@ -256,6 +322,8 @@ function generateId(): string {
 }
 
 function updateTask(id: string, updates: Partial<BookTask>): BookTask | null {
+  // 墓碑保护：已删除任务拒绝任何 update
+  if (deletedTaskIds.has(id)) return null;
   const task = tasks.get(id);
   if (!task) return null;
   
@@ -266,6 +334,8 @@ function updateTask(id: string, updates: Partial<BookTask>): BookTask | null {
 }
 
 function addLog(id: string, message: string): void {
+  // 墓碑保护：已删除任务拒绝任何 log
+  if (deletedTaskIds.has(id)) return;
   const task = tasks.get(id);
   if (!task) return;
   task.logs.push(`[${new Date().toLocaleTimeString()}] ${message}`);
@@ -1704,7 +1774,10 @@ export function createTask(bookName: string): { task: BookTask; isNew: boolean }
  */
 export function getAllTasks(): BookTask[] {
   if (!isInitialized) initTaskManager();
-  return Array.from(tasks.values()).sort((a, b) => b.createdAt - a.createdAt);
+  const g = globalThis as unknown as { __deletedBookNames?: Set<string> };
+  return Array.from(tasks.values())
+    .filter(t => !deletedTaskIds.has(t.id) && !g.__deletedBookNames?.has(t.bookName))
+    .sort((a, b) => b.createdAt - a.createdAt);
 }
 
 /**
@@ -1850,7 +1923,12 @@ export function getBookLearningDetail(bookName: string): string {
  */
 export function getTask(taskId: string): BookTask | null {
   if (!isInitialized) initTaskManager();
-  return tasks.get(taskId) || null;
+  if (deletedTaskIds.has(taskId)) return null;
+  const t = tasks.get(taskId);
+  if (!t) return null;
+  const g = globalThis as unknown as { __deletedBookNames?: Set<string> };
+  if (g.__deletedBookNames?.has(t.bookName)) return null;
+  return t;
 }
 
 /**
@@ -1926,11 +2004,18 @@ export function getActiveTaskStatusList(): string[] {
 export function deleteTask(taskId: string): boolean {
   if (!isInitialized) initTaskManager();
   
+  // 立即立墓碑，阻止后台 processTask 异步循环重新写入
+  deletedTaskIds.add(taskId);
+  cancelledTasks.add(taskId);
+  
   // 如果正在处理，从处理队列移除
   processingQueue.delete(taskId);
   
   const task = tasks.get(taskId);
-  if (!task) return false;
+  if (!task) {
+    saveTasks(); // 确保墓碑生效后立刻刷盘
+    return false;
+  }
   
   // 如果任务已完成（done）或进行中（processing），都要从知识库删除
   // 进行中的任务可能已经部分写入了知识库，必须清除残留

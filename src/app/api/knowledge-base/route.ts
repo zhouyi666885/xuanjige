@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getBookStats, removeBookFromKnowledgeBase, getBookLearnStatus, getLearnedBookCount, invalidateCache } from '@/lib/fulltext-search';
-import { getAllTasks, startLearningAllLocalBooks, getLocalLearningProgress } from '@/lib/book-task-manager';
+import { getAllTasks, startLearningAllLocalBooks, getLocalLearningProgress, deleteTask } from '@/lib/book-task-manager';
 
 /**
  * GET /api/knowledge-base
@@ -97,11 +97,29 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: '缺少书名' }, { status: 400 });
     }
 
+    // 1. 从全文知识库删除（本地文件+缓存+学习状态+S3）
     const removed = removeBookFromKnowledgeBase(bookName);
-    if (removed) {
-      return NextResponse.json({ success: true, message: `《${bookName}》已从知识库删除` });
+
+    // 2. 联动清理 book-task-manager 中同名任务（避免任务管理器把残留任务持久化回 book-tasks.json）
+    const allTasks = getAllTasks();
+    const matchedTasks = allTasks.filter(t => {
+      const tn = (t.bookName || '').trim();
+      return tn === bookName || tn.includes(bookName) || bookName.includes(tn);
+    });
+    let taskDeleted = 0;
+    for (const t of matchedTasks) {
+      if (deleteTask(t.id)) taskDeleted++;
+    }
+
+    if (removed || taskDeleted > 0) {
+      return NextResponse.json({
+        success: true,
+        message: `《${bookName}》已清理${removed ? '（知识库+' : '（'}${taskDeleted}个任务记录）`,
+        knowledge_base_removed: removed,
+        tasks_deleted: taskDeleted,
+      });
     } else {
-      return NextResponse.json({ error: `《${bookName}》不在知识库中` }, { status: 404 });
+      return NextResponse.json({ error: `《${bookName}》不在知识库中，也无相关任务` }, { status: 404 });
     }
   } catch (e) {
     return NextResponse.json(
