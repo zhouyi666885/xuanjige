@@ -666,24 +666,37 @@ async function processTask(taskId: string): Promise<void> {
 
     let allResults: Array<{ url: string; title: string; snippet: string }> = [];
 
-    // 基础搜索：并行执行多个搜索 query（快速给用户进度反馈）
-    updateTask(taskId, { message: `🔎 同时使用 ${initialSearchQueries.length} 种搜索方式查找《${task.bookName}》...` });
-    const searchResponses = await Promise.all(
-      initialSearchQueries.map(q =>
-        searchClient.webSearch(q, 10).catch(() => null)
-      )
-    );
-    for (const response of searchResponses) {
-      if (response?.web_items) {
-        for (const r of response.web_items) {
-          if (r.url && !allResults.some(x => x.url === r.url)) {
-            allResults.push({ url: r.url, title: r.title || '', snippet: r.snippet || '' });
+    // 基础搜索：并行执行多个搜索 query（流式更新 message，让用户看到正在动）
+    // 关键修复：每完成一路就更新 message + 单包 12s 超时，避免最慢那个拖死整批让用户以为卡死
+    updateTask(taskId, { message: `🔎 准备搜索 ${initialSearchQueries.length} 个数据源查找《${task.bookName}》...` });
+    let finishedCount = 0;
+    const totalQueries = initialSearchQueries.length;
+    const withTimeout = function <T>(p: Promise<T>, ms: number): Promise<T | null> {
+      return Promise.race([
+        p.catch(() => null as T | null),
+        new Promise<T | null>(resolve => setTimeout(() => resolve(null), ms)),
+      ]);
+    };
+    await Promise.all(
+      initialSearchQueries.map(async (q, idx) => {
+        const siteHint = q.includes('site:') ? q.split('site:')[1] : '通用搜索';
+        const response = await withTimeout(searchClient.webSearch(q, 10), 12000);
+        if (response?.web_items) {
+          for (const r of response.web_items) {
+            if (r.url && !allResults.some(x => x.url === r.url)) {
+              allResults.push({ url: r.url, title: r.title || '', snippet: r.snippet || '' });
+            }
           }
         }
-      }
-    }
-    addLog(taskId, `基础搜索完成，找到 ${allResults.length} 个来源`);
-    updateTask(taskId, { message: `🔎 基础搜索找到 ${allResults.length} 个来源，继续深度抓取...` });
+        finishedCount++;
+        // 每完成一路立即更新 message，让用户感知"正在动"
+        updateTask(taskId, {
+          message: `🔎 搜索中 ${finishedCount}/${totalQueries}（刚完成：${siteHint.substring(0, 30)}），已收集 ${allResults.length} 个来源`,
+        });
+      })
+    );
+    addLog(taskId, `基础搜索完成 ${finishedCount}/${totalQueries} 路，找到 ${allResults.length} 个来源`);
+    updateTask(taskId, { message: `🔎 基础搜索完成（${allResults.length} 个来源），继续深度抓取...` });
 
     // 🔴🔴🔴 Book Finder 技能：用专门的爬虫脚本搜索QQ阅读、顶点小说、鬼大爷、25zw等
     // 这些网站通常有完整的书籍内容，是搜索的重要补充渠道
@@ -974,14 +987,18 @@ async function processTask(taskId: string): Promise<void> {
       const round = searchRounds[roundIndex % TOTAL_ROUNDS];
       const beforeCount = allResults.length;
 
-      for (const query of round.queries) {
+      // 每开始一轮就更新 message，让用户看到正在动
+      updateTask(taskId, { message: `🔎 第${roundIndex + 1}轮「${round.name}」搜索中（已收集 ${allResults.length} 个来源）...` });
+
+      for (let qi = 0; qi < round.queries.length; qi++) {
+        const query = round.queries[qi];
         // 🔴 每个查询前也检查暂停/取消
         const qCheck = checkTaskControl(taskId);
         if (qCheck === 'cancelled') return;
         if (qCheck === 'paused') break;
 
         try {
-          const response = await searchClient.webSearch(query, 10);
+          const response = await withTimeout(searchClient.webSearch(query, 10), 12000);
           if (response?.web_items) {
             for (const r of response.web_items) {
               if (r.url && !allResults.some(x => x.url === r.url)) {
@@ -989,9 +1006,13 @@ async function processTask(taskId: string): Promise<void> {
               }
             }
           }
-        } catch (e) {
+        } catch {
           // 继续搜索下一个
         }
+        // 每个查询完成都刷一下 message，让用户看到累计来源数在动
+        updateTask(taskId, {
+          message: `🔎 第${roundIndex + 1}轮「${round.name}」${qi + 1}/${round.queries.length}（累计 ${allResults.length} 个来源）`,
+        });
         // 每个查询之间间隔1.5秒，避免触发搜索API限流
         await new Promise(r => setTimeout(r, 1500));
       }

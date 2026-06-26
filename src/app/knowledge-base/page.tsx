@@ -443,13 +443,19 @@ export default function KnowledgeBasePage() {
                         </span>
                       )}
                     </div>
-                    <div className="flex items-center gap-2 mt-0.5">
+                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                       <span className="text-[10px] bg-[#0a0a0f] text-[#8a8070] px-2 py-0.5 rounded-full">
                         {book.category}
                       </span>
                       {book.charCount > 0 && (
                         <span className="text-[10px] text-[#5a5a6e]">
                           {formatChars(book.charCount)}字
+                        </span>
+                      )}
+                      {/* 所有书都显示总章数（按原书结构单位：章/卷/卦/篇/回/段） */}
+                      {book.totalChapters > 0 && (
+                        <span className="text-[10px] text-[#d4a853]/70 bg-[#d4a853]/5 px-1.5 py-0.5 rounded border border-[#d4a853]/15">
+                          共 {book.totalChapters} {book.chapterStructure || '章'}
                         </span>
                       )}
                     </div>
