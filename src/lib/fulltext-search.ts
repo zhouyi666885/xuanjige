@@ -1075,6 +1075,178 @@ export function isBookExists(bookName: string): boolean {
 }
 
 /**
+ * 获取学习时间预估
+ * 基于实际书籍数据（字数、章节数、是否需要翻译）计算保守的时间估算
+ */
+export function getLearningTimeEstimate(): string {
+  loadBookCache();
+  const statusMap = loadLearnStatus();
+  
+  if (!bookCache || !bookNameList) {
+    return '📚 知识库当前没有书籍，无法预估学习时间。';
+  }
+  
+  const totalBooks = bookNameList.length;
+  if (totalBooks === 0) {
+    return '📚 知识库当前没有书籍，无法预估学习时间。';
+  }
+  
+  // 统计各类书籍数据
+  let totalChars = 0;
+  let chineseBookCount = 0;
+  let englishBookCount = 0;
+  let learnedCount = 0;
+  let learningCount = 0;
+  let notStartedCount = 0;
+  let totalChapters = 0;
+  let learnedChapters = 0;
+  
+  const bookDetails: { name: string; chars: number; chapters: number; learnedChapters: number; isEnglish: boolean; learned: boolean }[] = [];
+  
+  for (const name of bookNameList) {
+    const content = bookCache.get(name) || '';
+    const chars = content.length;
+    totalChars += chars;
+    
+    const isEnglishName = /^[A-Za-z]/.test(name);
+    if (isEnglishName) {
+      englishBookCount++;
+    } else {
+      chineseBookCount++;
+    }
+    
+    const status = statusMap.get(name);
+    const bookTotalChapters = status?.totalChapters || 0;
+    const bookLearnedChapters = status?.learnedChapters || 0;
+    const isLearned = status?.learned || false;
+    
+    totalChapters += bookTotalChapters;
+    learnedChapters += bookLearnedChapters;
+    
+    if (isLearned) {
+      learnedCount++;
+    } else if (bookLearnedChapters > 0) {
+      learningCount++;
+    } else {
+      notStartedCount++;
+    }
+    
+    bookDetails.push({
+      name,
+      chars,
+      chapters: bookTotalChapters,
+      learnedChapters: bookLearnedChapters,
+      isEnglish: isEnglishName,
+      learned: isLearned,
+    });
+  }
+  
+  const remainingBooks = totalBooks - learnedCount;
+  const remainingChars = bookDetails.filter(b => !b.learned).reduce((sum, b) => sum + b.chars, 0);
+  
+  // ===== 时间估算模型 =====
+  // 基于保守估计：
+  // - 中文书：每1万字约需3分钟深度学习（4层递进：术语→逻辑→关联→应用）
+  // - 英文书：需先翻译再学习，每1万字约需8分钟（翻译5分钟+学习3分钟）
+  // - 最小处理时间：每本至少5分钟（即使很短也要理解框架）
+  // - 并发限制：同时最多3本
+  
+  const CHINESE_MINUTES_PER_10K = 3;    // 中文每1万字3分钟
+  const ENGLISH_MINUTES_PER_10K = 8;    // 英文每1万字8分钟（含翻译）
+  const MIN_MINUTES_PER_BOOK = 5;       // 每本至少5分钟
+  const CONCURRENCY = 3;                // 并发数
+  
+  let totalMinutes = 0;
+  for (const book of bookDetails) {
+    if (book.learned) continue;
+    const chars10k = book.chars / 10000;
+    const bookMinutes = book.isEnglish
+      ? Math.max(MIN_MINUTES_PER_BOOK, chars10k * ENGLISH_MINUTES_PER_10K)
+      : Math.max(MIN_MINUTES_PER_BOOK, chars10k * CHINESE_MINUTES_PER_10K);
+    totalMinutes += bookMinutes;
+  }
+  
+  // 考虑并发
+  const effectiveMinutes = totalMinutes / CONCURRENCY;
+  
+  // 考虑已部分学习的书（按比例减少剩余时间）
+  const partialLearnedReduction = bookDetails
+    .filter(b => !b.learned && b.learnedChapters > 0 && b.chapters > 0)
+    .reduce((sum, b) => {
+      const ratio = b.learnedChapters / b.chapters;
+      const chars10k = b.chars / 10000;
+      const bookMinutes = b.isEnglish
+        ? Math.max(MIN_MINUTES_PER_BOOK, chars10k * ENGLISH_MINUTES_PER_10K)
+        : Math.max(MIN_MINUTES_PER_BOOK, chars10k * CHINESE_MINUTES_PER_10K);
+      return sum + bookMinutes * ratio;
+    }, 0);
+  
+  const adjustedMinutes = Math.max(0, effectiveMinutes - partialLearnedReduction);
+  
+  // 格式化时间
+  function formatDuration(minutes: number): string {
+    if (minutes < 60) return `约${Math.round(minutes)}分钟`;
+    const hours = minutes / 60;
+    if (hours < 24) return `约${Math.round(hours * 10) / 10}小时`;
+    const days = hours / 24;
+    if (days < 30) return `约${Math.round(days * 10) / 10}天`;
+    const weeks = days / 7;
+    if (weeks < 8) return `约${Math.round(weeks * 10) / 10}周`;
+    const months = days / 30;
+    return `约${Math.round(months * 10) / 10}个月`;
+  }
+  
+  // 按字数分组统计
+  const smallBooks = bookDetails.filter(b => b.chars < 10000).length;
+  const mediumBooks = bookDetails.filter(b => b.chars >= 10000 && b.chars < 100000).length;
+  const largeBooks = bookDetails.filter(b => b.chars >= 100000).length;
+  const avgChars = Math.round(totalChars / totalBooks);
+  
+  const lines: string[] = [];
+  lines.push(`⏱️ 学习时间预估报告`);
+  lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━`);
+  lines.push(``);
+  lines.push(`【知识库概况】`);
+  lines.push(`  总藏书量：${totalBooks} 本`);
+  lines.push(`  中文原版：${chineseBookCount} 本 | 英文原版（需翻译）：${englishBookCount} 本`);
+  lines.push(`  总字符数：${totalChars.toLocaleString()} 字`);
+  lines.push(`  平均每本：${avgChars.toLocaleString()} 字`);
+  lines.push(``);
+  lines.push(`【书籍规模分布】`);
+  lines.push(`  小型书（<1万字）：${smallBooks} 本`);
+  lines.push(`  中型书（1-10万字）：${mediumBooks} 本`);
+  lines.push(`  大型书（>10万字）：${largeBooks} 本`);
+  lines.push(``);
+  lines.push(`【当前学习状态】`);
+  lines.push(`  ✅ 已学完：${learnedCount} 本`);
+  lines.push(`  📖 学习中：${learningCount} 本`);
+  lines.push(`  ⏳ 未开始：${notStartedCount} 本`);
+  lines.push(`  总进度：${totalChapters > 0 ? Math.round(learnedChapters / totalChapters * 100) : 0}%`);
+  lines.push(``);
+  lines.push(`【时间预估（保守估计）】`);
+  lines.push(`  估算方法：`);
+  lines.push(`  - 中文书：每1万字约3分钟（4层深度学习：术语→逻辑→关联→应用）`);
+  lines.push(`  - 英文书：每1万字约8分钟（翻译5分钟+学习3分钟）`);
+  lines.push(`  - 每本最少5分钟 | 同时学习${CONCURRENCY}本`);
+  lines.push(``);
+  lines.push(`  📊 剩余需学习：${remainingBooks} 本（共${remainingChars.toLocaleString()}字）`);
+  lines.push(`  ⏰ 预计总时间：${formatDuration(adjustedMinutes)}`);
+  if (englishBookCount > 0) {
+    const englishRemaining = bookDetails.filter(b => !b.learned && b.isEnglish);
+    const englishMinutes = englishRemaining.reduce((sum, b) => {
+      const chars10k = b.chars / 10000;
+      return sum + Math.max(MIN_MINUTES_PER_BOOK, chars10k * ENGLISH_MINUTES_PER_10K);
+    }, 0) / CONCURRENCY;
+    lines.push(`  🌐 其中英文书翻译+学习：${formatDuration(englishMinutes)}`);
+  }
+  lines.push(``);
+  lines.push(`  💡 说明：这是最保守的估计，实际可能更快。学习速度取决于服务器性能和并发数。`);
+  lines.push(`  学习不间断——后台持续运行，退出APP也不停止。`);
+  
+  return lines.join('\n');
+}
+
+/**
  * 添加书籍到知识库
  * @param bookName 书名（作为文件名）
  * @param content 完整书籍内容

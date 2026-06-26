@@ -9,7 +9,7 @@ import { searchKnowledge, formatKnowledgeResults } from '@/lib/knowledge-search'
 import { generateSanHeCanDuanPrompt, getSanHeCanDuanByTopic, SAN_HE_CAN_DUAN_GUIDE } from '@/lib/sanhe-canduan';
 import { generateMianXiangFramework, getMianXiangPredictionGuide } from '@/lib/xiangxue';
 import { generateShouXiangFramework, getShouXiangPredictionGuide } from '@/lib/shouxiang';
-import { searchFullText, searchFullTextAsync, formatFullTextResults, getBookFullText, getBookFullTextAsync, findBooksByName, getDetailedBookStats, getBookChapterContent, parseChapterRange, getLearnedBookCount, getBookLearnStatus } from '@/lib/fulltext-search';
+import { searchFullText, searchFullTextAsync, formatFullTextResults, getBookFullText, getBookFullTextAsync, findBooksByName, getDetailedBookStats, getBookChapterContent, parseChapterRange, getLearnedBookCount, getBookLearnStatus, getLearningTimeEstimate } from '@/lib/fulltext-search';
 import { getLearningProgressSummary, getBookLearningDetail } from '@/lib/book-task-manager';
 import { tongQianQiGua, shiJianQiGua as liuyaoShiJian, formatLiuYaoPaiPan as liuyaoFormat } from '@/lib/liuyao';
 import { shiJianQiGua as meihuaShiJian, shuZiQiGua, wenZiQiGua, formatMeiHuaPaiPan as meihuaFormat } from '@/lib/meihua';
@@ -218,6 +218,9 @@ export async function POST(request: NextRequest) {
     // 检测用户是否在问AI学习进度
     const isLearningProgressQuestion = /学得怎么样|学会了哪些|哪本.*没学完|学到哪|学习.*进度|学完.*几本|觉得自己.*学会|学习.*状态|你.*学了|你.*正在学|学了多少|哪些.*学完|哪些.*没学|翻译.*质量|翻译.*检查|英文.*翻译.*质量|乱码|缺页|漏译/.test(message);
     
+    // 检测用户是否在问学习时间预估
+    const isLearningTimeQuestion = /需要.*多久|需要.*多长时间|大概.*时间|时间.*估算|时间.*预估|预估.*时间|多久.*学完|几天|几周|几个月|学完.*多久|保守.*估计|最保守|赶时间|心里有数|等多久|要多长时间|什么时候.*学完|学完.*什么时候/.test(message);
+    
     let knowledgeBaseInfo = '';
     let fullTextStr = '';
     let specificBookFullText = '';
@@ -269,7 +272,7 @@ ${stats.sampleBooks.map(b => `  《${b.name}》${b.chars.toLocaleString()}字 [$
     }
     
     // 检测AI学习进度问题
-    if (isLearningProgressQuestion) {
+    if (isLearningProgressQuestion || isLearningTimeQuestion) {
       // 先检查用户是否问的是某本特定书
       const specificBookMatch = findBooksByName(message);
       if (specificBookMatch.length > 0) {
@@ -280,9 +283,14 @@ ${stats.sampleBooks.map(b => `  《${b.name}》${b.chars.toLocaleString()}字 [$
         const summary = getLearningProgressSummary();
         learningProgressInfo = `\n\n【AI学习进度——用户正在询问学习情况，必须如实回答】\n${summary}\n\n请根据以上实时数据如实回答用户关于学习进度的问题。用自然语言，像跟朋友聊天一样回答，不要机械地复述数据。对于翻译质量检查问题，请根据知识库中已收录的英文书籍翻译内容来判断，如实告知用户哪些书可能存在翻译质量问题。`;
       }
+      // 如果用户问的是时间预估，追加时间估算报告
+      if (isLearningTimeQuestion) {
+        const timeEstimate = getLearningTimeEstimate();
+        learningProgressInfo += `\n\n【学习时间预估——用户想知道大概要学多久，必须如实回答】\n${timeEstimate}\n\n请根据以上时间预估数据如实回答用户。用自然语言，像朋友聊天一样告诉用户大概要等多久。不用赶时间，按最保守的估计来。说清楚：总共多少本书、每本大概多长时间、总体需要多久。如果有英文书需要翻译的，翻译时间也要算进去。`;
+      }
     }
     
-    if (!isKnowledgeBaseQuestion && !isLearningProgressQuestion) {
+    if (!isKnowledgeBaseQuestion && !isLearningProgressQuestion && !isLearningTimeQuestion) {
       // 非知识库统计问题：正常全文检索
       // 全文检索：从本地txt文件或S3中搜索相关古籍原文段落（不限制！从第一个字到最后一个字完整收录！）
       const fullTextPassages = await searchFullTextAsync(message, 0, 0, 0);
