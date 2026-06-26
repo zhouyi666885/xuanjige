@@ -54,7 +54,15 @@ export default function KnowledgeBasePage() {
       const data = await res.json();
       // 数据变化才 setState，避免不必要的 re-render
       setBooks(prev => {
-        const next = data.books || [];
+        const raw = data.books || [];
+        // 保护乐观更新：前端已 learning 的书，不被后端 pending 覆盖
+        const next = raw.map((b: BookInfo) => {
+          const prevBook = prev.find(p => p.name === b.name);
+          if (prevBook && prevBook.learningStatus === 'learning' && b.learningStatus === 'pending') {
+            return prevBook; // 保持前端的 learning 状态
+          }
+          return b;
+        });
         // 浅比较：数量、book.name + learningProgress + learningCurrentChunk 全等则跳过
         if (prev.length === next.length) {
           let allEqual = true;
@@ -197,14 +205,21 @@ export default function KnowledgeBasePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'start-learning' }),
       });
-      await res.json();
-      // 立刻刷新书籍列表以显示"学习中"状态（按钮状态由 books 推导）
-      await fetchBooks(searchQuery, page);
+      const data = await res.json();
+      // 前端乐观更新：立即把 pending 的书设为 learning
+      setBooks(prev => prev.map(b =>
+        b.learningStatus === 'pending'
+          ? { ...b, learningStatus: 'learning' as const, learningMessage: '正在启动学习...', learningProgress: 0 }
+          : b
+      ));
+      // 延迟刷新一次确保后端数据已写入
+      await new Promise(r => setTimeout(r, 1500));
+      await fetchBooks(searchQuery, page, true);
     } catch {
       // 静默
-    } finally {
-      setIsStartingLearning(false);
     }
+    // 不立即 setIsStartingLearning(false) —— 等 books 数据中有 learning 再松开
+    // 这样即使 fetchBooks 返回时后端还没更新完，按钮也不会闪回
   };
 
   // 格式化字符数
@@ -291,6 +306,8 @@ export default function KnowledgeBasePage() {
             if (books.length === 0) return null;
             // 按钮显示状态：学习中 > 正在启动 > 待学习
             const isLearning = learningCount > 0;
+            // 一旦后端确认 learning，自动清除"启动中"临时态
+            if (isLearning && isStartingLearning) setIsStartingLearning(false);
             const disabled = isStartingLearning || isLearning;
             const label = isLearning
               ? `深度学习中…正在学习 ${learningCount} 本，已学完 ${doneCount} 本`
