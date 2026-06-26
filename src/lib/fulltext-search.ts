@@ -431,12 +431,45 @@ function loadBookCache(): void {
 }
 
 /** 获取本地书籍总数和书名列表（不加载全文内容，仅读取文件名） */
-export function getLocalBookInfo(): { count: number; names: string[] } {
+export function getLocalBookInfo(): { total: number; bookNames: string[] } {
   const dir = getBookContentDir();
-  if (!fs.existsSync(dir)) return { count: 0, names: [] };
+  if (!fs.existsSync(dir)) return { total: 0, bookNames: [] };
   const files = fs.readdirSync(dir).filter(f => f.endsWith('.txt'));
-  const names = files.map(f => f.replace('.txt', ''));
-  return { count: names.length, names };
+  const bookNames = files.map(f => f.replace('.txt', ''));
+  return { total: bookNames.length, bookNames };
+}
+
+/** 标记书籍学习状态（供book-task-manager调用） */
+export function markBookLearned(bookName: string, learned: boolean): void {
+  const cache = loadLearnStatus();
+  if (cache.has(bookName)) {
+    const status = cache.get(bookName)!;
+    status.learned = learned;
+    status.learnedAt = learned ? Date.now() : null;
+    if (learned && status.totalChapters) {
+      status.learnedChapters = status.totalChapters;
+    }
+  } else {
+    cache.set(bookName, {
+      learned,
+      learnedAt: learned ? Date.now() : null,
+      charCount: 0,
+      totalChapters: 0,
+      learnedChapters: 0,
+      chapterStructure: '',
+      learnStartedAt: null,
+    });
+  }
+  // 持久化
+  learnStatusCache = cache;
+  const statusPath = path.join(getBookContentDir(), '..', 'book-learn-status.json');
+  try {
+    const obj: Record<string, BookLearnStatus> = {};
+    for (const [k, v] of cache) obj[k] = v;
+    fs.writeFileSync(statusPath, JSON.stringify(obj, null, 2), 'utf-8');
+  } catch {
+    // Ignore write errors
+  }
 }
 
 /**

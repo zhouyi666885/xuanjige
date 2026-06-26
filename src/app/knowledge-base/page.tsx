@@ -38,6 +38,8 @@ export default function KnowledgeBasePage() {
   const [deletingBook, setDeletingBook] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState<string>('全部');
+  const [isStartingLearning, setIsStartingLearning] = useState(false);
+  const [learningStarted, setLearningStarted] = useState(false);
   const pageSize = 50;
 
   const fetchBooks = useCallback(async (search = '', p = 1) => {
@@ -104,6 +106,25 @@ export default function KnowledgeBasePage() {
     } finally {
       setDeletingBook(null);
       setShowDeleteConfirm(null);
+    }
+  };
+
+  // 开始学习所有书籍
+  const handleStartLearning = async () => {
+    setIsStartingLearning(true);
+    try {
+      const res = await fetch('/api/knowledge-base', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await res.json();
+      if (data.success) {
+        setLearningStarted(true);
+      }
+    } catch {
+      // 静默
+    } finally {
+      setIsStartingLearning(false);
     }
   };
 
@@ -179,6 +200,28 @@ export default function KnowledgeBasePage() {
               />
             </div>
           </div>
+          {/* 开始学习按钮 */}
+          {stats.learnedCount < stats.bookCount && (
+            <div className="mt-3">
+              <button
+                onClick={handleStartLearning}
+                disabled={isStartingLearning || learningStarted}
+                className={`w-full py-2.5 rounded-lg text-sm font-bold transition-all ${
+                  learningStarted
+                    ? 'bg-[#2a2a3e] text-[#8a8070] cursor-not-allowed'
+                    : isStartingLearning
+                    ? 'bg-[#2a2a3e] text-[#8a8070] animate-pulse'
+                    : 'bg-gradient-to-r from-[#d4a853] to-[#c0392b] text-[#0a0a0f] hover:shadow-lg hover:shadow-[#d4a853]/20'
+                }`}
+              >
+                {learningStarted
+                  ? '学习中…后台自动进行'
+                  : isStartingLearning
+                  ? '正在启动学习…'
+                  : `开始学习（${stats.bookCount - stats.learnedCount} 本待学习）`}
+              </button>
+            </div>
+          )}
         </div>
 
         {/* 搜索栏 */}

@@ -45,6 +45,7 @@ interface BookTask {
   learningMessage: string; // 学习状态消息
   learningLayersDone: number[]; // 已完成的学习层次 [1,2,3,4]
   hasMissingChapters: boolean; // 是否缺章节
+  isLocalBook?: boolean; // 是否为系统内置本地书籍
   createdAt: number;
   updatedAt: number;
   startedAt: number | null;
@@ -1126,7 +1127,9 @@ async function saveWithProgress(taskId: string, content: string, confirmedChapte
  */
 async function processLearning(taskId: string, bookContent: string): Promise<void> {
   const task = tasks.get(taskId);
-  if (!task || task.status !== 'done') return;
+  if (!task) return;
+  // 允许已录入完成的书和本地内置书籍进行学习
+  if (!task.isLocalBook && task.status !== 'done') return;
 
   // 如果已经在学习中或已学完，跳过
   if (task.learningStatus === 'learning' || task.learningStatus === 'done') return;
@@ -1526,16 +1529,16 @@ export function getLearningProgressSummary(): string {
   
   // 本地书籍中不在add-book任务列表里的数量
   const addBookNames = new Set(allTasks.map(t => t.bookName));
-  const localOnlyCount = localBooks.names.filter(n => !addBookNames.has(n)).length;
+  const localOnlyCount = localBooks.bookNames.filter((n: string) => !addBookNames.has(n)).length;
   
   const lines: string[] = [];
   lines.push(`📚 知识库学习进度实时报告`);
   lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━`);
   lines.push(``);
   lines.push(`【总览】`);
-  lines.push(`  系统内置书籍：${localBooks.count} 本`);
+  lines.push(`  系统内置书籍：${localBooks.total} 本`);
   lines.push(`  用户录入书籍：${allTasks.length} 本`);
-  lines.push(`  合计：${localBooks.count + allTasks.length} 本`);
+  lines.push(`  合计：${localBooks.total + allTasks.length} 本`);
   lines.push(``);
   lines.push(`【通过add-book录入的书籍状态】`);
   lines.push(`  ✅ 已完整录入+学完：${done.filter(t => t.learningStatus === 'done').length} 本`);
@@ -1546,10 +1549,10 @@ export function getLearningProgressSummary(): string {
   lines.push(`  ❌ 版权问题无法录入：${copyright.length} 本`);
   lines.push(``);
   lines.push(`【系统内置书籍学习状态】`);
-  lines.push(`  内置${localBooks.count}本书籍目前直接用于全文检索，尚未经过4层深度学习。`);
+  lines.push(`  内置${localBooks.total}本书籍目前直接用于全文检索，尚未经过4层深度学习。`);
   lines.push(`  这些书籍的内容可以直接搜索和引用，但AI还未逐本"吃透"——即尚未理解每本书的推理逻辑、分析思路、结论依据。`);
   if (localOnlyCount > 0 && localOnlyCount <= 50) {
-    lines.push(`  内置书籍列表：${localBooks.names.filter(n => !addBookNames.has(n)).slice(0, 50).map(n => `《${n}》`).join('、')}`);
+    lines.push(`  内置书籍列表：${localBooks.bookNames.filter((n: string) => !addBookNames.has(n)).slice(0, 50).map((n: string) => `《${n}》`).join('、')}`);
   }
   lines.push(``);
   
@@ -1711,4 +1714,202 @@ export function getTaskStats(): { total: number; active: number; done: number; f
   }
   
   return { total: tasks.size, active, done, failed };
+}
+
+// ==================== 本地书籍学习 ====================
+
+/** 学习并发控制 */
+const MAX_CONCURRENT_LEARNING = 3;
+let localLearningActive = 0;
+let localLearningQueue: string[] = []; // taskId队列
+let localLearningStarted = false;
+
+/**
+ * 开始学习所有本地内置书籍
+ * 从fulltext-search获取本地书籍列表，创建学习任务，按队列逐本学习
+ */
+export async function startLearningAllLocalBooks(): Promise<{ total: number; started: number; message: string }> {
+  if (!isInitialized) initTaskManager();
+  
+  if (localLearningStarted) {
+    return { total: 0, started: 0, message: '学习已在进行中' };
+  }
+  localLearningStarted = true;
+  
+  // 动态导入避免循环依赖
+  const { getLocalBookInfo } = await import('./fulltext-search');
+  const localBooks = getLocalBookInfo();
+  
+  if (localBooks.total === 0) {
+    localLearningStarted = false;
+    return { total: 0, started: 0, message: '没有本地书籍需要学习' };
+  }
+  
+  let started = 0;
+  let skipped = 0;
+  
+  for (const bookName of localBooks.bookNames) {
+    // 检查是否已有任务
+    const existingTask = Array.from(tasks.values()).find(
+      t => t.bookName === bookName && t.isLocalBook
+    );
+    
+    if (existingTask) {
+      // 已有任务，检查学习状态
+      if (existingTask.learningStatus === 'done') {
+        skipped++;
+        continue; // 已学完，跳过
+      }
+      if (existingTask.learningStatus === 'learning') {
+        skipped++;
+        continue; // 正在学习，跳过
+      }
+      // 待学习或失败，加入队列
+      localLearningQueue.push(existingTask.id);
+      started++;
+      continue;
+    }
+    
+    // 创建新的本地书籍任务
+    const id = `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const now = Date.now();
+    const task: BookTask = {
+      id,
+      bookName,
+      status: 'done', // 本地书籍内容已存在，直接标记为done
+      progress: 100,
+      totalChapters: 0,
+      currentChapter: 0,
+      currentChapterName: '',
+      remainingChapters: 0,
+      chapterStructure: '',
+      message: '本地内置书籍，内容已就绪',
+      source: 'local',
+      size: '',
+      chars: 0,
+      chapters: [],
+      isLocalBook: true,
+      logs: ['本地书籍，等待学习'],
+      learningStatus: 'pending',
+      learningProgress: 0,
+      learningCurrentChunk: 0,
+      learningTotalChunks: 0,
+      learningMessage: '等待开始学习',
+      learningLayersDone: [],
+      hasMissingChapters: false,
+      createdAt: now,
+      updatedAt: now,
+      startedAt: null,
+      completedAt: null,
+      error: '',
+    };
+    
+    tasks.set(id, task);
+    localLearningQueue.push(id);
+    started++;
+  }
+  
+  saveTasks();
+  
+  // 启动队列处理
+  processLocalLearningQueue();
+  
+  return { 
+    total: localBooks.total, 
+    started, 
+    message: `开始学习 ${started} 本本地书籍（${skipped} 本已学完跳过），并发数 ${MAX_CONCURRENT_LEARNING}` 
+  };
+}
+
+/**
+ * 处理本地书籍学习队列
+ */
+function processLocalLearningQueue(): void {
+  while (localLearningActive < MAX_CONCURRENT_LEARNING && localLearningQueue.length > 0) {
+    const taskId = localLearningQueue.shift()!;
+    localLearningActive++;
+    
+    learnLocalBook(taskId).finally(() => {
+      localLearningActive--;
+      if (localLearningQueue.length > 0 || localLearningActive > 0) {
+        processLocalLearningQueue();
+      } else {
+        localLearningStarted = false;
+      }
+    });
+  }
+}
+
+/**
+ * 学习单本本地书籍
+ */
+async function learnLocalBook(taskId: string): Promise<void> {
+  const task = tasks.get(taskId);
+  if (!task) return;
+  
+  try {
+    // 从fulltext-search读取本地书籍内容
+    const { getBookFullTextAsync } = await import('./fulltext-search');
+    const bookContent = await getBookFullTextAsync(task.bookName);
+    
+    if (!bookContent || bookContent.trim().length === 0) {
+      updateTask(taskId, {
+        learningStatus: 'failed',
+        learningMessage: `无法读取《${task.bookName}》的内容`,
+      });
+      return;
+    }
+    
+    // 检测章节结构
+    const chapters = parseBookChapters(bookContent);
+    if (chapters.length > 0) {
+      updateTask(taskId, {
+        totalChapters: chapters.length,
+        chapterStructure: chapters.map(c => c.name).join(', '),
+      });
+    }
+    
+    // 调用已有的processLearning
+    await processLearning(taskId, bookContent);
+    
+    // 学习完成后更新learn-status
+    const { markBookLearned } = await import('./fulltext-search');
+    markBookLearned(task.bookName, task.learningStatus === 'done');
+    
+  } catch (e) {
+    const errMsg = e instanceof Error ? e.message : String(e);
+    updateTask(taskId, {
+      learningStatus: 'failed',
+      learningMessage: `学习失败: ${errMsg}`,
+    });
+  }
+}
+
+/**
+ * 获取本地书籍学习进度概览
+ */
+export function getLocalLearningProgress(): { 
+  total: number; 
+  learned: number; 
+  learning: number; 
+  pending: number; 
+  failed: number;
+  currentBooks: { name: string; progress: number; status: string }[];
+} {
+  if (!isInitialized) initTaskManager();
+  
+  const localTasks = Array.from(tasks.values()).filter(t => t.isLocalBook);
+  let learned = 0, learning = 0, pending = 0, failed = 0;
+  const currentBooks: { name: string; progress: number; status: string }[] = [];
+  
+  for (const t of localTasks) {
+    switch (t.learningStatus) {
+      case 'done': learned++; break;
+      case 'learning': learning++; currentBooks.push({ name: t.bookName, progress: t.learningProgress, status: '学习中' }); break;
+      case 'failed': failed++; break;
+      default: pending++; break;
+    }
+  }
+  
+  return { total: localTasks.length, learned, learning, pending, failed, currentBooks };
 }

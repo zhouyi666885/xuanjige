@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getBookStats, removeBookFromKnowledgeBase, getBookLearnStatus, getLearnedBookCount } from '@/lib/fulltext-search';
-import { getAllTasks } from '@/lib/book-task-manager';
+import { getAllTasks, startLearningAllLocalBooks, getLocalLearningProgress } from '@/lib/book-task-manager';
 
 /**
  * GET /api/knowledge-base
@@ -134,4 +134,32 @@ function getBookCategory(bookName: string): string {
     }
   }
   return '其他';
+}
+
+/**
+ * POST /api/knowledge-base
+ * 启动本地书籍学习
+ * action=start-learning - 开始学习所有本地书籍
+ * action=learning-progress - 获取学习进度
+ */
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { action } = body;
+
+    if (action === 'start-learning') {
+      const result = await startLearningAllLocalBooks();
+      return NextResponse.json({ success: true, data: result });
+    }
+
+    if (action === 'learning-progress') {
+      const progress = getLocalLearningProgress();
+      return NextResponse.json({ success: true, data: progress });
+    }
+
+    return NextResponse.json({ error: '未知操作' }, { status: 400 });
+  } catch (e) {
+    const errMsg = e instanceof Error ? e.message : String(e);
+    return NextResponse.json({ error: errMsg }, { status: 500 });
+  }
 }
