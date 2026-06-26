@@ -144,8 +144,9 @@ export async function GET(request: NextRequest) {
     }> = new Map();
     try {
       const dbTasks = await listTasks();
+      // listTasks 已按 created_at DESC 排序，第一个就是最新
+      // 🔴 学习状态优先：learning > 其他；其次按 created_at（已天然 DESC）
       for (const t of dbTasks) {
-        // 同名时优先 learning
         const existing = dbTaskMap.get(t.book_name);
         if (!existing || (t.learning_status === 'learning' && existing.learning_status !== 'learning')) {
           dbTaskMap.set(t.book_name, t);
@@ -154,8 +155,32 @@ export async function GET(request: NextRequest) {
     } catch (e) {
       console.warn('[GET /api/knowledge-base] listTasks 从 Supabase 拉失败:', e instanceof Error ? e.message : e);
     }
+    // 🔴 latestDbTaskMap：按 created_at DESC 取最新（listTasks 已 DESC 排序，首个即最新）
+    // 专用于"缺章/录入状态"显示，解决 sticky bug
+    const latestDbTaskMap = new Map<string, {
+      learning_status?: string;
+      learning_progress?: number;
+      learning_current_chunk?: number;
+      learning_total_chunks?: number;
+      learning_message?: string | null;
+      missing_chapter_names?: string[] | null;
+      has_missing_chapters?: boolean | null;
+      learning_current_chapter?: number | null;
+      learning_current_chapter_name?: string | null;
+      created_at?: string;
+    }>();
+    try {
+      const dbTasksLatest = await listTasks();
+      for (const t of dbTasksLatest) {
+        if (!latestDbTaskMap.has(t.book_name)) {
+          latestDbTaskMap.set(t.book_name, t);
+        }
+      }
+    } catch {
+      // 静默：上一处已警告
+    }
     // 多个 task 同名时优先选 learningStatus=learning > done > pending > failed
-    // 避免"状态同步"修复后留下的 done+pending 旧 task 把"学习中"的进度盖掉
+    // 用于"学习状态"查询（避免新录入 pending task 把"学习中"挡掉）
     const taskPriority = (s?: string) => {
       if (s === 'learning') return 4;
       if (s === 'done') return 3;
@@ -167,6 +192,17 @@ export async function GET(request: NextRequest) {
       const existing = taskMap.get(t.bookName);
       if (!existing || taskPriority(t.learningStatus) > taskPriority(existing.learningStatus)) {
         taskMap.set(t.bookName, t);
+      }
+    }
+    // 🔴 latestTaskMap：按 createdAt 取最新 task，专用于"缺章/录入状态"
+    // 解决 bug：用户补回缺章后，旧 task 的 missingChapterNames 永远 sticky
+    const latestTaskMap = new Map<string, typeof allTasks[number]>();
+    for (const t of allTasks) {
+      const existing = latestTaskMap.get(t.bookName);
+      const tCreated = t.createdAt ?? 0;
+      const eCreated = existing?.createdAt ?? 0;
+      if (!existing || tCreated > eCreated) {
+        latestTaskMap.set(t.bookName, t);
       }
     }
 
@@ -240,10 +276,15 @@ export async function GET(request: NextRequest) {
       const finalLearningCurrentChunk = doneCandidate ? (best.t ?? 0) : (best.c ?? 0);
       const finalLearningTotalChunks = best.t ?? 0;
       // 从 task/dbTask 中提取缺失章节信息 + 学习当前章节
-      const missingNames = (task?.missingChapterNames && task.missingChapterNames.length > 0)
-        ? task.missingChapterNames
-        : (Array.isArray(dbTask?.missing_chapter_names) ? dbTask!.missing_chapter_names : []);
-      const hasMissing = missingNames.length > 0 || !!task?.hasMissingChapters || !!dbTask?.has_missing_chapters;
+      // 🔴 缺章/录入字段必须从【最新 task】取，不能用 sticky OR fallback
+      // bug 复现：旧 task 标过 hasMissing=true 后，新 task 即使补全了，UI 仍显示缺失
+      const latestTask = latestTaskMap.get(name);
+      const latestDbTask = latestDbTaskMap.get(name);
+      const missingFromLatest = (latestTask?.missingChapterNames && latestTask.missingChapterNames.length > 0)
+        ? latestTask.missingChapterNames
+        : (Array.isArray(latestDbTask?.missing_chapter_names) ? latestDbTask!.missing_chapter_names! : []);
+      const missingNames = missingFromLatest;
+      const hasMissing = missingNames.length > 0;
       const learningCurChapter = (dbTask?.learning_current_chapter ?? task?.learningCurrentChapter ?? 0) || 0;
       const learningCurChapterName = dbTask?.learning_current_chapter_name ?? task?.learningCurrentChapterName ?? '';
       return {
