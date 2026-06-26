@@ -13,7 +13,7 @@ import path from 'path';
 import { Config, LLMClient, SearchClient, FetchClient, FetchContentItem, KnowledgeClient } from 'coze-coding-dev-sdk';
 import { isBookExists, addBookToKnowledgeBase, findBooksByName, getLocalBookInfo } from './fulltext-search';
 import { saveBook } from './book-storage';
-import { upsertTask as repoUpsertTask, listTasks as repoListTasks, deleteTask as repoDeleteTask, listTombstones as repoListTombstones, addTombstone as repoAddTombstone, type BookTaskRow } from './book-repo';
+import { upsertTask as repoUpsertTask, listTasks as repoListTasks, deleteTask as repoDeleteTask, listTombstones as repoListTombstones, addTombstone as repoAddTombstone, getTaskByBookName as repoGetTaskByName, type BookTaskRow } from './book-repo';
 
 // ==================== 类型定义 ====================
 
@@ -355,7 +355,33 @@ function rowToBookTask(row: BookTaskRow): BookTask {
 
 async function syncTaskToDb(task: BookTask): Promise<void> {
   try {
-    await repoUpsertTask(bookTaskToRow(task));
+    // 关键：先读 db 现有 learning_* 字段，避免用内存中的"旧"学习状态覆盖
+    // 学习进度由 API 路由层独立写入（syncLearningStatusToDb），这里不要参与
+    const row = bookTaskToRow(task);
+    try {
+      const existing = await repoGetTaskByName(task.bookName);
+      if (existing) {
+        // 比较 learning_progress：保留较大的（更新的）那一个
+        const dbProgress = existing.learning_progress ?? 0;
+        const memProgress = row.learning_progress ?? 0;
+        if (dbProgress > memProgress) {
+          row.learning_status = existing.learning_status;
+          row.learning_progress = existing.learning_progress;
+          row.learning_current_chunk = existing.learning_current_chunk;
+          row.learning_total_chunks = existing.learning_total_chunks;
+          row.learning_message = existing.learning_message;
+          row.learning_layers_done = existing.learning_layers_done;
+          row.learning_completed_at = existing.learning_completed_at;
+        }
+        // 如果 db 已是 done，永远不要降级
+        if (existing.learning_status === 'done') {
+          row.learning_status = 'done';
+          row.learning_progress = 100;
+          row.learning_completed_at = existing.learning_completed_at ?? row.learning_completed_at;
+        }
+      }
+    } catch { /* 忽略：拿不到就用 row 自己的值 */ }
+    await repoUpsertTask(row);
   } catch (e) {
     console.error('[TaskManager] 同步任务到 Supabase 失败:', (e as Error)?.message);
   }
@@ -2501,6 +2527,17 @@ export async function startLearningAllLocalBooks(): Promise<{ total: number; sta
   } catch (e) {
     console.warn('[startLearningAllLocalBooks] loadTasksFromDb 失败', e);
   }
+
+  // 关键防御：从 db 直接读 done 列表（避免内存 task 残留 learning 状态导致 done 书被重启）
+  const dbDoneBooks = new Set<string>();
+  try {
+    const rows = await repoListTasks();
+    for (const r of rows) {
+      if (r.learning_status === 'done') dbDoneBooks.add(r.book_name);
+    }
+  } catch (e) {
+    console.warn('[startLearningAllLocalBooks] 读 db done 列表失败', e);
+  }
   
   // 动态导入避免循环依赖
   const { getLocalBookInfo } = await import('./fulltext-search');
@@ -2514,6 +2551,11 @@ export async function startLearningAllLocalBooks(): Promise<{ total: number; sta
   let skipped = 0;
   
   for (const bookName of localBooks.bookNames) {
+    // 防御 1：db 已经 done → 直接跳过（即便内存 task 状态混乱）
+    if (dbDoneBooks.has(bookName)) {
+      skipped++;
+      continue;
+    }
     // 按 bookName 查找已有任务（不限 isLocalBook，防止同名任务重复）
     const existingTask = Array.from(tasks.values()).find(
       t => t.bookName === bookName

@@ -184,19 +184,21 @@ export async function GET(request: NextRequest) {
         : (task?.totalChapters ?? 0);
       const realCurrentChapter = realTotalChapters; // 本地书必然完整，currentChapter = totalChapters
       // 学习字段优先级：liveLearn(本地文件) > dbTask(Supabase) > task(内存) > learnStatus
-      // 选一个 learning > done > pending > failed 优先级最高的
+      // 但 done 永远胜过 learning（一旦真正学完，不允许任何来源把它回退到 learning）
       const candidates: Array<{ s?: string; p?: number; c?: number; t?: number; m?: string | null }> = [
         liveLearn ? { s: liveLearn.learningStatus, p: liveLearn.learningProgress, c: liveLearn.learningCurrentChunk, t: liveLearn.learningTotalChunks, m: liveLearn.learningMessage } : null,
         dbTask ? { s: dbTask.learning_status, p: dbTask.learning_progress, c: dbTask.learning_current_chunk, t: dbTask.learning_total_chunks, m: dbTask.learning_message } : null,
         task ? { s: task.learningStatus, p: task.learningProgress, c: task.learningCurrentChunk, t: task.learningTotalChunks, m: task.learningMessage } : null,
       ].filter(Boolean) as Array<{ s?: string; p?: number; c?: number; t?: number; m?: string | null }>;
-      const prio = (s?: string) => s === 'learning' ? 4 : s === 'done' ? 3 : s === 'pending' ? 2 : 1;
+      // done 一票否决：只要任一来源是 done，就用 done
+      const doneCandidate = candidates.find(c => c.s === 'done');
+      const prio = (s?: string) => s === 'done' ? 4 : s === 'learning' ? 3 : s === 'pending' ? 2 : 1;
       candidates.sort((a, b) => prio(b.s) - prio(a.s));
-      const best = candidates[0] || {};
+      const best = doneCandidate || candidates[0] || {};
       const finalLearningStatus = best.s ?? (learnStatus?.learned ? 'done' : 'pending');
-      const finalLearningProgress = best.p ?? (learnStatus?.learned ? 100 : 0);
+      const finalLearningProgress = doneCandidate ? 100 : (best.p ?? (learnStatus?.learned ? 100 : 0));
       const finalLearningMessage = best.m ?? '';
-      const finalLearningCurrentChunk = best.c ?? 0;
+      const finalLearningCurrentChunk = doneCandidate ? (best.t ?? 0) : (best.c ?? 0);
       const finalLearningTotalChunks = best.t ?? 0;
       return {
         name,
@@ -354,9 +356,24 @@ export async function POST(request: NextRequest) {
         let skipped = 0;
         for (const bookName of bookNames) {
           const existing = learningStatus[bookName];
-          if (existing && existing.learningStatus === 'done') {
+          // 文件状态优先；同时检查 Supabase 是否已 done，避免被本地残留状态误重启
+          let dbStatus: string | undefined;
+          try {
+            const { getTaskByBookName } = await import('@/lib/book-repo');
+            const dbRow = await getTaskByBookName(bookName);
+            dbStatus = dbRow?.learning_status;
+          } catch { /* 忽略 */ }
+          if ((existing && existing.learningStatus === 'done') || dbStatus === 'done') {
             skipped++;
-            continue; // 已学完，跳过
+            // 把本地文件状态同步为 done，避免下次又被误判为 learning
+            learningStatus[bookName] = {
+              learningStatus: 'done',
+              learningProgress: 100,
+              learningMessage: '✅ 已学完，可用于回答问题',
+              learningLayersDone: [1, 2, 3, 4],
+            };
+            try { fs.writeFileSync(statusFile, JSON.stringify(learningStatus, null, 2)); } catch { /* 静默 */ }
+            continue;
           }
           // pending / learning(已残留) / failed → 强制重启
           // 标记为学习中
