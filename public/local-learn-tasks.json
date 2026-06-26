@@ -34,11 +34,11 @@
   "滴天髓": {
     "learningStatus": "failed",
     "learningMessage": "🔍 已读取全文 144517 字，准备深度学习...",
-    "updatedAt": 1782497553469,
+    "updatedAt": 1782499316204,
     "learningProgress": 0,
     "learningLayersDone": [],
     "learningCurrentChunk": 0,
     "learningTotalChunks": 56,
-    "completedAt": 1782497553468
+    "completedAt": 1782499316204
   }
 }

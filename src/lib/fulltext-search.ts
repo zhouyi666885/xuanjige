@@ -253,17 +253,19 @@ export async function getLearnedBookCount(): Promise<{
   const learnedBookNames: string[] = [];
   const pendingBookNames: string[] = [];
 
-  // ✅ 真相源单一化：只从 Supabase 拉 learning_status=done 的书。
-  //    不再用 task-manager 内存或本地 book-learn-status.json（这俩可能是过期数据）。
-  //    这样 chat API 和 GET /api/knowledge-base 都看到同一份数据，避免"知识库显示 0% 但 AI 说已学完"的矛盾。
+  // ✅ 真相源单一化：从 Supabase `books` 表读 `learned=true`。
+  //    这样 chat API truthBlock 与知识库 UI（也看 books.learned）完全一致——
+  //    避免"知识库说已学习但 AI 说没学"的矛盾。
+  //    定义："已学习"= 这本书的内容已录入知识库可检索（books.learned=true）。
+  //    深度学习（book_tasks.learning_status='done'）是后台技术细节，不作为对用户的"已学习"判定。
   const dbLearnedSet = new Set<string>();
   try {
-    // eslint-disable-next-line import/no-cycle
-    const repo = await import('./book-repo');
-    const dbTasks = await repo.listTasks();
-    for (const row of dbTasks) {
-      if (row.learning_status === 'done' && row.learning_progress === 100) {
-        dbLearnedSet.add(row.book_name);
+    const { getSupabaseClient } = await import('@/storage/database/supabase-client');
+    const supa = getSupabaseClient();
+    const { data } = await supa.from('books').select('name, learned');
+    if (data) {
+      for (const row of data as Array<{ name: string; learned: boolean | null }>) {
+        if (row.learned === true) dbLearnedSet.add(row.name);
       }
     }
   } catch {
