@@ -34,7 +34,7 @@
   "滴天髓": {
     "learningStatus": "failed",
     "learningMessage": "🔍 已读取全文 144517 字，准备深度学习...",
-    "updatedAt": 1782493489682,
+    "updatedAt": 1782494280820,
     "learningProgress": 18,
     "learningLayersDone": [
       1,
@@ -44,6 +44,6 @@
     ],
     "learningCurrentChunk": 10,
     "learningTotalChunks": 56,
-    "completedAt": 1782493489682
+    "completedAt": 1782494280820
   }
 }

@@ -404,17 +404,26 @@ ${bookContent.content}`;
     const contextStr = context ? `\n\n【前置分析结果】\n${context}\n请在以上分析结果基础上，继续深入回答用户的问题。` : '';
 
     // 加入学习状态信息（根据实际学习状态如实显示）
+    // ✅ 真相源单一化：直接从 Supabase 拉 task 数据，和 GET /api/knowledge-base 完全一致
     const learnStats = await getLearnedBookCount();
-    const allTasksForStatus = getAllTasks();
+    const { listTasks: repoListTasks } = await import('@/lib/book-repo');
+    let dbTasksForStatus: Array<{ book_name: string; status: string; learning_status?: string; learning_progress?: number }> = [];
+    try {
+      dbTasksForStatus = await repoListTasks();
+    } catch {
+      dbTasksForStatus = [];
+    }
     const activeStatusSet = new Set(['searching', 'downloading', 'translating', 'saving', 'paused', 'pending']);
-    const activeTasksForStatus = allTasksForStatus.filter(t => activeStatusSet.has(t.status));
-    const learningTasksForStatus = allTasksForStatus.filter(t => t.learningStatus === 'learning');
+    const activeTasksForStatus = dbTasksForStatus.filter(t => activeStatusSet.has(t.status));
+    const learningTasksForStatus = dbTasksForStatus.filter(
+      t => t.learning_status === 'learning' && (t.learning_progress ?? 0) < 100
+    );
     const learnedNames = learnStats.learnedBookNames || [];
     const pendingNames = learnStats.pendingBookNames || [];
 
-    const activeBookNames = activeTasksForStatus.map(t => `《${t.bookName}》(${t.status})`).join('、');
+    const activeBookNames = activeTasksForStatus.map(t => `《${t.book_name}》(${t.status})`).join('、');
     const learningBookNames = learningTasksForStatus
-      .map(t => `《${t.bookName}》${t.learningProgress ?? 0}%`)
+      .map(t => `《${t.book_name}》${t.learning_progress ?? 0}%`)
       .join('、');
 
     const truthBlock = `

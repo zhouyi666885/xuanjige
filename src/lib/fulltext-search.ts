@@ -250,28 +250,28 @@ export async function getLearnedBookCount(): Promise<{
   const total = allNames.length;
   const totalChars = stats.totalChars;
 
-  const statusMap = loadLearnStatus();
   const learnedBookNames: string[] = [];
   const pendingBookNames: string[] = [];
 
-  // 同时从 task-manager 获取 learning_status=done 的书（这是真实的学习状态）
-  let taskLearnedSet = new Set<string>();
+  // ✅ 真相源单一化：只从 Supabase 拉 learning_status=done 的书。
+  //    不再用 task-manager 内存或本地 book-learn-status.json（这俩可能是过期数据）。
+  //    这样 chat API 和 GET /api/knowledge-base 都看到同一份数据，避免"知识库显示 0% 但 AI 说已学完"的矛盾。
+  const dbLearnedSet = new Set<string>();
   try {
     // eslint-disable-next-line import/no-cycle
-    const tm = await import('./book-task-manager');
-    const tasks = tm.getAllTasks();
-    for (const t of tasks) {
-      if (t.learningStatus === 'done') {
-        taskLearnedSet.add(t.bookName);
+    const repo = await import('./book-repo');
+    const dbTasks = await repo.listTasks();
+    for (const row of dbTasks) {
+      if (row.learning_status === 'done' && row.learning_progress === 100) {
+        dbLearnedSet.add(row.book_name);
       }
     }
   } catch {
-    taskLearnedSet = new Set();
+    // db 不可用时退化为 0 已学完（宁可让 AI 说"还没学完"也不让它误说"已学完"）
   }
 
   for (const name of allNames) {
-    const s = statusMap.get(name);
-    if ((s && s.learned) || taskLearnedSet.has(name)) {
+    if (dbLearnedSet.has(name)) {
       learnedBookNames.push(name);
     } else {
       pendingBookNames.push(name);
@@ -1341,22 +1341,27 @@ export async function getDetailedBookStats(): Promise<{
   
   if (minChars === Infinity) minChars = 0;
   
-  // 学习状态（已学完 / 待学习的书名清单）—— 从 task manager 内存中取
+  // 学习状态（已学完 / 待学习的书名清单）—— 从 Supabase 拉真相，与 GET /api/knowledge-base 一致
   const learnedBookNames: string[] = [];
   const pendingBookNames: string[] = [];
   try {
-    const { getAllTasks } = await import('./book-task-manager');
-    const allTasks = getAllTasks();
+    // eslint-disable-next-line import/no-cycle
+    const repo = await import('./book-repo');
+    const dbTasks = await repo.listTasks();
+    const dbLearnedSet = new Set(
+      dbTasks
+        .filter(t => t.learning_status === 'done' && t.learning_progress === 100)
+        .map(t => t.book_name)
+    );
     for (const name of bookNameList) {
-      const t = allTasks.find(tk => tk.bookName === name);
-      if (t && t.learningStatus === 'done') {
+      if (dbLearnedSet.has(name)) {
         learnedBookNames.push(name);
       } else {
         pendingBookNames.push(name);
       }
     }
   } catch {
-    // task manager 加载失败，全部视为 pending
+    // db 不可用，全部视为 pending（宁可保守也不假装学完）
     pendingBookNames.push(...bookNameList);
   }
   
