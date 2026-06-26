@@ -3108,13 +3108,21 @@ async function learnLocalBook(taskId: string): Promise<void> {
       markBookAsLearned: (n: string, c: number, t: number, s?: string) => void;
       loadBookCacheAsync: () => Promise<void>;
     };
-    try { await loadBookCacheAsync(); } catch {}
+    try {
+      updateTask(taskId, { learningMessage: `📚 正在加载知识库缓存...` });
+      await loadBookCacheAsync();
+    } catch {}
     let bookContent = '';
     if (typeof getBookFullTextAsync === 'function') {
+      updateTask(taskId, { learningMessage: `📖 正在从云端读取《${task.bookName}》全文...` });
       try { bookContent = (await getBookFullTextAsync(task.bookName)) || ''; } catch {}
     }
     if (!bookContent || bookContent.length < 100) {
+      updateTask(taskId, { learningMessage: `📖 正在从本地读取《${task.bookName}》全文...` });
       bookContent = getBookFullText(task.bookName) || '';
+    }
+    if (bookContent && bookContent.length > 0) {
+      updateTask(taskId, { learningMessage: `🔍 已读取全文 ${bookContent.length} 字，准备深度学习...` });
     }
     
     if (!bookContent || bookContent.trim().length === 0) {

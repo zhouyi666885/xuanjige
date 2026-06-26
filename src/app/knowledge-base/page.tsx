@@ -530,22 +530,34 @@ export default function KnowledgeBasePage() {
                               : `${book.learningProgress}%`}
                         </span>
                       </div>
-                      <div className="h-1 bg-[#0a0a0f] rounded-full overflow-hidden relative">
-                        <div
-                          className={`h-full rounded-full transition-all duration-700 ${
-                            book.learningStatus === 'done'
-                              ? 'bg-gradient-to-r from-[#4ade80] to-[#22c55e]'
-                              : book.learningStatus === 'learning'
-                                ? 'bg-gradient-to-r from-[#d4a853] to-[#f59e0b]'
-                                : 'bg-[#3a3a4e]'
-                          }`}
-                          style={{ width: `${book.learningStatus === 'pending' ? 100 : book.learningProgress}%`, opacity: book.learningStatus === 'pending' ? 0.3 : 1 }}
-                        />
+                      <div className="h-1.5 bg-[#0a0a0f] rounded-full overflow-hidden relative border border-[#3a3a4e]/40">
+                        {book.learningStatus === 'learning' && book.learningProgress === 0 ? (
+                          // 学习刚启动（读全文/初始化阶段）：不确定动画，左右滑动金色条
+                          <div className="progress-indeterminate" />
+                        ) : (
+                          <div
+                            className={`h-full rounded-full transition-all duration-700 ${
+                              book.learningStatus === 'done'
+                                ? 'bg-gradient-to-r from-[#4ade80] to-[#22c55e]'
+                                : book.learningStatus === 'learning'
+                                  ? 'bg-gradient-to-r from-[#d4a853] to-[#f59e0b]'
+                                  : 'bg-[#3a3a4e]'
+                            }`}
+                            style={{
+                              width: book.learningStatus === 'pending'
+                                ? '100%'
+                                : book.learningStatus === 'learning'
+                                  ? `${Math.max(3, book.learningProgress)}%`
+                                  : `${book.learningProgress}%`,
+                              opacity: book.learningStatus === 'pending' ? 0.3 : 1,
+                            }}
+                          />
+                        )}
                         {book.learningStatus === 'learning' && book.learningProgress > 0 && (
                           <div
                             className="absolute top-0 left-0 h-full rounded-full opacity-50"
                             style={{
-                              width: `${book.learningProgress}%`,
+                              width: `${Math.max(3, book.learningProgress)}%`,
                               background: 'linear-gradient(90deg, transparent 0%, rgba(212,168,83,0.4) 50%, transparent 100%)',
                               animation: 'shimmer 2s infinite',
                             }}
