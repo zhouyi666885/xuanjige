@@ -308,7 +308,7 @@ export default function KnowledgeBasePage() {
                       )}
                       {book.hasMissingChapters && (
                         <span className="text-[10px] bg-amber-900/30 text-amber-400 px-1.5 py-0.5 rounded-full flex-shrink-0 border border-amber-700/30">
-                          缺章节 {book.currentChapter}/{book.totalChapters}{book.chapterStructure}
+                          缺 {book.totalChapters - book.currentChapter} 章
                         </span>
                       )}
                     </div>
@@ -336,7 +336,7 @@ export default function KnowledgeBasePage() {
                           {book.learningStatus === 'pending'
                             ? '0%'
                             : book.learningTotalChunks > 0
-                              ? `${book.learningCurrentChunk}/${book.learningTotalChunks}块`
+                              ? `已分析 ${book.learningCurrentChunk}/${book.learningTotalChunks} 个学习块`
                               : `${book.learningProgress}%`}
                         </span>
                       </div>

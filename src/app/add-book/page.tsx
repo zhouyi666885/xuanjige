@@ -473,11 +473,11 @@ export default function AddBookPage() {
                     《{book.bookName}》
                   </p>
                   <p className="text-xs text-amber-400/70 mt-0.5">
-                    录入完成但缺章节：已录{book.currentChapter}{book.chapterStructure}/共{book.totalChapters}{book.chapterStructure}
+                    已录 {book.currentChapter} / 共 {book.totalChapters} 章
                   </p>
                 </div>
                 <span className="text-[10px] bg-amber-900/50 text-amber-300 px-2 py-0.5 rounded-full border border-amber-700/40 flex-shrink-0">
-                  缺章节
+                  缺 {book.totalChapters - book.currentChapter} 章
                 </span>
               </div>
             ))}

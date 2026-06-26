@@ -139,6 +139,34 @@ function detectBookChapters(content: string): { totalChapters: number; structure
 }
 
 /**
+ * 同步本地书籍的元信息（字符数、章节数、章节结构）
+ * 用于"录入完成"快速通道：保证 currentChapter == totalChapters，避免假"缺章节"
+ */
+function getLocalBookMeta(bookName: string): {
+  exists: boolean;
+  charCount: number;
+  totalChapters: number;
+  chapterStructure: string;
+} {
+  try {
+    const filePath = path.join(process.cwd(), 'public/book-content', `${bookName}.txt`);
+    if (!fs.existsSync(filePath)) {
+      return { exists: false, charCount: 0, totalChapters: 0, chapterStructure: '章' };
+    }
+    const content = fs.readFileSync(filePath, 'utf-8');
+    const info = detectBookChapters(content);
+    return {
+      exists: true,
+      charCount: content.length, // 字符数（不是字节）
+      totalChapters: info.totalChapters,
+      chapterStructure: info.structureType,
+    };
+  } catch {
+    return { exists: false, charCount: 0, totalChapters: 0, chapterStructure: '章' };
+  }
+}
+
+/**
  * 根据当前写入位置确定正在录入的章节
  */
 function getCurrentChapterAtPosition(chapters: BookChapter[], position: number): { index: number; name: string } {
@@ -382,14 +410,17 @@ async function processTask(taskId: string): Promise<void> {
     // 🔴 状态同步铁律（快速通道）：本地物理文件已存在 → 直接标 done 退出
     // 防止旧 HMR 闭包反复触发搜索循环，造成"知识库说完成 / 添加书籍页说搜索中"的矛盾
     try {
-      const localFile = path.join(process.cwd(), 'public/book-content', `${task.bookName}.txt`);
-      if (fs.existsSync(localFile)) {
-        const chars = fs.statSync(localFile).size;
+      const meta = getLocalBookMeta(task.bookName);
+      if (meta.exists) {
         updateTask(taskId, {
           status: 'done',
           progress: 100,
           message: `《${task.bookName}》已录入完成（检测到本地全文文件）`,
-          chars: chars > 0 ? chars : task.chars,
+          chars: meta.charCount > 0 ? meta.charCount : task.chars,
+          // 关键修复：本地书的 currentChapter 直接等于 totalChapters，避免假"缺章节"
+          currentChapter: meta.totalChapters || task.currentChapter,
+          totalChapters: meta.totalChapters || task.totalChapters,
+          chapterStructure: meta.chapterStructure || task.chapterStructure,
           source: task.source || '本地',
           completedAt: task.completedAt || Date.now(),
           learningStatus: task.learningStatus === 'done' ? 'done' : 'pending',
@@ -1707,13 +1738,7 @@ export function initTaskManager(): void {
     for (const [id, task] of tasks) {
       if (localBookSet.has(task.bookName) && task.status !== 'done') {
         // 物理文件存在但 task 不是 done → 强制同步为 done
-        const filePath = path.join(process.cwd(), 'public/book-content', `${task.bookName}.txt`);
-        let chars = task.chars;
-        try {
-          if (fs.existsSync(filePath)) {
-            chars = fs.statSync(filePath).size; // 用文件大小作为字符数近似值
-          }
-        } catch {}
+        const meta = getLocalBookMeta(task.bookName);
         
         // 从 local-learn-tasks.json 恢复学习状态（如果之前学完了，保持 done）
         const learnInfo = localLearnStatus[task.bookName];
@@ -1723,7 +1748,11 @@ export function initTaskManager(): void {
           status: 'done',
           progress: 100,
           message: `《${task.bookName}》已录入完成（状态自动同步：检测到本地全文文件）`,
-          chars: chars > 0 ? chars : task.chars,
+          chars: meta.charCount > 0 ? meta.charCount : task.chars,
+          // 关键修复：本地书的 currentChapter 直接等于 totalChapters，避免假"缺章节"
+          currentChapter: meta.totalChapters || task.currentChapter,
+          totalChapters: meta.totalChapters || task.totalChapters,
+          chapterStructure: meta.chapterStructure || task.chapterStructure,
           completedAt: task.completedAt || Date.now(),
           learningStatus: isLearningDone ? 'done' : (task.learningStatus === 'done' ? 'done' : 'pending'),
           learningProgress: isLearningDone ? 100 : task.learningProgress,
@@ -1829,15 +1858,9 @@ export function createTask(bookName: string): { task: BookTask; isNew: boolean }
   
   // 🔴 状态同步铁律：本地物理文件已存在 → 直接标 done，不进入搜索
   // 避免出现"知识库有该书"但"添加书籍页还显示搜索中"的矛盾
-  let localFileExists = false;
-  let localFileChars = 0;
-  try {
-    const filePath = path.join(process.cwd(), 'public/book-content', `${bookName}.txt`);
-    if (fs.existsSync(filePath)) {
-      localFileExists = true;
-      localFileChars = fs.statSync(filePath).size;
-    }
-  } catch { /* 忽略 */ }
+  const localMeta = getLocalBookMeta(bookName);
+  const localFileExists = localMeta.exists;
+  const localFileChars = localMeta.charCount;
   
   const id = generateId();
   const task: BookTask = {
@@ -1848,8 +1871,9 @@ export function createTask(bookName: string): { task: BookTask; isNew: boolean }
       ? `《${bookName}》已存在于知识库（检测到本地全文文件）` 
       : '等待开始...',
     progress: localFileExists ? 100 : 0,
-    currentChapter: 0,
-    totalChapters: 0,
+    // 关键修复：本地书的 currentChapter 直接等于 totalChapters，避免假"缺章节"
+    currentChapter: localFileExists ? localMeta.totalChapters : 0,
+    totalChapters: localFileExists ? localMeta.totalChapters : 0,
     currentChapterName: '',
     remainingChapters: 0,
     source: localFileExists ? '本地' : '',
@@ -1869,8 +1893,8 @@ export function createTask(bookName: string): { task: BookTask; isNew: boolean }
     startedAt: localFileExists ? Date.now() : null,
     completedAt: localFileExists ? Date.now() : null,
     error: '',
-    logs: localFileExists ? [`[${new Date().toLocaleTimeString()}] 检测到本地全文文件，直接标记为已录入`] : [],
-    chapterStructure: '',
+    logs: localFileExists ? [`[${new Date().toLocaleTimeString()}] 检测到本地全文文件 ${localFileChars} 字 / ${localMeta.totalChapters} ${localMeta.chapterStructure}`] : [],
+    chapterStructure: localFileExists ? localMeta.chapterStructure : '',
     chapters: [],
   };
 
@@ -2471,7 +2495,7 @@ async function learnLocalBook(taskId: string): Promise<void> {
     });
     
     // 从fulltext-search读取本地书籍内容
-    const { getBookFullText } = await import('./fulltext-search');
+    const { getBookFullText, markBookAsLearned } = await import('./fulltext-search');
     const bookContent = getBookFullText(task.bookName);
     
     if (!bookContent || bookContent.trim().length === 0) {
@@ -2486,14 +2510,20 @@ async function learnLocalBook(taskId: string): Promise<void> {
       return;
     }
     
-    // 检测章节结构
+    // 检测章节结构（按当前实际内容重新评估字数+章节数）
+    const chaptersInfo = detectBookChapters(bookContent);
     const chapters = parseBookChapters(bookContent);
     if (chapters.length > 0) {
       updateTask(taskId, {
         totalChapters: chapters.length,
-        chapterStructure: chapters.map(c => c.name).join(', '),
+        currentChapter: chapters.length, // 本地书录入完成，currentChapter = totalChapters
+        chapterStructure: chaptersInfo.structureType || '章',
+        chars: bookContent.length,
       });
     }
+    
+    // 用最新的字数和章节数刷新 book-learn-status.json（覆盖之前过时的简版数据）
+    markBookAsLearned(task.bookName, bookContent.length, chaptersInfo.totalChapters, chaptersInfo.structureType || '章');
     
     // 调用已有的processLearning（学习过程中会通过 updateTask 持续更新进度）
     await processLearning(taskId, bookContent);
