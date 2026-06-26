@@ -555,14 +555,44 @@ async function processTask(taskId: string): Promise<void> {
           `${task.bookName} 简体 OR 简體 OR 大陆版`,
         ],
       },
+      // === 第八波：微信读书/电子书平台 ===
+      {
+        name: '微信读书/电子书',
+        queries: [
+          `${task.bookName} 微信读书 OR weread`,
+          `${task.bookName} 电子书 OR ebook OR PDF下载`,
+          `${task.bookName} 在线阅读 OR 全本阅读 OR 免费阅读`,
+        ],
+      },
+      // === 第九波：网盘/书源深度搜索 ===
+      {
+        name: '网盘书源深度搜',
+        queries: [
+          `${task.bookName} site:pan.baidu.com`,
+          `${task.bookName} 阿里云盘 OR 夸克网盘 OR 迅雷云盘`,
+          `${task.bookName} 书源 OR txt下载 OR epub OR mobi`,
+          `${task.bookName} 大力盘 OR 凌风云 OR 超能搜`,
+        ],
+      },
+      // === 第十波：终极穷举——所有角度再来一遍 ===
+      {
+        name: '终极穷举',
+        queries: [
+          `"${task.bookName}" 全文 完整版 不删节`,
+          `${task.bookName} 2024 OR 2025 OR 最新版`,
+          `${task.bookName} 注释版 OR 校注 OR 白话译`,
+          `${task.bookName} 电子版 OR 扫描版 OR 影印版`,
+        ],
+      },
     ];
 
     let noNewResultCount = 0;
     let roundIndex = 0;
     const searchStartTime = Date.now();
-    // 🔴 不设搜索时间上限！搜遍全网就是搜遍全网，不限时间
-    // 安全保护：30分钟（仅防止极端情况下服务器卡死，正常搜一本书不需要30分钟）
-    const ABSOLUTE_MAX_SEARCH_TIME = 30 * 60 * 1000;
+    // 🔴🔴🔴 没有搜索时间限制！没有搜索次数限制！
+    // 用户明确要求：不限时间、不限轮数，只有全网所有网站全部搜过了才能判定版权问题
+    // 安全保护：仅防止极端情况下服务器卡死（2小时绝对上限，正常搜一本书用不了这么久）
+    const ABSOLUTE_MAX_SEARCH_TIME = 2 * 60 * 60 * 1000;
 
     // 🔴🔴🔴 核心逻辑：搜遍全网
     // 每个searchRound都要完整跑一遍，一轮都不能跳过
@@ -575,8 +605,8 @@ async function processTask(taskId: string): Promise<void> {
     let completedFullCycles = 0;
     let resultsInCurrentCycle = 0;
 
-    // 🔴🔴🔴 没有连续几轮的限制！搜索次数无上限！
-    // 唯一的停止条件：时间到了（10分钟绝对上限）
+    // 🔴🔴🔴 没有连续几轮的限制！搜索次数无上限！搜索时间无上限！
+    // 唯一的停止条件：2小时绝对安全上限（仅防服务器卡死）
     // 不存在"连续X轮没新结果就停下"这回事
     // 搜遍全网 = 真的 nowhere to be found，不是"搜了几遍没找到就算了"
     while (Date.now() - searchStartTime < ABSOLUTE_MAX_SEARCH_TIME) {
