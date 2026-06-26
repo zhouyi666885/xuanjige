@@ -1661,12 +1661,31 @@ export function removeBookFromKnowledgeBase(bookName: string): boolean {
     console.error(`[S3] 书籍《${matchedName}》从云存储删除失败:`, err);
   });
 
-  // 同步从 Supabase 删除（统一真相源）
-  deleteBookFromDb(matchedName).then(() => {
-    console.log(`[Supabase] 《${matchedName}》已从云端数据库删除`);
-  }).catch((err: unknown) => {
-    console.error(`[Supabase] 《${matchedName}》从云端数据库删除失败:`, err);
-  });
+  // 同步从 Supabase 删除（books 表 + book_tasks 表 + 立墓碑）
+  (async () => {
+    try {
+      await deleteBookFromDb(matchedName);
+      console.log(`[Supabase] 《${matchedName}》已从 books 表删除`);
+    } catch (err) {
+      console.error(`[Supabase] 《${matchedName}》从 books 表删除失败:`, err);
+    }
+    try {
+      const { deleteTasksByBookName, addTombstone } = await import('./book-repo');
+      await deleteTasksByBookName(matchedName);
+      await addTombstone('name', matchedName);
+      console.log(`[Supabase] 《${matchedName}》已从 book_tasks 表删除并立墓碑`);
+    } catch (err) {
+      console.error(`[Supabase] 《${matchedName}》book_tasks 表删除失败:`, err);
+    }
+    // 通知 task-manager 立即清理内存中的 task
+    try {
+      // eslint-disable-next-line import/no-cycle
+      const { removeTaskByBookName } = await import('./book-task-manager');
+      removeTaskByBookName(matchedName);
+    } catch {
+      // task manager 可能未加载
+    }
+  })();
   dbCachePrimed = false; // 下次访问重新拉取最新书目
   
   return true;

@@ -11,6 +11,7 @@
 import fs from 'fs';
 import path from 'path';
 import { Config, LLMClient, SearchClient, FetchClient, FetchContentItem, KnowledgeClient } from 'coze-coding-dev-sdk';
+// eslint-disable-next-line import/no-cycle
 import { isBookExists, addBookToKnowledgeBase, findBooksByName, getLocalBookInfo } from './fulltext-search';
 import { saveBook } from './book-storage';
 import { upsertTask as repoUpsertTask, listTasks as repoListTasks, deleteTask as repoDeleteTask, listTombstones as repoListTombstones, addTombstone as repoAddTombstone, getTaskByBookName as repoGetTaskByName, type BookTaskRow } from './book-repo';
@@ -692,7 +693,7 @@ async function processTask(taskId: string): Promise<void> {
       if (fs.existsSync(scriptPath)) {
         const result = await new Promise<{stdout: string; stderr: string}>((resolve, reject) => {
           execFile('python3', [scriptPath, task.bookName], {
-            timeout: 5 * 60 * 1000, // 5分钟超时
+            timeout: 30 * 1000, // 30秒超时（避免用户长时间等待，超时后由 Universal Crawler 110 站接力）
             maxBuffer: 50 * 1024 * 1024, // 50MB缓冲
           }, (err, stdout, stderr) => {
             if (err) reject(err);
@@ -2107,8 +2108,20 @@ export function createTask(bookName: string): { task: BookTask; isNew: boolean }
   saveTasks();
   
   // 异步开始处理（不阻塞返回）；如果本地已存在则跳过录入流程
+  // 用 setImmediate + Promise 立即触发，避免 setTimeout 在某些场景下不被调度
   if (!localFileExists) {
-    setTimeout(() => processTask(id), 500);
+    setImmediate(() => {
+      Promise.resolve().then(() => processTask(id)).catch(err => {
+        console.error(`[createTask] processTask 启动失败 ${id}:`, err);
+        const t = tasks.get(id);
+        if (t && t.status === 'searching') {
+          t.status = 'failed';
+          t.error = String(err);
+          t.updatedAt = Date.now();
+          saveTasks();
+        }
+      });
+    });
   }
   
   return { task, isNew: true };
@@ -2449,20 +2462,57 @@ export function deleteTask(taskId: string): boolean {
     return false;
   }
   
-  // 如果任务已完成（done）或进行中（processing），都要从知识库删除
-  // 进行中的任务可能已经部分写入了知识库，必须清除残留
-  if (task.status === 'done' || task.status === 'saving') {
+  // 不论任务状态如何，都要从知识库删除已录入内容
+  // 因为 searching/downloading/translating 状态可能已经部分写入了 books 表
+  if (task.bookName) {
+    const g = globalThis as unknown as { __deletedBookNames?: Set<string> };
+    if (!g.__deletedBookNames) g.__deletedBookNames = new Set();
+    g.__deletedBookNames.add(task.bookName);
     try {
       const { removeBookFromKnowledgeBase } = require('./fulltext-search');
       removeBookFromKnowledgeBase(task.bookName);
     } catch {
       // 忽略删除错误
     }
+    // 异步删 Supabase book_tasks 表 + 立墓碑
+    (async () => {
+      try {
+        const { deleteTasksByBookName, addTombstone, deleteTask: repoDeleteTask } = await import('./book-repo');
+        await repoDeleteTask(taskId);
+        await deleteTasksByBookName(task.bookName);
+        await addTombstone('id', taskId);
+        await addTombstone('name', task.bookName);
+      } catch (err) {
+        console.error('[deleteTask] Supabase 清理失败:', err);
+      }
+    })();
   }
   
   tasks.delete(taskId);
   saveTasks();
   return true;
+}
+
+/**
+ * 根据书名删除所有相关任务（用于从知识库删除书时同步清理）
+ */
+export function removeTaskByBookName(bookName: string): number {
+  if (!isInitialized) initTaskManager();
+  let count = 0;
+  for (const [id, task] of tasks.entries()) {
+    if (task.bookName === bookName) {
+      deletedTaskIds.add(id);
+      cancelledTasks.add(id);
+      processingQueue.delete(id);
+      tasks.delete(id);
+      count++;
+    }
+  }
+  const g = globalThis as unknown as { __deletedBookNames?: Set<string> };
+  if (!g.__deletedBookNames) g.__deletedBookNames = new Set();
+  g.__deletedBookNames.add(bookName);
+  if (count > 0) saveTasks();
+  return count;
 }
 
 /**
