@@ -58,6 +58,12 @@ export async function GET(request: NextRequest) {
       const learnStatus = getBookLearnStatus(name);
       // 获取任务中的学习进度
       const task = taskMap.get(name);
+      // 物理文件存在 ⇒ 内容完整，绝不能误报"缺章节"
+      // 章节数：优先取 learnStatus.totalChapters（本地物理书的真实章节），其次 task.totalChapters
+      const realTotalChapters = (learnStatus?.totalChapters && learnStatus.totalChapters > 0)
+        ? learnStatus.totalChapters
+        : (task?.totalChapters ?? 0);
+      const realCurrentChapter = realTotalChapters; // 本地书必然完整，currentChapter = totalChapters
       return {
         name,
         category,
@@ -69,10 +75,10 @@ export async function GET(request: NextRequest) {
         learningCurrentChunk: task?.learningCurrentChunk ?? 0,
         learningTotalChunks: task?.learningTotalChunks ?? 0,
         learningMessage: task?.learningMessage ?? '',
-        hasMissingChapters: task ? (task.totalChapters > 0 && task.currentChapter < task.totalChapters) : false,
-        currentChapter: task?.currentChapter ?? 0,
-        totalChapters: task?.totalChapters ?? 0,
-        chapterStructure: task?.chapterStructure ?? '章',
+        hasMissingChapters: false, // 本地物理文件存在 = 完整录入，永远不缺章节
+        currentChapter: realCurrentChapter,
+        totalChapters: realTotalChapters,
+        chapterStructure: learnStatus?.chapterStructure ?? task?.chapterStructure ?? '章',
       };
     });
 

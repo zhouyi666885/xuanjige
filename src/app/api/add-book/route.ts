@@ -10,7 +10,7 @@ import {
   resumeTask,
   cancelTask,
 } from '@/lib/book-task-manager';
-import { getLearningProgress } from '@/lib/fulltext-search';
+import { getLearningProgress, getLocalBookInfo } from '@/lib/fulltext-search';
 
 // 确保任务管理器初始化
 initTaskManager();
@@ -39,8 +39,13 @@ export async function GET() {
     );
 
     // 缺章节任务：录入完成但缺少章节的书，需要显示"缺章节"标注
+    // 注意：本地物理 .txt 文件已存在的书，永远不算"缺章节"
+    const localBookSet = new Set(getLocalBookInfo().bookNames);
     const missingChapterTasks = nonExistsTasks.filter(t =>
-      t.status === 'done' && t.totalChapters > 0 && t.currentChapter < t.totalChapters
+      t.status === 'done'
+      && t.totalChapters > 0
+      && t.currentChapter < t.totalChapters
+      && !localBookSet.has(t.bookName) // 本地文件已存在 = 完整录入，不算缺章节
     );
 
     // 版权/失败通知：一次性提示，前端sessionStorage控制退出后消失

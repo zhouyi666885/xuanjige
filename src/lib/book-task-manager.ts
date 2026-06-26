@@ -2326,9 +2326,9 @@ export async function startLearningAllLocalBooks(): Promise<{ total: number; sta
   let skipped = 0;
   
   for (const bookName of localBooks.bookNames) {
-    // 检查是否已有任务
+    // 按 bookName 查找已有任务（不限 isLocalBook，防止同名任务重复）
     const existingTask = Array.from(tasks.values()).find(
-      t => t.bookName === bookName && t.isLocalBook
+      t => t.bookName === bookName
     );
     
     if (existingTask) {
@@ -2338,12 +2338,24 @@ export async function startLearningAllLocalBooks(): Promise<{ total: number; sta
         continue; // 已学完，跳过
       }
       if (existingTask.learningStatus === 'learning') {
-        skipped++;
-        continue; // 正在学习，跳过
+        // 正在学习，加入队列恢复（防止中断）
+        if (!localLearningQueue.includes(existingTask.id)) {
+          localLearningQueue.push(existingTask.id);
+          started++;
+        } else {
+          skipped++;
+        }
+        continue;
       }
       // 待学习或失败，加入队列
-      localLearningQueue.push(existingTask.id);
-      started++;
+      if (!localLearningQueue.includes(existingTask.id)) {
+        localLearningQueue.push(existingTask.id);
+        started++;
+      } else {
+        skipped++;
+      }
+      // 标注为本地书
+      existingTask.isLocalBook = true;
       continue;
     }
     

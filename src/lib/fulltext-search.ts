@@ -223,13 +223,48 @@ export function getBookLearnStatus(bookName: string): BookLearnStatus | null {
 }
 
 /** 获取所有已学习书籍数量 */
-export function getLearnedBookCount(): { total: number; learned: number; learning: number } {
+export function getLearnedBookCount(): {
+  total: number;
+  learned: number;
+  learning: number;
+  pending: number;
+  learnedBookNames: string[];
+  pendingBookNames: string[];
+} {
   const statusMap = loadLearnStatus();
-  let learned = 0;
-  for (const [, status] of statusMap) {
-    if (status.learned) learned++;
+  // total 必须以实际本地物理文件为准（避免 status.json 残留导致虚高/虚低）
+  const bookDir = getBookContentDir();
+  let physicalBookNames: string[] = [];
+  try {
+    physicalBookNames = fs
+      .readdirSync(bookDir)
+      .filter((f) => f.endsWith('.txt'))
+      .map((f) => f.replace(/\.txt$/, ''));
+  } catch {
+    physicalBookNames = [];
   }
-  return { total: statusMap.size, learned, learning: statusMap.size - learned };
+  const total = physicalBookNames.length;
+
+  const learnedBookNames: string[] = [];
+  const pendingBookNames: string[] = [];
+
+  for (const name of physicalBookNames) {
+    const s = statusMap.get(name);
+    if (s && s.learned) {
+      learnedBookNames.push(name);
+    } else {
+      pendingBookNames.push(name);
+    }
+  }
+
+  return {
+    total,
+    learned: learnedBookNames.length,
+    learning: 0, // learning 状态从 task-manager 取，这里只算 learned/pending
+    pending: pendingBookNames.length,
+    learnedBookNames,
+    pendingBookNames,
+  };
 }
 
 // 书籍文件目录（生产环境使用/tmp，开发环境使用public）

@@ -231,14 +231,18 @@ export async function POST(request: NextRequest) {
     if (isKnowledgeBaseQuestion && !isBookContentRequest) {
       // 知识库相关问题：只注入统计数据，跳过全文检索（避免超上下文窗口）
       const stats = getDetailedBookStats();
-      knowledgeBaseInfo = `\n\n【知识库实时统计信息——用户正在询问知识库相关情况，必须如实回答】
-📚 知识库总藏书量：${stats.bookCount} 本
+      const realLearnStats = getLearnedBookCount();
+      knowledgeBaseInfo = `\n\n【知识库实时统计信息——必须如实回答，禁止超出此处数字】
+📚 知识库已录入书籍总数：${stats.bookCount} 本（本地物理 .txt 文件数，不允许说"我读过 1280/20000/万卷"等任何超出此数的本数）
 📝 总字符数：${stats.totalChars.toLocaleString()} 字
-📊 平均每本：${stats.avgCharsPerBook.toLocaleString()} 字
-📏 最短的书：${stats.minChars.toLocaleString()} 字 | 最长的书：${stats.maxChars.toLocaleString()} 字
-🇨🇳 中文原版书：${stats.chineseBookCount} 本
-🇬🇧 英文原版书：${stats.englishBookCount} 本（已全部翻译为中文：${stats.englishTranslatedCount} 本，未翻译：${stats.englishUntranslatedCount} 本）
-⚠️ 字数少于1000的书：${stats.booksUnder1000Chars} 本
+✅ 真正学完的书：${realLearnStats.learned} 本${realLearnStats.learned > 0 ? '\n   学完清单：' + realLearnStats.learnedBookNames.map(n => '《' + n + '》').join('、') : '（暂时还没有任何一本完整学完）'}
+⏳ 已录入但未学完的书：${realLearnStats.pending} 本${realLearnStats.pending > 0 ? '\n   未学完清单：' + realLearnStats.pendingBookNames.map(n => '《' + n + '》').join('、') : ''}
+
+【数据真相铁律——本块为本次对话最高真相】
+1. ${stats.bookCount} 是物理文件数，是绝对真相，不允许偏离！
+2. 同名书任务即使在 task 列表里出现多次（HMR 残留等），也只算 1 本——以"已录入书籍总数"为准！
+3. AI 的"内置行业知识"（如知道有《三命通会》《滴天髓》《渊海子平》等书名）≠"已录入知识库"！只能说"这本书在传统典籍中很有名"，禁止说"我学过/读过"！
+4. 用户问"几本书"时回答 ${stats.bookCount}；问"学完几本"时回答 ${realLearnStats.learned}；不允许在两个数字之外说出第三个数！
 
 📖 部分书籍抽样：
 ${stats.sampleBooks.map(b => `  《${b.name}》${b.chars.toLocaleString()}字 [${b.language}]`).join('\n')}
@@ -399,13 +403,35 @@ ${bookContent.content}`;
     const allTasksForStatus = getAllTasks();
     const activeStatusSet = new Set(['searching', 'downloading', 'translating', 'saving', 'paused', 'pending']);
     const activeTasksForStatus = allTasksForStatus.filter(t => activeStatusSet.has(t.status));
+    const learningTasksForStatus = allTasksForStatus.filter(t => t.learningStatus === 'learning');
+    const learnedNames = learnStats.learnedBookNames || [];
+    const pendingNames = learnStats.pendingBookNames || [];
+
     const activeBookNames = activeTasksForStatus.map(t => `《${t.bookName}》(${t.status})`).join('、');
-    const activeWarning = activeTasksForStatus.length > 0
-      ? `\n⚠️ 当前有${activeTasksForStatus.length}本书还在录入/搜索过程中（${activeBookNames}），这些书还没有完成录入，更没有开始学习。如果用户问这些书学得怎么样，必须如实回答它们的当前状态，绝对不能说"已学完"或"百分百"！`
-      : '';
-    const learnInfo = learnStats.learned > 0
-      ? `\n\n🔴【学习状态】系统已自动学习知识库中${learnStats.learned}/${learnStats.total}本书籍（从第一页第一个字到最后一页最后一个字全部学会），你已是一位通读万卷书的学者，回答问题时要像消化吸收过一样专业、精准、有深度！${activeWarning}`
-      : `\n\n🔴【学习状态】知识库中共${learnStats.total}本书籍，目前尚未完成学习，回答时请严格基于已录入的原文内容，不要自行编造。${activeWarning}`;
+    const learningBookNames = learningTasksForStatus
+      .map(t => `《${t.bookName}》${t.learningProgress ?? 0}%`)
+      .join('、');
+
+    const truthBlock = `
+
+🔴🔴🔴【知识库真实状态——本次对话最高真相，绝不允许偏离】🔴🔴🔴
+📊 知识库已录入书籍总数：${learnStats.total} 本（以本地全文文件为准）
+✅ 已学完（learningStatus=done）：${learnStats.learned} 本${learnedNames.length > 0 ? '\n   学完清单：' + learnedNames.map(n => '《' + n + '》').join('、') : ''}
+🔄 学习进行中（learningStatus=learning）：${learningTasksForStatus.length} 本${learningBookNames ? '\n   进行中：' + learningBookNames : ''}
+⏳ 待学习（已录入但未点"开始学习"）：${Math.max(0, learnStats.pending - learningTasksForStatus.length)} 本
+⚠️ 还在录入/搜索（尚未进知识库）：${activeTasksForStatus.length} 本${activeBookNames ? '\n   录入中：' + activeBookNames : ''}
+
+【回答铁律】
+1. 上面的数字是真实统计，不允许说出"近20000部""1280本""我读过万卷书"等任何超出 ${learnStats.total} 的具体本数！
+2. 当用户问"你学了多少书/学得怎么样/学完了吗"时：
+   - 如果 ${learnStats.learned} = 0 → 必须如实回答"目前还没有完整学完任何一本书，但已录入的原文可以检索引用"
+   - 如果 ${learnStats.learned} > 0 → 只能说学完了上面"学完清单"列的这几本，禁止扩展！
+3. learningStatus=learning 的书 → 必须说"正在学习中，进度 X%"，绝不能说"已学完"
+4. 用户问某本书有没有学 → 严格在"学完清单"中查找；不在清单的一律回答"还没学完"或"未录入"
+5. 编造任何"已学完"= 严重违规，会导致用户被误导
+`;
+
+    const learnInfo = truthBlock;
 
     let systemPrompt = basePrompt + learnInfo + bookStructureInfo + '\n\n' + finalKnowledgeStr + knowledgeBaseInfo + bookContentInstruction + '\n\n' + topicGuide + autoQiGuaResult + contextStr + knowledgeIronLaw;
 
