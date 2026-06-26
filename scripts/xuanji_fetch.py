@@ -445,30 +445,19 @@ def is_ancient_book(book_name):
 def search_and_fetch(book_name, author=''):
     """搜索并爬取书籍内容，返回JSON格式结果
     
-    搜索策略：遍历 ALL_SOURCES 注册表中所有数据源，无遗漏。
-    根据书籍类型动态调整优先级：
-    - 中国古籍：ancient 优先 → novel → foreign
-    - 中文小说：novel 优先 → ancient → foreign
-    - 其他：所有源平等遍历
+    🔴 全网数据源平等遍历（无分类、无优先级）：
+    所有注册的 18 个数据源都会被尝试，每个源平等对待，
+    不存在"古籍优先"或"小说优先"的分工，
+    Book Finder 和 Book Crawler 共用同一份全网数据源池。
     
-    所有注册的数据源都会被尝试，不会跳过任何一个。
+    任何一本书都会从全部18个源里去找，不会因为类型而跳过任何一个源。
     """
     
-    # 根据书籍类型对 ALL_SOURCES 排序，但每个源都会被尝试
-    if is_ancient_book(book_name):
-        # 古籍：古籍源优先，但小说源和海外源也要尝试
-        priority = {'ancient': 0, 'novel': 1, 'general': 1, 'foreign': 2}
-    else:
-        # 非古籍：小说源优先，古籍源次之
-        priority = {'novel': 0, 'general': 0, 'ancient': 1, 'foreign': 2}
-    
-    search_functions = sorted(
-        [(name, fn) for name, fn, _ in ALL_SOURCES],
-        key=lambda x: priority.get(next((t for n, f, t in ALL_SOURCES if n == x[0]), 'general'), 99)
-    )
+    # 🌐 直接遍历 ALL_SOURCES，不做分类排序——所有源平等对待
+    search_functions = [(name, fn) for name, fn, _ in ALL_SOURCES]
     
     # 关键日志：告知 Node 端实际使用了多少数据源
-    print(f"[搜索] 共注册 {len(ALL_SOURCES)} 个数据源，全部尝试", file=sys.stderr)
+    print(f"[搜索] 共注册 {len(ALL_SOURCES)} 个全网数据源，平等遍历（无分类、无优先级）", file=sys.stderr)
     
     all_search_results = []
     

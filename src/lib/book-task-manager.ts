@@ -333,14 +333,38 @@ async function processTask(taskId: string): Promise<void> {
 
     // 2. 搜索书籍来源（铁规则：搜索次数无上限，不设任何限制）
     // 🔴 搜索次数无上限，不设任何限制。想搜多少次就搜多少次，不存在"达到搜索上限就停止"
-    // 搜索优先级：免费公开网站 → 文档分享平台 → 电子书网站 → 论坛帖子 → 学术论文库 → 古籍数字化平台
+    // 🌐 Book Finder 与 Book Crawler 共用同一份全网数据源池（18个固定站点），平等遍历无分工
+    // 每个站点都用 site: 限定 webSearch 查询一次，确保 A 路覆盖到全部站点
+    const ALL_SITE_DOMAINS = [
+      'ctext.org',                  // CText 中国哲学书电子化计划
+      'so.gushiwen.cn',             // 古诗文网
+      'guoxuedashi.net',            // 国学大师
+      'cidianwang.com',             // 词典网
+      'shicimingju.com',            // 诗词名句网
+      'zhonghuadiancang.com',       // 中华典藏
+      'guoxuemeng.com',             // 国学梦
+      'zh.wikisource.org',          // 中文维基文库
+      'reader.qq.com',              // QQ阅读
+      'dingdiann.com',              // 顶点小说
+      'guidaye.cn',                 // 鬼大爷
+      '25zw.com',                   // 25zw
+      'xbiquge.so',                 // 笔趣阁
+      'quanben5.com',               // 全本小说网
+      'shuhai.tw',                  // 书海小说网
+      '360doc.com',                 // 360doc个人图书馆
+      'archive.org',                // Internet Archive
+      'openlibrary.org',            // OpenLibrary
+      'gutenberg.org',              // Project Gutenberg
+      'en.wikisource.org',          // 英文维基文库
+    ];
+
     const initialSearchQueries = [
       `${task.bookName} 全文`,
       `${task.bookName} 原文 完整版`,
       `${task.bookName} text full`,
       `${task.bookName} filetype:txt`,
-      `${task.bookName} site:gutenberg.org OR site:archive.org`,
-      `${task.bookName} site:ctext.org OR site:zh.wikisource.org`,
+      // 全网数据源池：为每个固定站点单独发一条 site: 查询
+      ...ALL_SITE_DOMAINS.map(domain => `${task.bookName} site:${domain}`),
       `${task.bookName} 百度文库 OR 道客巴巴 OR 豆丁 全文`,
       `${task.bookName} 电子书 下载 txt OR PDF`,
       `${task.bookName} 古籍 数字化 OR 读秀 OR 超星`,
