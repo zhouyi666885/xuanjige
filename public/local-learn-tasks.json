@@ -33,13 +33,11 @@
   },
   "滴天髓": {
     "learningStatus": "learning",
-    "learningMessage": "📖 学习中：第18/64章「第18章 滴天髓阐微·上篇·衰旺-滴天髓阐微-国学梦」（块 18/56，32%）",
-    "updatedAt": 1782496189514,
-    "learningProgress": 32,
-    "learningLayersDone": [
-      1
-    ],
-    "learningCurrentChunk": 18,
+    "learningMessage": "📖 学习中：第10/64章「第10章 滴天髓阐微·上篇·干支总论-滴天髓阐微-国学梦」（块 9/56，16%）",
+    "updatedAt": 1782496280515,
+    "learningProgress": 16,
+    "learningLayersDone": [],
+    "learningCurrentChunk": 9,
     "learningTotalChunks": 56,
     "completedAt": 1782496021051
   }
