@@ -215,8 +215,8 @@ export async function POST(request: NextRequest) {
     // 检测用户是否在问书籍结构问题（多少章/卦/卷/学到哪了）
     const isBookStructureQuestion = /多少[卦篇章卷部节回]|几[卦篇章卷部节回]|总共.*[卦篇章卷部节回]|[卦篇章卷部节回].*数量|学到.*第|学习.*进度|学完.*多少|学到哪/.test(message);
     
-    // 检测用户是否在问AI学习进度
-    const isLearningProgressQuestion = /学得怎么样|学会了哪些|哪本.*没学完|学到哪|学习.*进度|学完.*几本|觉得自己.*学会|学习.*状态|你.*学了|你.*正在学|学了多少|哪些.*学完|哪些.*没学|翻译.*质量|翻译.*检查|英文.*翻译.*质量|乱码|缺页|漏译/.test(message);
+    // 检测用户是否在问AI学习/录入进度
+    const isLearningProgressQuestion = /录入.*进度|进度.*录入|录入.*状态|录入到哪|录入情况|学得怎么样|学会了哪些|哪本.*没学完|学到哪|学习.*进度|学完.*几本|觉得自己.*学会|学习.*状态|你.*学了|你.*正在学|学了多少|哪些.*学完|哪些.*没学|翻译.*质量|翻译.*检查|英文.*翻译.*质量|乱码|缺页|漏译|录入完|录到哪|录入.*情况|正在录入|录入中/.test(message);
     
     // 检测用户是否在问学习时间预估
     const isLearningTimeQuestion = /需要.*多久|需要.*多长时间|大概.*时间|时间.*估算|时间.*预估|预估.*时间|多久.*学完|几天|几周|几个月|学完.*多久|保守.*估计|最保守|赶时间|心里有数|等多久|要多长时间|什么时候.*学完|学完.*什么时候/.test(message);
@@ -382,9 +382,11 @@ ${bookContent.content}`;
     const autoQiGuaResult = autoQiGua(message, birthInfo ? (birthInfo as BirthInfo) : null);
     const contextStr = context ? `\n\n【前置分析结果】\n${context}\n请在以上分析结果基础上，继续深入回答用户的问题。` : '';
 
-    // 加入学习状态信息
+    // 加入学习状态信息（根据实际学习状态如实显示）
     const learnStats = getLearnedBookCount();
-    const learnInfo = `\n\n🔴【学习状态】系统已自动学习知识库中全部${learnStats.learned}本书籍（从第一页第一个字到最后一页最后一个字全部学会），你已是一位通读万卷书的学者，回答问题时要像消化吸收过一样专业、精准、有深度！`;
+    const learnInfo = learnStats.learned > 0
+      ? `\n\n🔴【学习状态】系统已自动学习知识库中${learnStats.learned}/${learnStats.total}本书籍（从第一页第一个字到最后一页最后一个字全部学会），你已是一位通读万卷书的学者，回答问题时要像消化吸收过一样专业、精准、有深度！`
+      : `\n\n🔴【学习状态】知识库中共${learnStats.total}本书籍，目前尚未完成学习，回答时请严格基于已录入的原文内容，不要自行编造。`;
 
     let systemPrompt = basePrompt + learnInfo + bookStructureInfo + '\n\n' + finalKnowledgeStr + knowledgeBaseInfo + bookContentInstruction + '\n\n' + topicGuide + autoQiGuaResult + contextStr + knowledgeIronLaw;
 
