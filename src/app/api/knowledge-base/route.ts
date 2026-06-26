@@ -166,7 +166,7 @@ export async function GET(request: NextRequest) {
     }
 
     // 为每本书附加基本信息
-    const bookList = pagedBooks.map(name => {
+    const bookList = await Promise.all(pagedBooks.map(async name => {
       // 从书名推断分类（简单匹配）
       const category = getBookCategory(name);
       // 获取学习状态
@@ -178,10 +178,44 @@ export async function GET(request: NextRequest) {
       // 从 Supabase 拉的最新 task（生产环境最权威，文件可能不可写）
       const dbTask = dbTaskMap.get(name);
       // 物理文件存在 ⇒ 内容完整，绝不能误报"缺章节"
-      // 章节数：优先取 learnStatus.totalChapters（本地物理书的真实章节），其次 task.totalChapters
-      const realTotalChapters = (learnStatus?.totalChapters && learnStatus.totalChapters > 0)
+      // 章节数：优先 learnStatus → task → 从书内容正则推断（保证所有书都显示）
+      let detectedStructure = learnStatus?.chapterStructure ?? task?.chapterStructure ?? '';
+      let detectedTotal = (learnStatus?.totalChapters && learnStatus.totalChapters > 0)
         ? learnStatus.totalChapters
         : (task?.totalChapters ?? 0);
+      if (!detectedTotal || !detectedStructure) {
+        // 兜底：扫一遍书的内容，统计章/卷/篇/卦/回 的数量
+        try {
+          const content = (await import('@/lib/fulltext-search')).getBookFullText(name) || '';
+          if (content) {
+            const patterns: Array<{ unit: string; regex: RegExp }> = [
+              { unit: '章', regex: /第[一二三四五六七八九十百千零0-9]+章/g },
+              { unit: '卷', regex: /第[一二三四五六七八九十百千零0-9]+卷/g },
+              { unit: '篇', regex: /第[一二三四五六七八九十百千零0-9]+篇/g },
+              { unit: '回', regex: /第[一二三四五六七八九十百千零0-9]+回/g },
+              { unit: '卦', regex: /第[一二三四五六七八九十百千零0-9]+卦/g },
+            ];
+            let best = { unit: '', count: 0 };
+            for (const p of patterns) {
+              const matches = content.match(p.regex);
+              const count = matches ? new Set(matches).size : 0;
+              if (count > best.count) best = { unit: p.unit, count };
+            }
+            if (best.count >= 2) {
+              detectedTotal = best.count;
+              detectedStructure = best.unit;
+            } else {
+              // 仍找不到：按章节符号「○」「●」「◇」分段，或按 5000 字一段估算
+              const approxChapters = Math.max(1, Math.ceil(content.length / 5000));
+              detectedTotal = approxChapters;
+              detectedStructure = '段';
+            }
+          }
+        } catch {
+          // 忽略，保持原值
+        }
+      }
+      const realTotalChapters = detectedTotal || 1;
       const realCurrentChapter = realTotalChapters; // 本地书必然完整，currentChapter = totalChapters
       // 学习字段优先级：liveLearn(本地文件) > dbTask(Supabase) > task(内存) > learnStatus
       // 但 done 永远胜过 learning（一旦真正学完，不允许任何来源把它回退到 learning）
@@ -214,15 +248,16 @@ export async function GET(request: NextRequest) {
         hasMissingChapters: false, // 本地物理文件存在 = 完整录入，永远不缺章节
         currentChapter: realCurrentChapter,
         totalChapters: realTotalChapters,
-        chapterStructure: learnStatus?.chapterStructure ?? task?.chapterStructure ?? '章',
+        chapterStructure: detectedStructure || learnStatus?.chapterStructure || task?.chapterStructure || '章',
       };
-    });
+    }));
+    const resolvedBookList = bookList;
 
     // 获取学习统计
     const learnStats = await getLearnedBookCount();
 
     return NextResponse.json({
-      books: bookList,
+      books: resolvedBookList,
       total,
       totalPages,
       page,

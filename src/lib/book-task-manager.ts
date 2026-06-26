@@ -666,22 +666,24 @@ async function processTask(taskId: string): Promise<void> {
 
     let allResults: Array<{ url: string; title: string; snippet: string }> = [];
 
-    // 基础搜索：先快速搜一遍（使用 webSearch 推荐方法）
-    for (const query of initialSearchQueries) {
-      try {
-        const response = await searchClient.webSearch(query, 10);
-        if (response?.web_items) {
-          for (const r of response.web_items) {
-            if (r.url && !allResults.some(x => x.url === r.url)) {
-              allResults.push({ url: r.url, title: r.title || '', snippet: r.snippet || '' });
-            }
+    // 基础搜索：并行执行多个搜索 query（快速给用户进度反馈）
+    updateTask(taskId, { message: `🔎 同时使用 ${initialSearchQueries.length} 种搜索方式查找《${task.bookName}》...` });
+    const searchResponses = await Promise.all(
+      initialSearchQueries.map(q =>
+        searchClient.webSearch(q, 10).catch(() => null)
+      )
+    );
+    for (const response of searchResponses) {
+      if (response?.web_items) {
+        for (const r of response.web_items) {
+          if (r.url && !allResults.some(x => x.url === r.url)) {
+            allResults.push({ url: r.url, title: r.title || '', snippet: r.snippet || '' });
           }
         }
-      } catch (e) {
-        // 继续
       }
     }
     addLog(taskId, `基础搜索完成，找到 ${allResults.length} 个来源`);
+    updateTask(taskId, { message: `🔎 基础搜索找到 ${allResults.length} 个来源，继续深度抓取...` });
 
     // 🔴🔴🔴 Book Finder 技能：用专门的爬虫脚本搜索QQ阅读、顶点小说、鬼大爷、25zw等
     // 这些网站通常有完整的书籍内容，是搜索的重要补充渠道
