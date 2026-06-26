@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getBookStats, removeBookFromKnowledgeBase, getBookLearnStatus, getLearnedBookCount, invalidateCache, loadBookCacheAsync } from '@/lib/fulltext-search';
 import { getAllTasks, startLearningAllLocalBooks, startLearningSingleBook, getLocalLearningProgress, deleteTask } from '@/lib/book-task-manager';
-import { upsertTask, getTaskByBookName, listTasks } from '@/lib/book-repo';
+import { upsertTask, getTaskByBookName, listTasks, type BookTaskRow } from '@/lib/book-repo';
+import { getSupabaseClient } from '@/storage/database/supabase-client';
 import fsRaw from 'fs';
 import pathRaw from 'path';
 
@@ -316,12 +317,46 @@ export async function DELETE(request: NextRequest) {
       if (deleteTask(t.id)) taskDeleted++;
     }
 
-    if (removed || taskDeleted > 0) {
+    // 3. 从 Supabase book_tasks 表删除（防止进程重启后 loadTasksFromDb 恢复）
+    let dbDeleted = 0;
+    try {
+      const dbTasks = await listTasks();
+      const dbMatched = dbTasks.filter((t: BookTaskRow) => {
+        const tn = (t.book_name || '').trim();
+        return tn === bookName || tn.includes(bookName) || bookName.includes(tn);
+      });
+      for (const dt of dbMatched) {
+        try {
+          const db = getSupabaseClient();
+          await db.from('book_tasks').delete().match({ book_name: dt.book_name });
+          dbDeleted++;
+        } catch (_e) { /* ignore */ }
+      }
+      // 立墓碑防止种子自愈恢复
+      try {
+        const db = getSupabaseClient();
+        await db.from('book_task_tombstones').upsert({
+          kind: 'book_name', value: bookName, created_at: new Date().toISOString()
+        }, { onConflict: 'kind,value' });
+      } catch (_e) { /* ignore */ }
+    } catch (_e) { /* ignore */ }
+
+    // 4. 从 Supabase books 表删除内容（防止已取消的书内容残留）
+    let contentDeleted = 0;
+    try {
+      const db = getSupabaseClient();
+      const { error: delErr } = await db.from('books').delete().match({ name: bookName });
+      if (!delErr) contentDeleted = 1;
+    } catch (_e) { /* ignore */ }
+
+    if (removed || taskDeleted > 0 || dbDeleted > 0 || contentDeleted > 0) {
       return NextResponse.json({
         success: true,
-        message: `《${bookName}》已清理${removed ? '（知识库+' : '（'}${taskDeleted}个任务记录）`,
+        message: `《${bookName}》已清理${removed ? '（知识库+' : '（'}${taskDeleted}个内存任务+${dbDeleted}个db任务+${contentDeleted}条内容）`,
         knowledge_base_removed: removed,
         tasks_deleted: taskDeleted,
+        db_tasks_deleted: dbDeleted,
+        content_deleted: contentDeleted,
       });
     } else {
       return NextResponse.json({ error: `《${bookName}》不在知识库中，也无相关任务` }, { status: 404 });

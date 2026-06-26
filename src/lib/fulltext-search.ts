@@ -573,8 +573,21 @@ export async function forceSyncSeedDataToDb(): Promise<{ synced: number; total: 
     const { books: dbBooksArr } = await listBooksFromDb({ page: 1, pageSize: 200 });
     const dbMap = new Map<string, { name: string; char_count: number; category: string; source: string }>(dbBooksArr.map((b: any) => [b.name, b as { name: string; char_count: number; category: string; source: string }]));
 
+    // 读取墓碑列表——被用户手动删除的书不允许被种子自愈恢复
+    const tombstoneNames = new Set<string>();
+    try {
+      const { listTombstones } = await import('./book-repo');
+      const { deletedNames } = await listTombstones();
+      for (const n of deletedNames) tombstoneNames.add(n);
+      // 也检查 kind='book_name' 的墓碑（旧格式）
+      const { addTombstone: _unused } = await import('./book-repo'); // verify import works
+      void _unused;
+    } catch { /* ignore */ }
+
     let synced = 0;
     for (const seed of seeds) {
+      // 跳过墓碑书——用户已删除，不允许种子自愈恢复
+      if (tombstoneNames.has(seed.name)) continue;
       const dbBook = dbMap.get(seed.name);
       // 强制覆盖（即使云端已存在）
       if (!dbBook || seed.charCount > dbBook.char_count) {
@@ -613,6 +626,17 @@ export async function forceSyncSeedDataToDb(): Promise<{ synced: number; total: 
  */
 async function syncSeedDataToDb(): Promise<void> {
   try {
+    // 0) 加载墓碑名单：已删除的书不再自动恢复
+    let tombstoneNames: Set<string> = new Set();
+    try {
+      const { listTombstones } = await import('./book-repo');
+      const { deletedNames } = await listTombstones();
+      tombstoneNames = deletedNames;
+      if (tombstoneNames.size > 0) {
+        console.log(`[全文检索] syncSeedDataToDb: 墓碑名单 ${tombstoneNames.size} 本`, [...tombstoneNames]);
+      }
+    } catch { /* 墓碑加载失败不阻塞 */ }
+
     // 1) 收集种子数据：先从代码常量取（部署后唯一稳定源）
     type SeedItem = { name: string; content: string; chapters: number; charCount: number };
     const seeds: SeedItem[] = [];
@@ -661,6 +685,11 @@ async function syncSeedDataToDb(): Promise<void> {
 
     let synced = 0;
     for (const seed of seeds) {
+      // 🔴 跳过已立墓碑的书（用户明确删除过的，不再自动恢复）
+      if (tombstoneNames.has(seed.name)) {
+        console.log(`[全文检索] syncSeedDataToDb: 跳过已删除的书 ${seed.name}（墓碑）`);
+        continue;
+      }
       const dbBook = dbMap.get(seed.name);
       // 本地种子比云端更完整（字数差 > 10%），或云端不存在
       if (!dbBook || (seed.charCount > dbBook.char_count * 1.1)) {

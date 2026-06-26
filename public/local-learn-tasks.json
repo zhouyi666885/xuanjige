@@ -32,16 +32,18 @@
     "error": ""
   },
   "滴天髓": {
-    "learningStatus": "learning",
-    "learningMessage": "📖 学习中：第34/64章「第34章 滴天髓阐微·上篇·震兑-滴天髓阐微-国学梦」（块 29/56，51%）",
-    "updatedAt": 1782500401422,
-    "learningProgress": 51,
+    "learningStatus": "done",
+    "learningMessage": "AI已深度学完《滴天髓》全部内容 (56块, 含术语理解+逻辑掌握+知识关联+应用方法)",
+    "updatedAt": 1782501356380,
+    "learningProgress": 100,
     "learningLayersDone": [
       1,
-      2
+      2,
+      3,
+      4
     ],
-    "learningCurrentChunk": 29,
+    "learningCurrentChunk": 56,
     "learningTotalChunks": 56,
-    "completedAt": 1782499571559
+    "completedAt": 1782501356380
   }
 }
