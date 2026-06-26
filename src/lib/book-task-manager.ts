@@ -589,10 +589,9 @@ async function processTask(taskId: string): Promise<void> {
     let noNewResultCount = 0;
     let roundIndex = 0;
     const searchStartTime = Date.now();
-    // 🔴🔴🔴 没有搜索时间限制！没有搜索次数限制！
-    // 用户明确要求：不限时间、不限轮数，只有全网所有网站全部搜过了才能判定版权问题
-    // 安全保护：仅防止极端情况下服务器卡死（2小时绝对上限，正常搜一本书用不了这么久）
-    const ABSOLUTE_MAX_SEARCH_TIME = 2 * 60 * 60 * 1000;
+    // 🔴🔴🔴 没有搜索时间限制！没有搜索次数限制！没有搜索轮数限制！
+    // 用户明确要求：不限时间、不限轮数、不限次数
+    // 唯一的停止条件：连续3个完整循环都没有新结果 = 真正穷尽了所有可能性
 
     // 🔴🔴🔴 核心逻辑：搜遍全网
     // 每个searchRound都要完整跑一遍，一轮都不能跳过
@@ -604,12 +603,11 @@ async function processTask(taskId: string): Promise<void> {
 
     let completedFullCycles = 0;
     let resultsInCurrentCycle = 0;
+    let consecutiveEmptyCycles = 0;
 
-    // 🔴🔴🔴 没有连续几轮的限制！搜索次数无上限！搜索时间无上限！
-    // 唯一的停止条件：2小时绝对安全上限（仅防服务器卡死）
-    // 不存在"连续X轮没新结果就停下"这回事
-    // 搜遍全网 = 真的 nowhere to be found，不是"搜了几遍没找到就算了"
-    while (Date.now() - searchStartTime < ABSOLUTE_MAX_SEARCH_TIME) {
+    // 🔴🔴🔴 没有时间限制！没有轮数限制！没有次数限制！
+    // 唯一停止条件：连续3个完整循环都没发现新结果（真正穷尽了）
+    while (consecutiveEmptyCycles < 3) {
       // 🔴 检查暂停/取消
       const checkResult = checkTaskControl(taskId);
       if (checkResult === 'cancelled') return;
@@ -654,10 +652,15 @@ async function processTask(taskId: string): Promise<void> {
       // 检查是否完成了一个完整循环
       if (roundIndex % TOTAL_ROUNDS === 0) {
         completedFullCycles++;
-        addLog(taskId, `完成第${completedFullCycles}轮完整搜索循环，${resultsInCurrentCycle > 0 ? `发现 ${resultsInCurrentCycle} 个新来源` : '未发现新来源'}，继续搜`);
+        addLog(taskId, `完成第${completedFullCycles}轮完整搜索循环，${resultsInCurrentCycle > 0 ? `发现 ${resultsInCurrentCycle} 个新来源` : '未发现新来源'}，${resultsInCurrentCycle > 0 ? '继续搜' : '本轮无新结果'}`);
+        if (resultsInCurrentCycle > 0) {
+          consecutiveEmptyCycles = 0; // 有新结果就重置
+        } else {
+          consecutiveEmptyCycles++; // 无新结果就累计
+          addLog(taskId, `连续 ${consecutiveEmptyCycles}/3 个完整循环无新结果`);
+        }
         resultsInCurrentCycle = 0;
-        // 🔴 不停！没有"连续几轮没结果就停下"的逻辑
-        // 唯一停止条件是上面的 while 时间判断
+        // 🔴 唯一停止条件：连续3个完整循环都没有新结果 = 真正穷尽了
       }
 
       // 🔴 搜索次数无上限！只要还在发现新结果，就继续搜
