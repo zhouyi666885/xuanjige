@@ -10,7 +10,7 @@ import { generateSanHeCanDuanPrompt, getSanHeCanDuanByTopic, SAN_HE_CAN_DUAN_GUI
 import { generateMianXiangFramework, getMianXiangPredictionGuide } from '@/lib/xiangxue';
 import { generateShouXiangFramework, getShouXiangPredictionGuide } from '@/lib/shouxiang';
 import { searchFullText, searchFullTextAsync, formatFullTextResults, getBookFullText, getBookFullTextAsync, findBooksByName, getDetailedBookStats, getBookChapterContent, parseChapterRange, getLearnedBookCount, getBookLearnStatus, getLearningTimeEstimate } from '@/lib/fulltext-search';
-import { getLearningProgressSummary, getBookLearningDetail } from '@/lib/book-task-manager';
+import { getLearningProgressSummary, getBookLearningDetail, findTaskByBookName, getActiveTaskStatusList } from '@/lib/book-task-manager';
 import { tongQianQiGua, shiJianQiGua as liuyaoShiJian, formatLiuYaoPaiPan as liuyaoFormat } from '@/lib/liuyao';
 import { shiJianQiGua as meihuaShiJian, shuZiQiGua, wenZiQiGua, formatMeiHuaPaiPan as meihuaFormat } from '@/lib/meihua';
 import { paiPan as qimenPaiPan, formatQiMenPaiPan as qimenFormat } from '@/lib/qimen';
@@ -273,15 +273,38 @@ ${stats.sampleBooks.map(b => `  《${b.name}》${b.chars.toLocaleString()}字 [$
     
     // 检测AI学习进度问题
     if (isLearningProgressQuestion || isLearningTimeQuestion) {
+      // 🔴 状态一致性铁律：AI回答必须和UI显示一致！
+      // 优先检查book-task-manager中的实际任务状态（searching/downloading/等）
+      const activeTaskStatusList = getActiveTaskStatusList();
+      const taskStatusSection = `【录入任务实时状态——与页面显示一致】\n${activeTaskStatusList.join('\n')}`;
+
       // 先检查用户是否问的是某本特定书
       const specificBookMatch = findBooksByName(message);
       if (specificBookMatch.length > 0) {
         const bestMatch = specificBookMatch.sort((a, b) => a.name.length - b.name.length)[0];
-        const detail = getBookLearningDetail(bestMatch.name);
-        learningProgressInfo = `\n\n【AI学习进度——用户正在询问学习情况，必须如实回答】\n${detail}\n\n请根据以上实时数据如实回答用户关于学习进度的问题。用自然语言，像跟朋友聊天一样回答，不要机械地复述数据。`;
+        // 🔴 优先查任务管理器中的状态
+        const taskMatch = findTaskByBookName(bestMatch.name);
+        let detail: string;
+        if (taskMatch && ['searching', 'downloading', 'translating', 'saving', 'paused', 'copyright', 'failed'].includes(taskMatch.status)) {
+          // 这本书还在录入过程中，必须如实报告录入状态，不能说"已学习"
+          const statusDesc: Record<string, string> = {
+            'searching': '正在搜索内容，还没开始录入，更没开始学习',
+            'downloading': '正在下载内容，还没录入完成，更没开始学习',
+            'translating': '正在翻译内容，还没录入完成，更没开始学习',
+            'saving': '正在保存内容，还没录入完成，更没开始学习',
+            'paused': '录入已暂停，还没录入完成',
+            'copyright': '因版权问题无法录入，根本没有内容可以学习',
+            'failed': '录入失败，根本没有内容可以学习',
+          };
+          detail = `📖《${taskMatch.bookName}》当前状态\n━━━━━━━━━━━━━━━━━━━━━━━━\n录入状态：${statusDesc[taskMatch.status] || taskMatch.status}\n学习状态：❌ 未开始（录入还没完成，不可能开始学习）\n⚠️ 铁律：还没录入完的书，绝对不能说"已学习"！`;
+        } else {
+          // 没有活跃录入任务，使用标准学习详情
+          detail = getBookLearningDetail(bestMatch.name);
+        }
+        learningProgressInfo = `\n\n【AI学习进度——用户正在询问学习情况，必须如实回答】\n${taskStatusSection}\n\n${detail}\n\n🔴 状态一致性铁律：你回答的状态必须和上面的实时状态完全一致！\n- 搜索中 = 还没开始录入，更没开始学习\n- 正在录入 = 还没录入完成，不可能已学完\n- 录入完成+学习中 = 正在学习，还没学完\n- 录入完成+学完 = 才能说"已学习完成"\n请根据以上实时数据如实回答用户关于学习进度的问题。用自然语言，像跟朋友聊天一样回答，不要机械地复述数据。`;
       } else {
         const summary = getLearningProgressSummary();
-        learningProgressInfo = `\n\n【AI学习进度——用户正在询问学习情况，必须如实回答】\n${summary}\n\n请根据以上实时数据如实回答用户关于学习进度的问题。用自然语言，像跟朋友聊天一样回答，不要机械地复述数据。对于翻译质量检查问题，请根据知识库中已收录的英文书籍翻译内容来判断，如实告知用户哪些书可能存在翻译质量问题。`;
+        learningProgressInfo = `\n\n【AI学习进度——用户正在询问学习情况，必须如实回答】\n${taskStatusSection}\n\n${summary}\n\n🔴 状态一致性铁律：你回答的状态必须和上面的实时状态完全一致！\n- 搜索中 = 还没开始录入，更没开始学习\n- 正在录入 = 还没录入完成，不可能已学完\n- 录入完成+学习中 = 正在学习，还没学完\n- 录入完成+学完 = 才能说"已学习完成"\n请根据以上实时数据如实回答用户关于学习进度的问题。用自然语言，像跟朋友聊天一样回答，不要机械地复述数据。对于翻译质量检查问题，请根据知识库中已收录的英文书籍翻译内容来判断，如实告知用户哪些书可能存在翻译质量问题。`;
       }
       // 如果用户问的是时间预估，追加时间估算报告
       if (isLearningTimeQuestion) {

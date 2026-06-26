@@ -1656,6 +1656,73 @@ export function getTask(taskId: string): BookTask | null {
 }
 
 /**
+ * 按书名查找任务（支持模糊匹配）
+ * 优先精确匹配，其次包含匹配
+ */
+export function findTaskByBookName(bookName: string): BookTask | null {
+  if (!isInitialized) initTaskManager();
+  // 精确匹配
+  const exact = Array.from(tasks.values()).find(t => t.bookName === bookName);
+  if (exact) return exact;
+  // 包含匹配
+  const partial = Array.from(tasks.values()).find(t => t.bookName.includes(bookName) || bookName.includes(t.bookName));
+  return partial || null;
+}
+
+/**
+ * 获取所有活跃任务的简要状态列表（供AI回答学习状态时使用）
+ * 确保AI回答与UI显示的状态完全一致
+ */
+export function getActiveTaskStatusList(): string[] {
+  if (!isInitialized) initTaskManager();
+  const allTasks = Array.from(tasks.values());
+  const lines: string[] = [];
+
+  if (allTasks.length === 0) return ['当前没有任何录入任务。'];
+
+  for (const t of allTasks) {
+    const statusMap: Record<string, string> = {
+      'searching': '🔍 正在搜索内容，还没开始录入',
+      'downloading': '📥 正在下载内容，还没开始学习',
+      'translating': '🌐 正在翻译内容，还没开始学习',
+      'saving': '💾 正在保存内容，还没开始学习',
+      'done': '✅ 录入已完成',
+      'paused': '⏸️ 录入已暂停',
+      'copyright': '❌ 因版权问题无法录入',
+      'failed': '❌ 录入失败',
+      'cleared': '🔄 已清除',
+    };
+    const statusText = statusMap[t.status] || t.status;
+
+    // 录入状态
+    let line = `《${t.bookName}》：${statusText}`;
+
+    // 录入进度
+    if (['searching', 'downloading', 'translating', 'saving'].includes(t.status)) {
+      if (t.totalChapters) {
+        line += `（录入进度：${t.currentChapter}/${t.totalChapters}）`;
+      }
+    }
+
+    // 学习状态（只有录入完成后才有学习状态）
+    if (t.status === 'done') {
+      if (t.learningStatus === 'done') {
+        line += '，已完整学完 ✅';
+      } else if (t.learningStatus === 'learning') {
+        const progress = t.learningTotalChunks ? `${t.learningCurrentChunk}/${t.learningTotalChunks}` : '计算中';
+        line += `，正在学习中（${progress}）`;
+      } else {
+        line += '，等待开始学习 ⏳';
+      }
+    }
+
+    lines.push(line);
+  }
+
+  return lines;
+}
+
+/**
  * 取消/删除任务
  */
 export function deleteTask(taskId: string): boolean {
