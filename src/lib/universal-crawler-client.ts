@@ -185,31 +185,140 @@ export function extractChapterLinks(
 }
 
 /**
- * 构建多搜索引擎 + 多数据源的种子 URL 列表
+ * 构建多搜索引擎 + 多数据源的种子 URL 列表（100+ 个数据源）
  * 注意：query 一律只用书名（按用户要求）
+ *
+ * 分组：
+ * 1) 通用搜索引擎（10）
+ * 2) 中文古籍/国学（30）
+ * 3) 现代书/小说/网文（20）
+ * 4) 文库/在线文档（10）
+ * 5) 电子书/阅读平台（10）
+ * 6) 图书馆/学术（10）
+ * 7) 海外/英文（15）
+ * 8) 百科（5）
+ * 合计 110 个 seed
  */
 export function buildSeedUrls(bookName: string): string[] {
   const q = encodeURIComponent(bookName);
   return [
-    // 搜索引擎
+    // ① 通用搜索引擎（10）
     `https://www.bing.com/search?q=${q}`,
+    `https://cn.bing.com/search?q=${q}`,
     `https://www.sogou.com/web?query=${q}`,
     `https://www.so.com/s?q=${q}`,
-    // 中文古籍源
+    `https://duckduckgo.com/?q=${q}`,
+    `https://search.brave.com/search?q=${q}`,
+    `https://yandex.com/search/?text=${q}`,
+    `https://www.ecosia.org/search?q=${q}`,
+    `https://www.startpage.com/do/search?q=${q}`,
+    `https://www.qwant.com/?q=${q}`,
+    // ② 中文古籍 / 国学（30）
     `https://ctext.org/search?searchu=${q}`,
     `https://so.gushiwen.cn/guwen/search?value=${q}`,
+    `https://so.gushiwen.cn/search.aspx?value=${q}`,
+    `https://www.gushiwen.com/search.aspx?value=${q}`,
     `https://www.guoxuedashi.net/s.php?keyword=${q}`,
     `https://www.cidianwang.com/search?q=${q}`,
     `https://www.shicimingju.com/search.html?keyword=${q}`,
     `https://www.zhonghuadiancang.com/search.php?q=${q}`,
     `https://www.guoxuemeng.com/search.php?keyword=${q}`,
     `https://zh.wikisource.org/w/index.php?search=${q}`,
-    // 现代书/小说源
+    `https://www.daizhige.org/search?q=${q}`,
+    `https://www.guoxue123.com/search?q=${q}`,
+    `https://www.guoxue.com/search/?q=${q}`,
+    `https://www.zdic.net/hans/${q}`,
+    `https://www.shujuku.org/search?wd=${q}`,
+    `https://www.shuyiyan.com/search?q=${q}`,
+    `https://www.shengshicang.com/search?key=${q}`,
+    `https://www.gushici.net/search?wd=${q}`,
+    `https://www.shigeku.org/search?wd=${q}`,
+    `https://sou-yun.cn/QueryAllPoems.aspx?key=${q}`,
+    `https://shici.5000yan.com/search/?wd=${q}`,
+    `https://www.kekeshici.com/search?wd=${q}`,
+    `https://www.gushibaike.cn/search?wd=${q}`,
+    `https://www.yuwenxue.com/search?wd=${q}`,
+    `https://gj.zdic.net/search.html?q=${q}`,
+    `https://www.zhonghuashici.com/search?wd=${q}`,
+    `https://www.chinesewords.org/search?q=${q}`,
+    `https://www.zhonghuadiancang.com/sousuo.php?q=${q}`,
+    `https://baike.baidu.com/item/${q}`,
+    `https://zh.wikipedia.org/wiki/${q}`,
+    // ③ 现代书 / 小说 / 网文（20）
     `https://www.dingdiannew.com/searchbook.php?keyword=${q}`,
     `https://www.guidaye.cn/search.php?searchkey=${q}`,
     `https://www.25zw.com/search.html?searchkey=${q}`,
     `https://www.xbiquge.so/modules/article/waps.php?searchkey=${q}`,
     `https://www.quanben5.com/index.php?c=book&a=search&keywords=${q}`,
     `https://www.shuhai.tw/s?wd=${q}`,
+    `https://www.biquge.com.cn/search?keyword=${q}`,
+    `https://www.biqugew.com/modules/article/search.php?searchkey=${q}`,
+    `https://www.biquzw.com/search.php?searchkey=${q}`,
+    `https://www.bbiquge.net/modules/article/search.php?searchkey=${q}`,
+    `https://so.qidian.com/?kw=${q}`,
+    `https://search.zongheng.com/search.html?keyword=${q}`,
+    `https://www.17k.com/search/?Searchkey=${q}`,
+    `https://www.hongxiu.com/search?q=${q}`,
+    `https://www.fanqienovel.com/search?q=${q}`,
+    `https://www.qiyixs.com/search?wd=${q}`,
+    `https://www.7kxs.com/search.php?keyword=${q}`,
+    `https://www.kanshu.com/search?keyword=${q}`,
+    `https://www.txt80.com/search.php?keyword=${q}`,
+    `https://www.qb5.tw/search.php?searchkey=${q}`,
+    // ④ 文库 / 在线文档（10）
+    `https://wenku.baidu.com/search?word=${q}`,
+    `https://www.docin.com/search.do?searchcat=2&keyword=${q}`,
+    `https://www.doc88.com/search/${q}`,
+    `https://ishare.iask.sina.com.cn/search.php?key=${q}`,
+    `https://www.360doc.com/search.aspx?q=${q}`,
+    `https://www.book118.com/search.html?keyword=${q}`,
+    `https://www.docer.com/s?q=${q}`,
+    `https://wenku.so.com/search?q=${q}`,
+    `https://www.wendangwang.com/search?w=${q}`,
+    `https://www.renrendoc.com/search.aspx?q=${q}`,
+    // ⑤ 电子书 / 阅读平台（10）
+    `https://book.douban.com/subject_search?search_text=${q}`,
+    `https://weread.qq.com/web/search?key=${q}`,
+    `https://www.duokan.com/search?keyword=${q}`,
+    `https://e.jd.com/search?keyword=${q}`,
+    `https://book.dangdang.com/search.aspx?keyword=${q}`,
+    `https://www.amazon.cn/s?k=${q}`,
+    `https://www.zhangyue.com/search?wd=${q}`,
+    `https://book.ifeng.com/search?q=${q}`,
+    `https://www.zongheng.com/search.html?keyword=${q}`,
+    `https://www.weiyuedu.com/search?q=${q}`,
+    // ⑥ 图书馆 / 学术（10）
+    `https://archive.org/search.php?query=${q}`,
+    `https://openlibrary.org/search?q=${q}`,
+    `https://books.google.com/books?q=${q}`,
+    `https://scholar.google.com/scholar?q=${q}`,
+    `https://www.cnki.net/kns8s/search?q=${q}`,
+    `https://www.wanfangdata.com.cn/search?q=${q}`,
+    `https://find.nlc.cn/search?q=${q}`,
+    `https://www.library.sh.cn/search?q=${q}`,
+    `https://opac.lib.tsinghua.edu.cn/search?q=${q}`,
+    `https://www.cadal.zju.edu.cn/search?q=${q}`,
+    // ⑦ 海外 / 英文（15）
+    `https://www.gutenberg.org/ebooks/search/?query=${q}`,
+    `https://en.wikisource.org/w/index.php?search=${q}`,
+    `https://www.worldcat.org/search?q=${q}`,
+    `https://www.loc.gov/search/?q=${q}`,
+    `https://www.bl.uk/search?q=${q}`,
+    `https://arxiv.org/search/?query=${q}`,
+    `https://www.jstor.org/action/doBasicSearch?Query=${q}`,
+    `https://www.researchgate.net/search?q=${q}`,
+    `https://www.academia.edu/search?q=${q}`,
+    `https://www.scribd.com/search?query=${q}`,
+    `https://www.goodreads.com/search?q=${q}`,
+    `https://www.barnesandnoble.com/s/${q}`,
+    `https://manybooks.net/search?q=${q}`,
+    `https://standardebooks.org/search?q=${q}`,
+    `https://www.feedbooks.com/search?query=${q}`,
+    // ⑧ 百科（5）
+    `https://baike.so.com/doc/${q}.html`,
+    `https://baike.sogou.com/v.htm?ch=ch.bk.amb&fr=ch.bk.amb&keyword=${q}`,
+    `https://www.britannica.com/search?query=${q}`,
+    `https://www.encyclopedia.com/searchresults?q=${q}`,
+    `https://www.britishmuseum.org/collection/search?keyword=${q}`,
   ];
 }
