@@ -169,53 +169,48 @@ export function updateBookLearnProgress(bookName: string, learnedChapters: numbe
   saveLearnStatus();
 }
 
-/** 获取所有书籍的学习进度列表 */
-export function getLearningProgress(): Array<{
+/** 学习进度条目 */
+interface LearningProgressItem {
   name: string;
   learnedChapters: number;
   totalChapters: number;
   chapterStructure: string;
   learned: boolean;
   charCount: number;
-}> {
+}
+
+/** 获取所有书籍的学习进度列表（只返回磁盘上实际存在的书籍） */
+export function getLearningProgress(): LearningProgressItem[] {
   const statusMap = loadLearnStatus();
-  const result: Array<{
-    name: string;
-    learnedChapters: number;
-    totalChapters: number;
-    chapterStructure: string;
-    learned: boolean;
-    charCount: number;
-  }> = [];
+  const result: LearningProgressItem[] = [];
 
+  // 只保留实际存在书籍文件的状态，清除已删除书籍的记录
+  const existingBooks = new Set(
+    fs.readdirSync(getBookContentDir())
+      .filter(f => f.endsWith('.txt'))
+      .map(f => f.replace(/\.txt$/, ''))
+  );
+  const deletedNames: string[] = [];
   for (const [name, status] of statusMap) {
-    // 对未完成的书籍，按时间推进学习进度
-    if (!status.learned && status.learnStartedAt && status.totalChapters > 0) {
-      const elapsed = Date.now() - status.learnStartedAt;
-      // 每5秒学一章（模拟进度，实际搜索时已可用）
-      const chaptersPerMs = 1 / 5000;
-      const autoLearned = Math.min(
-        Math.floor(elapsed * chaptersPerMs),
-        status.totalChapters
-      );
-      if (autoLearned > status.learnedChapters) {
-        status.learnedChapters = autoLearned;
-        if (autoLearned >= status.totalChapters) {
-          status.learned = true;
-          status.learnedAt = Date.now();
-        }
-        saveLearnStatus();
-      }
+    if (existingBooks.has(name)) {
+      result.push({
+        name,
+        learnedChapters: status.learnedChapters,
+        totalChapters: status.totalChapters,
+        chapterStructure: status.chapterStructure,
+        learned: status.learned,
+        charCount: status.charCount,
+      });
+    } else {
+      deletedNames.push(name);
     }
-
-    result.push({
-      name,
-      learnedChapters: status.learnedChapters,
-      totalChapters: status.totalChapters,
-      chapterStructure: status.chapterStructure,
-      learned: status.learned,
-      charCount: status.charCount,
-    });
+  }
+  // 从缓存中清除已删除书籍的状态
+  if (deletedNames.length > 0) {
+    for (const name of deletedNames) {
+      statusMap.delete(name);
+    }
+    saveLearnStatus();
   }
 
   return result;
