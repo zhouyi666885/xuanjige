@@ -2487,18 +2487,27 @@ let localLearningStarted = false;
 export async function startLearningAllLocalBooks(): Promise<{ total: number; started: number; message: string }> {
   if (!isInitialized) initTaskManager();
   
-  if (localLearningStarted) {
-    return { total: 0, started: 0, message: '学习已在进行中' };
+  // 先确保 Supabase 中的数据已经被加载到内存（生产环境本地 fs 是空的）
+  try {
+    const { loadBookCacheAsync } = await import('./fulltext-search');
+    await loadBookCacheAsync();
+  } catch (e) {
+    console.warn('[startLearningAllLocalBooks] 预加载书目失败', e);
   }
-  localLearningStarted = true;
+  
+  // 同步从 Supabase 拉一次最新 task 状态，避免 init 异步竞争
+  try {
+    await loadTasksFromDb();
+  } catch (e) {
+    console.warn('[startLearningAllLocalBooks] loadTasksFromDb 失败', e);
+  }
   
   // 动态导入避免循环依赖
   const { getLocalBookInfo } = await import('./fulltext-search');
   const localBooks = getLocalBookInfo();
   
   if (localBooks.total === 0) {
-    localLearningStarted = false;
-    return { total: 0, started: 0, message: '没有本地书籍需要学习' };
+    return { total: 0, started: 0, message: '没有可学习的书籍（请先添加书籍到知识库）' };
   }
   
   let started = 0;
@@ -2516,25 +2525,23 @@ export async function startLearningAllLocalBooks(): Promise<{ total: number; sta
         skipped++;
         continue; // 已学完，跳过
       }
-      if (existingTask.learningStatus === 'learning') {
-        // 正在学习，加入队列恢复（防止中断）
-        if (!localLearningQueue.includes(existingTask.id)) {
-          localLearningQueue.push(existingTask.id);
-          started++;
-        } else {
-          skipped++;
-        }
-        continue;
-      }
-      // 待学习或失败，加入队列
-      if (!localLearningQueue.includes(existingTask.id)) {
+      // pending/learning/failed → 都强制标记为 learning 并入队（除非已在队列中）
+      const wasNotInQueue = !localLearningQueue.includes(existingTask.id);
+      if (wasNotInQueue) {
         localLearningQueue.push(existingTask.id);
-        started++;
-      } else {
-        skipped++;
       }
-      // 标注为本地书
-      existingTask.isLocalBook = true;
+      // 状态强制更新为 learning，立即生效让前端看到
+      const now = Date.now();
+      if (existingTask.learningStatus !== 'learning') {
+        existingTask.learningStatus = 'learning';
+        existingTask.learningMessage = '学习已加入队列';
+        existingTask.startedAt = existingTask.startedAt || now;
+        existingTask.updatedAt = now;
+        // 保证 isLocalBook 标记正确
+        existingTask.isLocalBook = true;
+      }
+      // 不管之前是否在队列中，本次都算 started（用户期望"启动学习"）
+      started++;
       continue;
     }
     
@@ -2557,17 +2564,17 @@ export async function startLearningAllLocalBooks(): Promise<{ total: number; sta
       chars: 0,
       chapters: [],
       isLocalBook: true,
-      logs: ['本地书籍，等待学习'],
-      learningStatus: 'pending',
+      logs: ['本地书籍，加入学习队列'],
+      learningStatus: 'learning', // 立刻进入学习中，让用户看到状态变化
       learningProgress: 0,
       learningCurrentChunk: 0,
       learningTotalChunks: 0,
-      learningMessage: '等待开始学习',
+      learningMessage: '学习已加入队列',
       learningLayersDone: [],
       hasMissingChapters: false,
       createdAt: now,
       updatedAt: now,
-      startedAt: null,
+      startedAt: now,
       completedAt: null,
       error: '',
     };
@@ -2580,9 +2587,9 @@ export async function startLearningAllLocalBooks(): Promise<{ total: number; sta
       try { learnTasks = JSON.parse(fs.readFileSync(learnTaskFile, 'utf-8')); } catch {}
     }
     learnTasks[bookName] = {
-      learningStatus: 'pending',
+      learningStatus: 'learning',
       learningProgress: 0,
-      learningMessage: '等待开始学习',
+      learningMessage: '学习已加入队列',
       taskId: id,
       startedAt: now,
     };
@@ -2604,13 +2611,22 @@ export async function startLearningAllLocalBooks(): Promise<{ total: number; sta
     console.error('[startLearningAllLocalBooks] 直接写磁盘失败:', e);
   }
   
+  // 双写到 Supabase（持久化学习状态，确保退出 APP 后状态不丢失）
+  try {
+    saveTasks();
+  } catch (e) {
+    console.error('[startLearningAllLocalBooks] saveTasks 异常:', e);
+  }
+  
   // 启动队列处理
   processLocalLearningQueue();
   
   return { 
     total: localBooks.total, 
     started, 
-    message: `开始学习 ${started} 本本地书籍（${skipped} 本已学完跳过），并发数 ${MAX_CONCURRENT_LEARNING}` 
+    message: started > 0 
+      ? `已启动 ${started} 本书的学习（${skipped} 本已学完跳过），并发数 ${MAX_CONCURRENT_LEARNING}` 
+      : `共 ${localBooks.total} 本书，${skipped} 本已学完，无需再学习`
   };
 }
 

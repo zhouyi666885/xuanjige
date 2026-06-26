@@ -1,6 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getBookStats, removeBookFromKnowledgeBase, getBookLearnStatus, getLearnedBookCount, invalidateCache, loadBookCacheAsync } from '@/lib/fulltext-search';
 import { getAllTasks, startLearningAllLocalBooks, getLocalLearningProgress, deleteTask } from '@/lib/book-task-manager';
+import fsRaw from 'fs';
+import pathRaw from 'path';
+
+/** 读 local-learn-tasks.json 拿"权威的本地学习状态"（API 层直写，最新值） */
+function readLocalLearnStatusFile(): Record<string, {
+  learningStatus?: string;
+  learningProgress?: number;
+  learningCurrentChunk?: number;
+  learningTotalChunks?: number;
+  learningMessage?: string;
+  learningLayersDone?: number[];
+  startedAt?: number;
+  completedAt?: number;
+}> {
+  try {
+    const file = pathRaw.join(process.env.COZE_WORKSPACE_PATH || '/workspace/projects', 'public', 'book-content', 'local-learn-tasks.json');
+    if (fsRaw.existsSync(file)) {
+      return JSON.parse(fsRaw.readFileSync(file, 'utf-8'));
+    }
+  } catch { /* ignore */ }
+  return {};
+}
 
 /**
  * GET /api/knowledge-base
@@ -38,6 +60,8 @@ export async function GET(request: NextRequest) {
 
     // 获取所有任务（含学习进度）
     const allTasks = getAllTasks();
+    // 同时读取 local-learn-tasks.json，优先级最高（API 层最新写入）
+    const localLearnStatus = readLocalLearnStatusFile();
     // 多个 task 同名时优先选 learningStatus=learning > done > pending > failed
     // 避免"状态同步"修复后留下的 done+pending 旧 task 把"学习中"的进度盖掉
     const taskPriority = (s?: string) => {
@@ -62,23 +86,41 @@ export async function GET(request: NextRequest) {
       const learnStatus = getBookLearnStatus(name);
       // 获取任务中的学习进度
       const task = taskMap.get(name);
+      // 优先用 local-learn-tasks.json 中的最新状态（API 层直接写入，是权威值）
+      const liveLearn = localLearnStatus[name];
       // 物理文件存在 ⇒ 内容完整，绝不能误报"缺章节"
       // 章节数：优先取 learnStatus.totalChapters（本地物理书的真实章节），其次 task.totalChapters
       const realTotalChapters = (learnStatus?.totalChapters && learnStatus.totalChapters > 0)
         ? learnStatus.totalChapters
         : (task?.totalChapters ?? 0);
       const realCurrentChapter = realTotalChapters; // 本地书必然完整，currentChapter = totalChapters
+      // 学习字段三优先级：liveLearn > task > learnStatus
+      const finalLearningStatus = (liveLearn?.learningStatus as string | undefined)
+        ?? task?.learningStatus
+        ?? (learnStatus?.learned ? 'done' : 'pending');
+      const finalLearningProgress = liveLearn?.learningProgress
+        ?? task?.learningProgress
+        ?? (learnStatus?.learned ? 100 : 0);
+      const finalLearningMessage = liveLearn?.learningMessage
+        ?? task?.learningMessage
+        ?? '';
+      const finalLearningCurrentChunk = liveLearn?.learningCurrentChunk
+        ?? task?.learningCurrentChunk
+        ?? 0;
+      const finalLearningTotalChunks = liveLearn?.learningTotalChunks
+        ?? task?.learningTotalChunks
+        ?? 0;
       return {
         name,
         category,
-        learned: learnStatus?.learned ?? (task?.learningStatus === 'done'),
+        learned: finalLearningStatus === 'done' || (learnStatus?.learned ?? false),
         learnedAt: learnStatus?.learnedAt ?? (task?.completedAt ?? null),
         charCount: learnStatus?.charCount ?? 0,
-        learningStatus: task?.learningStatus ?? (learnStatus?.learned ? 'done' : 'pending'),
-        learningProgress: task?.learningProgress ?? (learnStatus?.learned ? 100 : 0),
-        learningCurrentChunk: task?.learningCurrentChunk ?? 0,
-        learningTotalChunks: task?.learningTotalChunks ?? 0,
-        learningMessage: task?.learningMessage ?? '',
+        learningStatus: finalLearningStatus,
+        learningProgress: finalLearningProgress,
+        learningCurrentChunk: finalLearningCurrentChunk,
+        learningTotalChunks: finalLearningTotalChunks,
+        learningMessage: finalLearningMessage,
         hasMissingChapters: false, // 本地物理文件存在 = 完整录入，永远不缺章节
         currentChapter: realCurrentChapter,
         totalChapters: realTotalChapters,
@@ -193,25 +235,40 @@ export async function POST(request: NextRequest) {
       const result = await startLearningAllLocalBooks();
       // 直接在 API 层触发学习（绕过 HMR 闭包问题）
       try {
-        const { getBookFullText, markBookLearned } = require('@/lib/fulltext-search');
-        const { getCozeClient } = require('@/lib/utils');
-        const fs = require('fs');
-        const path = require('path');
+        const fullTextMod = await import('@/lib/fulltext-search');
+        const { getBookFullText, getBookFullTextAsync, markBookLearned, getLocalBookInfo, loadBookCacheAsync } = fullTextMod;
+        const sdkMod = await import('coze-coding-dev-sdk');
+        const { LLMClient, Config } = sdkMod;
+        const fs = await import('fs');
+        const path = await import('path');
         const TASKS_DIR = path.join(process.env.COZE_WORKSPACE_PATH || '/workspace/projects', 'public', 'book-content');
         
-        // 获取所有本地书
-        const files = fs.readdirSync(TASKS_DIR).filter((f: string) => f.endsWith('.txt'));
+        // 获取所有可学习的书：本地 fs + Supabase（生产环境本地 fs 是空的）
+        let bookNames: string[] = [];
+        try {
+          const info = getLocalBookInfo();
+          bookNames = info.bookNames || [];
+        } catch {}
+        // 兜底：直接读 fs
+        if (bookNames.length === 0) {
+          try {
+            const files = fs.readdirSync(TASKS_DIR).filter((f: string) => f.endsWith('.txt'));
+            bookNames = files.map((f: string) => f.replace('.txt', ''));
+          } catch {}
+        }
         const statusFile = path.join(TASKS_DIR, 'local-learn-tasks.json');
         let learningStatus: Record<string, any> = {};
         try { learningStatus = JSON.parse(fs.readFileSync(statusFile, 'utf-8')); } catch {}
         
         let started = 0;
-        for (const file of files) {
-          const bookName = file.replace('.txt', '');
+        let skipped = 0;
+        for (const bookName of bookNames) {
           const existing = learningStatus[bookName];
-          if (existing && existing.learningStatus === 'done') continue; // 跳过已学完
-          if (existing && existing.learningStatus === 'learning') continue; // 跳过正在学
-          
+          if (existing && existing.learningStatus === 'done') {
+            skipped++;
+            continue; // 已学完，跳过
+          }
+          // pending / learning(已残留) / failed → 强制重启
           // 标记为学习中
           learningStatus[bookName] = {
             learningStatus: 'learning',
@@ -225,7 +282,14 @@ export async function POST(request: NextRequest) {
           // 异步执行学习（不阻塞 API 响应）
           setImmediate(async () => {
             try {
-              const fullText = getBookFullText(bookName);
+              // 先确保 Supabase 缓存已加载
+              try { await loadBookCacheAsync(); } catch {}
+              // 优先用 async（能从 Supabase 实时取），同步版作为兜底
+              let fullText: string | null = null;
+              try { fullText = await getBookFullTextAsync(bookName); } catch {}
+              if (!fullText || fullText.length < 100) {
+                fullText = getBookFullText(bookName);
+              }
               if (!fullText || fullText.length < 100) {
                 learningStatus[bookName] = { ...learningStatus[bookName], learningStatus: 'failed', learningMessage: '无法读取书籍内容' };
                 fs.writeFileSync(statusFile, JSON.stringify(learningStatus, null, 2));
@@ -251,26 +315,26 @@ export async function POST(request: NextRequest) {
               const learnedChunks: string[] = [];
               
               // 逐块学习
-              const { cozeClient } = getCozeClient();
+              const config = new Config();
+              const llmClient = new LLMClient(config);
               for (let i = 0; i < totalChunks; i++) {
                 const chunk = chunks[i];
                 const progress = Math.round(((i + 1) / totalChunks) * 100);
                 
                 try {
-                  const completion = await cozeClient.chat.create({
-                    bot_id: process.env.COZE_BOT_ID!,
-                    user_id: 'learn-' + bookName,
-                    additional_messages: [{
-                      role: 'user',
-                      content: `深度学习以下古籍原文，按4层结构输出学习笔记：\n一、专业术语与概念\n二、分析逻辑与推断方法\n三、知识点关联关系\n四、实际应用方法\n\n原文：\n${chunk}`,
-                      content_type: 'text',
-                    }],
-                    stream: false,
+                  const messages = [{
+                    role: 'user' as const,
+                    content: `深度学习以下古籍原文，按4层结构输出学习笔记：\n一、专业术语与概念\n二、分析逻辑与推断方法\n三、知识点关联关系\n四、实际应用方法\n\n原文：\n${chunk}`,
+                  }];
+                  const stream = llmClient.stream(messages, {
+                    model: 'doubao-seed-2-0-pro-260215',
+                    temperature: 0.3,
                   });
-                  
                   let learnedContent = '';
-                  if (completion?.choices?.[0]?.message?.content) {
-                    learnedContent = completion.choices[0].message.content;
+                  for await (const part of stream) {
+                    if (part?.content) {
+                      learnedContent += part.content.toString();
+                    }
                   }
                   
                   learnedChunks.push(`========== 原文 ==========\n${chunk}\n========== AI学习笔记 ==========\n${learnedContent || '（学习笔记生成失败，保留原文）'}`);
@@ -298,7 +362,7 @@ export async function POST(request: NextRequest) {
               
               // 标记知识库学习完成
               if (learnedChunks.length > 0) {
-                try { markBookLearned(bookName, learnedChunks.join('\n\n')); } catch {}
+                try { markBookLearned(bookName, true); } catch {}
               }
               
               console.log(`[learnLocalBook] ✅ ${bookName} 学习完成，${totalChunks} 块`);
@@ -313,7 +377,7 @@ export async function POST(request: NextRequest) {
         // 保存初始状态
         fs.writeFileSync(statusFile, JSON.stringify(learningStatus, null, 2));
         
-        return NextResponse.json({ success: true, data: { total: files.length, started, message: `开始学习 ${started} 本本地书籍` } });
+        return NextResponse.json({ success: true, data: { total: bookNames.length, started, message: started > 0 ? `已启动 ${started} 本书的学习${skipped > 0 ? `，${skipped} 本已学完跳过` : ''}` : `共 ${bookNames.length} 本书，全部已学完，无需再学习` } });
       } catch (err: any) {
         console.error('[start-learning] 内部错误:', err.message);
         return NextResponse.json({ success: true, data: result }); // fallback
@@ -324,6 +388,21 @@ export async function POST(request: NextRequest) {
       invalidateCache();
       const stats = getBookStats();
       return NextResponse.json({ success: true, data: { message: `缓存已刷新，当前${stats.bookCount}本书`, total: stats.bookCount } });
+    }
+
+    // 强制把打包种子数据同步到 Supabase（部署后数据丢失时手动恢复）
+    if (action === 'force-sync-seed') {
+      try {
+        const mod = await import('@/lib/fulltext-search');
+        await (mod as unknown as { forceSyncSeedDataToDb?: () => Promise<{ synced: number; total: number }> }).forceSyncSeedDataToDb?.();
+        invalidateCache();
+        await loadBookCacheAsync();
+        const stats = getBookStats();
+        return NextResponse.json({ success: true, data: { message: `种子数据已强制同步，当前 ${stats.bookCount} 本书`, total: stats.bookCount, totalChars: stats.totalChars } });
+      } catch (e) {
+        const m = e instanceof Error ? e.message : String(e);
+        return NextResponse.json({ success: false, error: '强制同步失败: ' + m }, { status: 500 });
+      }
     }
 
     if (action === 'learning-progress') {

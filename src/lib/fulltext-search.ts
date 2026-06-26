@@ -467,12 +467,23 @@ function loadBookCache(): void {
   }
 }
 
-/** 获取本地书籍总数和书名列表（不加载全文内容，仅读取文件名） */
+/** 获取本地+云端书籍总数和书名列表（不加载全文内容，仅读取文件名 / Supabase 缓存）
+ * - 优先返回云端 bookNameList（loadBookCacheAsync 已拉过的缓存）
+ * - 兜底用本地 fs 文件名，确保开发期也能用
+ */
 export function getLocalBookInfo(): { total: number; bookNames: string[] } {
+  const names = new Set<string>();
+  // 1. 云端缓存（saturated by loadBookCacheAsync）
+  if (bookNameList && bookNameList.length > 0) {
+    for (const n of bookNameList) names.add(n);
+  }
+  // 2. 本地 fs 文件名兜底
   const dir = getBookContentDir();
-  if (!fs.existsSync(dir)) return { total: 0, bookNames: [] };
-  const files = fs.readdirSync(dir).filter(f => f.endsWith('.txt'));
-  const bookNames = files.map(f => f.replace('.txt', ''));
+  if (fs.existsSync(dir)) {
+    const files = fs.readdirSync(dir).filter(f => f.endsWith('.txt'));
+    for (const f of files) names.add(f.replace('.txt', ''));
+  }
+  const bookNames = Array.from(names);
   return { total: bookNames.length, bookNames };
 }
 
@@ -523,42 +534,127 @@ export function markBookLearned(bookName: string, learned: boolean): void {
  * 在生产环境中，启动时从S3拉取书名列表，按需获取内容
  */
 /**
- * 检测本地 public/book-content/*.txt 是否比 Supabase 更完整，自动同步到云端
- * 解决：开发环境录入的完整版在部署后变成残次版的问题
+ * 强制把打包的种子数据同步到 Supabase（不论字数差异，强制覆盖）
+ * 用于"部署后数据丢失"的一键恢复
  */
-async function syncSeedDataToDb(): Promise<void> {
+export async function forceSyncSeedDataToDb(): Promise<{ synced: number; total: number }> {
   try {
-    const bookDir = path.join(process.cwd(), 'public/book-content');
-    if (!fs.existsSync(bookDir)) return;
-    const files = fs.readdirSync(bookDir).filter(f => f.endsWith('.txt'));
-    if (files.length === 0) return;
+    type SeedItem = { name: string; content: string; chapters: number; charCount: number };
+    const seeds: SeedItem[] = [];
+    try {
+      const seedMod = await import('./seed-data/books');
+      for (const s of seedMod.SEED_BOOKS) {
+        seeds.push({ name: s.name, content: s.content, chapters: s.chapters, charCount: s.charCount });
+      }
+    } catch (e) {
+      console.warn('[全文检索] forceSync 加载 SEED_BOOKS 失败:', e);
+    }
+    if (seeds.length === 0) return { synced: 0, total: 0 };
 
     const { books: dbBooksArr } = await listBooksFromDb({ page: 1, pageSize: 200 });
     const dbMap = new Map<string, { name: string; char_count: number; category: string; source: string }>(dbBooksArr.map((b: any) => [b.name, b as { name: string; char_count: number; category: string; source: string }]));
 
     let synced = 0;
-    for (const f of files) {
-      const bookName = f.replace(/\.txt$/, '');
-      const filePath = path.join(bookDir, f);
-      const content = fs.readFileSync(filePath, 'utf-8');
-      const localChars = content.length;
-      const dbBook = dbMap.get(bookName);
-
-      // 本地文件比云端更完整（字数差 > 10%），或云端不存在
-      if (!dbBook || (localChars > dbBook.char_count * 1.1)) {
-        const chapterMatches = content.match(/^第[一二三四五六七八九十百千零0-9]+(章|回|篇|卷)/gm);
-        const chapters = chapterMatches?.length ?? 0;
+    for (const seed of seeds) {
+      const dbBook = dbMap.get(seed.name);
+      // 强制覆盖（即使云端已存在）
+      if (!dbBook || seed.charCount > dbBook.char_count) {
         await upsertBookToDb({
-          name: bookName,
+          name: seed.name,
           category: dbBook?.category || '未分类',
-          content,
-          char_count: localChars,
-          total_chapters: chapters,
+          content: seed.content,
+          char_count: seed.charCount,
+          total_chapters: seed.chapters,
           chapter_structure: '章',
           source: dbBook?.source || '本地录入',
         });
         synced++;
-        console.log(`[全文检索] 同步 seed → Supabase: ${bookName} (${localChars} 字, ${chapters} 章)`);
+        console.log(`[全文检索] forceSync: ${seed.name} (${seed.charCount} 字)，覆盖云端 ${dbBook?.char_count ?? 0} 字`);
+      }
+    }
+    // 清空缓存
+    bookNameList = [];
+    if (bookCache) bookCache.clear();
+    if (bookCharCountCache) bookCharCountCache.clear();
+    dbCachePrimed = false;
+    return { synced, total: seeds.length };
+  } catch (err) {
+    console.error('[全文检索] forceSyncSeedDataToDb 失败:', err);
+    return { synced: 0, total: 0 };
+  }
+}
+
+/**
+ * 检测本地 public/book-content/*.txt 是否比 Supabase 更完整，自动同步到云端
+ * 解决：开发环境录入的完整版在部署后变成残次版的问题
+ *
+ * 数据源优先级：
+ * 1. 打包种子数据（SEED_BOOKS，无 fs 依赖，部署后100%可用）
+ * 2. 候选 fs 路径（开发环境调试用）
+ */
+async function syncSeedDataToDb(): Promise<void> {
+  try {
+    // 1) 收集种子数据：先从代码常量取（部署后唯一稳定源）
+    type SeedItem = { name: string; content: string; chapters: number; charCount: number };
+    const seeds: SeedItem[] = [];
+    try {
+      const seedMod = await import('./seed-data/books');
+      for (const s of seedMod.SEED_BOOKS) {
+        seeds.push({ name: s.name, content: s.content, chapters: s.chapters, charCount: s.charCount });
+      }
+    } catch (e) {
+      console.warn('[全文检索] 加载内置 SEED_BOOKS 失败:', e);
+    }
+    
+    // 2) 再从候选 fs 目录补充（开发期使用）
+    const candidates = [
+      path.join(process.cwd(), 'public', 'book-content'),
+      path.join(process.env.COZE_WORKSPACE_PATH || '/workspace/projects', 'public', 'book-content'),
+      path.join(process.cwd(), '..', 'public', 'book-content'),
+      path.join(process.cwd(), '.next', 'standalone', 'public', 'book-content'),
+    ];
+    const seenNames = new Set(seeds.map(s => s.name));
+    for (const c of candidates) {
+      try {
+        if (!fs.existsSync(c)) continue;
+        const list = fs.readdirSync(c).filter(f => f.endsWith('.txt'));
+        for (const f of list) {
+          const name = f.replace(/\.txt$/, '');
+          if (seenNames.has(name)) continue;
+          const content = fs.readFileSync(path.join(c, f), 'utf-8');
+          const chapterMatches = content.match(/^第[一二三四五六七八九十百千零0-9]+(章|回|篇|卷)/gm);
+          const chapters = chapterMatches?.length ?? 0;
+          seeds.push({ name, content, chapters, charCount: content.length });
+          seenNames.add(name);
+        }
+      } catch { /* ignore */ }
+    }
+    
+    if (seeds.length === 0) {
+      console.log('[全文检索] syncSeedDataToDb: 无种子数据（SEED_BOOKS 空 + fs 候选路径均无文件）');
+      return;
+    }
+    console.log(`[全文检索] syncSeedDataToDb: 共收集 ${seeds.length} 本种子书`);
+
+    const { books: dbBooksArr } = await listBooksFromDb({ page: 1, pageSize: 200 });
+    const dbMap = new Map<string, { name: string; char_count: number; category: string; source: string }>(dbBooksArr.map((b: any) => [b.name, b as { name: string; char_count: number; category: string; source: string }]));
+
+    let synced = 0;
+    for (const seed of seeds) {
+      const dbBook = dbMap.get(seed.name);
+      // 本地种子比云端更完整（字数差 > 10%），或云端不存在
+      if (!dbBook || (seed.charCount > dbBook.char_count * 1.1)) {
+        await upsertBookToDb({
+          name: seed.name,
+          category: dbBook?.category || '未分类',
+          content: seed.content,
+          char_count: seed.charCount,
+          total_chapters: seed.chapters,
+          chapter_structure: '章',
+          source: dbBook?.source || '本地录入',
+        });
+        synced++;
+        console.log(`[全文检索] 同步 seed → Supabase: ${seed.name} (${seed.charCount} 字, ${seed.chapters} 章)，覆盖云端 ${dbBook?.char_count ?? 0} 字`);
       }
     }
     if (synced > 0) {
@@ -567,6 +663,7 @@ async function syncSeedDataToDb(): Promise<void> {
       if (bookCache) bookCache.clear();
       if (bookCharCountCache) bookCharCountCache.clear();
       dbCachePrimed = false;
+      console.log(`[全文检索] syncSeedDataToDb: 共同步 ${synced} 本书到 Supabase`);
     }
   } catch (err) {
     console.error('[全文检索] syncSeedDataToDb 失败:', err);
