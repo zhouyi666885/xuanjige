@@ -1078,8 +1078,13 @@ async function processTask(taskId: string): Promise<void> {
     });
     addLog(taskId, `摘录完成: ${finalChapterCount} ${finalChapterInfo.structureType}, ${bookContent.length} 字`);
 
-    // 7. 录入完成后自动开始AI学习
-    setTimeout(() => processLearning(taskId, bookContent), 500);
+    // 7. 录入完成后【不自动学习】，置为"待学习"状态，等待用户在知识库手动点击"开始学习"
+    updateTask(taskId, {
+      learningStatus: 'pending',
+      learningProgress: 0,
+      learningMessage: '⏳ 待学习（请在知识库点击"开始学习"按钮）',
+    });
+    addLog(taskId, '录入完成，进入知识库待学习队列（等待用户手动触发学习）');
 
   } catch (e) {
     const errMsg = e instanceof Error ? e.message : String(e);
@@ -1682,26 +1687,11 @@ export function initTaskManager(): void {
       // 异步处理，不阻塞初始化
       setTimeout(() => processTask(id), Math.random() * 5000);
     } else if (task.status === 'done' && task.learningStatus === 'pending') {
-      // 已录入但未学习，恢复学习
-      resumed++;
-      setTimeout(async () => {
-        const { getBookFullTextAsync } = require('./fulltext-search');
-        const fullText = await getBookFullTextAsync(task.bookName);
-        if (fullText) {
-          processLearning(id, fullText);
-        }
-      }, Math.random() * 5000 + 3000);
+      // 已录入但未学习——【不自动恢复】，保留"待学习"状态，等待用户在知识库手动点击"开始学习"
+      // （原行为：自动恢复学习；新行为：手动触发）
     } else if (task.status === 'done' && task.learningStatus === 'learning') {
-      // 学习中断，恢复学习（先重置为pending让processLearning能重新开始）
-      updateTask(id, { learningStatus: 'pending', learningProgress: 0, learningMessage: '等待恢复学习...' });
-      resumed++;
-      setTimeout(async () => {
-        const { getBookFullTextAsync } = require('./fulltext-search');
-        const fullText = await getBookFullTextAsync(task.bookName);
-        if (fullText) {
-          processLearning(id, fullText);
-        }
-      }, Math.random() * 5000 + 3000);
+      // 学习中断——回退到"待学习"状态，等待用户在知识库手动点击"开始学习"重新启动
+      updateTask(id, { learningStatus: 'pending', learningProgress: 0, learningMessage: '⏳ 待学习（之前学习中断，请在知识库重新点击"开始学习"）' });
     }
   }
   
@@ -1996,6 +1986,39 @@ export function getActiveTaskStatusList(): string[] {
   }
 
   return lines;
+}
+
+/**
+ * 批量启动"待学习"书籍的学习流程
+ * 触发条件：用户在知识库点击"开始学习"按钮
+ * 处理对象：所有 status='done' && learningStatus='pending' 的任务 + 本地内置书的待学习任务
+ */
+export async function startLearningPendingBooks(): Promise<{ started: number; alreadyLearning: number; bookNames: string[] }> {
+  const allTasks = getAllTasks();
+  const pendingBooks = allTasks.filter(
+    (t) => (t.status === 'done' || t.isLocalBook) && t.learningStatus === 'pending',
+  );
+  const learning = allTasks.filter((t) => t.learningStatus === 'learning');
+  const started: string[] = [];
+
+  // 动态 require 避免循环依赖
+  const { getBookFullTextAsync } = require('./fulltext-search');
+
+  for (const task of pendingBooks) {
+    setTimeout(async () => {
+      try {
+        const fullText = await getBookFullTextAsync(task.bookName);
+        if (fullText) {
+          processLearning(task.id, fullText);
+        }
+      } catch (e) {
+        console.error('[startLearningPendingBooks]', task.bookName, e);
+      }
+    }, Math.random() * 2000); // 随机分散启动，避免同一秒压垮
+    started.push(task.bookName);
+  }
+
+  return { started: started.length, alreadyLearning: learning.length, bookNames: started };
 }
 
 /**

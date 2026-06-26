@@ -578,86 +578,7 @@ export default function AddBookPage() {
                   </div>
                 )}
 
-                {/* 进度条2 - AI深度学习（录入完成后显示） */}
-                {(task.status === 'done' && task.learningStatus && task.learningStatus !== 'pending') && (
-                  <div className="mb-1">
-                    <div className="flex justify-between text-[10px] text-[#8a8070] mb-0.5">
-                      <span>AI深度学习进度</span>
-                      <span>
-                        {task.learningTotalChunks > 0
-                          ? `${task.learningCurrentChunk}/${task.learningTotalChunks}块`
-                          : `${task.learningProgress}%`}
-                      </span>
-                    </div>
-                    <div className="mb-2">
-                      <div className="flex justify-between text-xs text-[#8a8070] mb-1">
-                        <span>
-                          {task.learningStatus === 'done' ? '已学完全部内容' :
-                           task.learningTotalChunks > 0
-                             ? `正在学习: ${task.learningCurrentChunk}/${task.learningTotalChunks}块...`
-                             : (task.learningMessage || 'AI深度学习中...')}
-                        </span>
-                        <span>{task.learningProgress}%</span>
-                      </div>
-                      <div className="h-2 bg-[#0a0a0f] rounded-full overflow-hidden relative">
-                        <div
-                          className={`h-full rounded-full ${
-                            task.learningStatus === 'done' ? 'bg-gradient-to-r from-[#4ade80] to-[#22c55e]' :
-                            task.learningStatus === 'failed' ? 'bg-red-500' :
-                            'bg-gradient-to-r from-[#4ade80] to-[#d4a853]'
-                          }`}
-                          style={{ width: `${task.learningProgress}%`, transition: 'width 0.5s ease-out' }}
-                        />
-                        {task.learningStatus === 'learning' && task.learningProgress > 0 && (
-                          <div
-                            className="absolute top-0 left-0 h-full rounded-full opacity-60"
-                            style={{
-                              width: `${task.learningProgress}%`,
-                              background: 'linear-gradient(90deg, transparent 0%, rgba(74,222,128,0.4) 50%, transparent 100%)',
-                              animation: 'shimmer 2s infinite',
-                            }}
-                          />
-                        )}
-                      </div>
-                      {/* 4层学习进度指示 */}
-                      {task.learningStatus === 'learning' && task.learningTotalChunks > 0 && (
-                        <div className="flex items-center gap-1 mt-1 flex-wrap">
-                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#1a1a2e] text-[#d4a853] border border-[#d4a853]/30">
-                            ①术语理解
-                          </span>
-                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#1a1a2e] text-[#d4a853] border border-[#d4a853]/30">
-                            ②逻辑掌握
-                          </span>
-                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#1a1a2e] text-[#d4a853] border border-[#d4a853]/30">
-                            ③知识关联
-                          </span>
-                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#1a1a2e] text-[#d4a853] border border-[#d4a853]/30">
-                            ④应用方法
-                          </span>
-                          <span className="text-[9px] text-[#5a5a6e] ml-1">
-                            {task.learningCurrentChunk}/{task.learningTotalChunks}块
-                          </span>
-                        </div>
-                      )}
-                      {task.learningStatus === 'done' && (
-                        <div className="flex items-center gap-1 mt-1">
-                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-green-900/30 text-green-400 border border-green-700/30">
-                            ✓ 术语已理解
-                          </span>
-                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-green-900/30 text-green-400 border border-green-700/30">
-                            ✓ 逻辑已掌握
-                          </span>
-                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-green-900/30 text-green-400 border border-green-700/30">
-                            ✓ 关联已建立
-                          </span>
-                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-green-900/30 text-green-400 border border-green-700/30">
-                            ✓ 应用已学会
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
+                {/* AI深度学习进度已移至知识库页面，添加书籍页面只关注录入进度 */}
 
                 {/* 章节进度 */}
                 {task.totalChapters > 0 && task.status !== 'done' && task.status !== 'exists' && (
@@ -686,42 +607,14 @@ export default function AddBookPage() {
                   </p>
                 )}
 
-                {/* 完成信息 */}
+                {/* 完成信息（录入完成→进入知识库待学习） */}
                 {task.status === 'done' && (
-                  <div className={`mt-2 border rounded-lg p-3 ${
-                    task.learningStatus === 'done' 
-                      ? 'bg-green-900/20 border-green-800/30' 
-                      : task.learningStatus === 'failed'
-                      ? 'bg-red-900/20 border-red-800/30'
-                      : 'bg-blue-900/20 border-blue-800/30'
-                  }`}>
-                    <p className={`font-bold text-center text-sm ${
-                      task.learningStatus === 'done' 
-                        ? 'text-green-300' 
-                        : task.learningStatus === 'failed'
-                        ? 'text-red-300'
-                        : 'text-blue-300'
-                    }`}>
-                      {task.learningStatus === 'done' 
-                        ? '已录入并AI学完' 
-                        : task.learningStatus === 'failed'
-                        ? '录入成功，AI学习失败'
-                        : task.learningStatus === 'learning'
-                        ? '录入完成，AI学习中...'
-                        : '录入完成，等待AI学习...'}
+                  <div className="mt-2 border rounded-lg p-3 bg-blue-900/20 border-blue-800/30">
+                    <p className="font-bold text-center text-sm text-blue-300">
+                      ✅ 录入完成，已进入知识库
                     </p>
-                    <p className={`text-center text-[10px] mt-0.5 ${
-                      task.learningStatus === 'done' 
-                        ? 'text-green-400/50' 
-                        : task.learningStatus === 'failed'
-                        ? 'text-red-400/50'
-                        : 'text-blue-400/50'
-                    }`}>
-                      {task.learningStatus === 'done' 
-                        ? '全文已学会，回答问题时可随时调用'
-                        : task.learningStatus === 'failed'
-                        ? 'AI学习失败，可尝试重新录入'
-                        : '学习完成后知识点才可被AI调用'}
+                    <p className="text-center text-[10px] mt-0.5 text-blue-400/70">
+                      请到「知识库」页面点击"开始学习"按钮启动AI学习
                     </p>
                     <div className="flex justify-center gap-4 mt-1 text-xs text-[#8a8070]">
                       <span>{task.chapterStructure ? `${task.totalChapters} ${task.chapterStructure}` : `${task.totalChapters} 章`}</span>
@@ -777,63 +670,8 @@ export default function AddBookPage() {
           </div>
         )}
 
-        {/* 学习中的书籍 */}
-        {learningBooks.length > 0 && (
-          <div className="mt-6">
-            <h3 className="text-sm font-bold text-[#8b5cf6] mb-3 flex items-center gap-2">
-              <span className="animate-pulse">🧠</span>
-              深度学习中（{learningBooks.length}本）
-            </h3>
-            <div className="space-y-3">
-              {learningBooks.map((book: LearningBook) => {
-                const lp = book.learningProgress || 0;
-                const structure = book.chapterStructure || '章';
-                const learned = book.learnedChapters || 0;
-                const total = book.totalChapters || 0;
-                const isLearned = lp >= 100;
-                return (
-                  <div
-                    key={book.name}
-                    className="bg-[#1a1a2e] rounded-lg p-3 border border-[#2a2a3e]"
-                  >
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-sm text-[#e8e0d0] font-medium truncate max-w-[60%]">
-                        {book.name}
-                      </span>
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${
-                        isLearned
-                          ? 'bg-green-900/50 text-green-400'
-                          : 'bg-purple-900/50 text-purple-400'
-                      }`}>
-                        {isLearned ? '已吃透' : '学习中'}
-                      </span>
-                    </div>
-                    <div className="relative h-2 bg-[#0a0a0f] rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full transition-all duration-1000 ease-out ${
-                          isLearned
-                            ? 'bg-gradient-to-r from-green-600 to-emerald-400'
-                            : 'bg-gradient-to-r from-purple-600 to-violet-400'
-                        }`}
-                        style={{ width: `${Math.min(lp, 100)}%` }}
-                      />
-                    </div>
-                    <div className="flex justify-between mt-1">
-                      <span className="text-xs text-[#8a8070]">
-                        {total > 0
-                          ? `第${learned}${structure}/共${total}${structure}`
-                          : `${lp.toFixed(0)}%`}
-                      </span>
-                      <span className="text-xs text-[#8a8070]">
-                        {(book.charCount || 0).toLocaleString()}字
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
+        {/* 学习相关内容已迁移至「知识库」页面，添加书籍页面只关注录入进度 */}
+
 
         {/* 使用说明 */}
         <div className="bg-[#1a1a2e] rounded-xl p-4 border border-[#2a2a3e]">

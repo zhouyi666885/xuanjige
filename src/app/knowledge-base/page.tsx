@@ -321,52 +321,64 @@ export default function KnowledgeBasePage() {
                         </span>
                       )}
                     </div>
-                    {/* 学习进度条 */}
-                    {book.learningStatus !== 'pending' && (
-                      <div className="mt-1.5">
-                        <div className="flex justify-between text-[9px] text-[#8a8070] mb-0.5">
-                          <span>{book.learningStatus === 'done' ? '深度学习完成' : (book.learningMessage || 'AI深度学习中...')}</span>
-                          <span>{book.learningTotalChunks > 0 ? `${book.learningCurrentChunk}/${book.learningTotalChunks}块` : `${book.learningProgress}%`}</span>
-                        </div>
-                        <div className="h-1 bg-[#0a0a0f] rounded-full overflow-hidden relative">
-                          <div 
-                            className={`h-full rounded-full transition-all duration-700 ${
-                              book.learningStatus === 'done' 
-                                ? 'bg-gradient-to-r from-[#4ade80] to-[#22c55e]' 
-                                : 'bg-gradient-to-r from-[#d4a853] to-[#f59e0b]'
-                            }`}
-                            style={{ width: `${book.learningProgress}%` }}
+                    {/* 学习进度条（pending/learning/done 全部显示） */}
+                    <div className="mt-1.5">
+                      <div className="flex justify-between text-[9px] text-[#8a8070] mb-0.5">
+                        <span>
+                          {book.learningStatus === 'done'
+                            ? '深度学习完成'
+                            : book.learningStatus === 'learning'
+                              ? (book.learningMessage || 'AI深度学习中...')
+                              : '待学习（点上方按钮统一开始）'}
+                        </span>
+                        <span>
+                          {book.learningStatus === 'pending'
+                            ? '0%'
+                            : book.learningTotalChunks > 0
+                              ? `${book.learningCurrentChunk}/${book.learningTotalChunks}块`
+                              : `${book.learningProgress}%`}
+                        </span>
+                      </div>
+                      <div className="h-1 bg-[#0a0a0f] rounded-full overflow-hidden relative">
+                        <div
+                          className={`h-full rounded-full transition-all duration-700 ${
+                            book.learningStatus === 'done'
+                              ? 'bg-gradient-to-r from-[#4ade80] to-[#22c55e]'
+                              : book.learningStatus === 'learning'
+                                ? 'bg-gradient-to-r from-[#d4a853] to-[#f59e0b]'
+                                : 'bg-[#3a3a4e]'
+                          }`}
+                          style={{ width: `${book.learningStatus === 'pending' ? 100 : book.learningProgress}%`, opacity: book.learningStatus === 'pending' ? 0.3 : 1 }}
+                        />
+                        {book.learningStatus === 'learning' && book.learningProgress > 0 && (
+                          <div
+                            className="absolute top-0 left-0 h-full rounded-full opacity-50"
+                            style={{
+                              width: `${book.learningProgress}%`,
+                              background: 'linear-gradient(90deg, transparent 0%, rgba(212,168,83,0.4) 50%, transparent 100%)',
+                              animation: 'shimmer 2s infinite',
+                            }}
                           />
-                          {book.learningStatus === 'learning' && book.learningProgress > 0 && (
-                            <div
-                              className="absolute top-0 left-0 h-full rounded-full opacity-50"
-                              style={{
-                                width: `${book.learningProgress}%`,
-                                background: 'linear-gradient(90deg, transparent 0%, rgba(212,168,83,0.4) 50%, transparent 100%)',
-                                animation: 'shimmer 2s infinite',
-                              }}
-                            />
-                          )}
-                        </div>
-                        {/* 4层学习状态指示 */}
-                        {book.learningStatus === 'learning' && (
-                          <div className="flex items-center gap-1 mt-1 flex-wrap">
-                            <span className="text-[8px] px-1 py-0.5 rounded bg-[#0a0a0f] text-[#d4a853] border border-[#d4a853]/20">①术语</span>
-                            <span className="text-[8px] px-1 py-0.5 rounded bg-[#0a0a0f] text-[#d4a853] border border-[#d4a853]/20">②逻辑</span>
-                            <span className="text-[8px] px-1 py-0.5 rounded bg-[#0a0a0f] text-[#d4a853] border border-[#d4a853]/20">③关联</span>
-                            <span className="text-[8px] px-1 py-0.5 rounded bg-[#0a0a0f] text-[#d4a853] border border-[#d4a853]/20">④应用</span>
-                          </div>
-                        )}
-                        {book.learningStatus === 'done' && (
-                          <div className="flex items-center gap-1 mt-1 flex-wrap">
-                            <span className="text-[8px] px-1 py-0.5 rounded bg-green-900/20 text-green-400">✓术语</span>
-                            <span className="text-[8px] px-1 py-0.5 rounded bg-green-900/20 text-green-400">✓逻辑</span>
-                            <span className="text-[8px] px-1 py-0.5 rounded bg-green-900/20 text-green-400">✓关联</span>
-                            <span className="text-[8px] px-1 py-0.5 rounded bg-green-900/20 text-green-400">✓应用</span>
-                          </div>
                         )}
                       </div>
-                    )}
+                      {/* 4层学习状态指示 */}
+                      {book.learningStatus === 'learning' && (
+                        <div className="flex items-center gap-1 mt-1 flex-wrap">
+                          <span className="text-[8px] px-1 py-0.5 rounded bg-[#0a0a0f] text-[#d4a853] border border-[#d4a853]/20">①术语</span>
+                          <span className="text-[8px] px-1 py-0.5 rounded bg-[#0a0a0f] text-[#d4a853] border border-[#d4a853]/20">②逻辑</span>
+                          <span className="text-[8px] px-1 py-0.5 rounded bg-[#0a0a0f] text-[#d4a853] border border-[#d4a853]/20">③关联</span>
+                          <span className="text-[8px] px-1 py-0.5 rounded bg-[#0a0a0f] text-[#d4a853] border border-[#d4a853]/20">④应用</span>
+                        </div>
+                      )}
+                      {book.learningStatus === 'done' && (
+                        <div className="flex items-center gap-1 mt-1 flex-wrap">
+                          <span className="text-[8px] px-1 py-0.5 rounded bg-green-900/20 text-green-400">✓术语</span>
+                          <span className="text-[8px] px-1 py-0.5 rounded bg-green-900/20 text-green-400">✓逻辑</span>
+                          <span className="text-[8px] px-1 py-0.5 rounded bg-green-900/20 text-green-400">✓关联</span>
+                          <span className="text-[8px] px-1 py-0.5 rounded bg-green-900/20 text-green-400">✓应用</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
                   <button
                     onClick={() => setShowDeleteConfirm(book.name)}
