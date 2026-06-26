@@ -458,30 +458,14 @@ function rowToBookTask(row: BookTaskRow): BookTask {
 
 async function syncTaskToDb(task: BookTask): Promise<void> {
   try {
-    // 关键：先读 db 现有 learning_* 字段，避免用内存中的"旧"学习状态覆盖
-    // 学习进度由 API 路由层独立写入（syncLearningStatusToDb），这里不要参与
     const row = bookTaskToRow(task);
+    // 唯一不可降级的状态：db 中已 done 的学习状态不能被覆盖（防止 resume 时 init 阶段误覆盖）
     try {
       const existing = await repoGetTaskByName(task.bookName);
-      if (existing) {
-        // 比较 learning_progress：保留较大的（更新的）那一个
-        const dbProgress = existing.learning_progress ?? 0;
-        const memProgress = row.learning_progress ?? 0;
-        if (dbProgress > memProgress) {
-          row.learning_status = existing.learning_status;
-          row.learning_progress = existing.learning_progress;
-          row.learning_current_chunk = existing.learning_current_chunk;
-          row.learning_total_chunks = existing.learning_total_chunks;
-          row.learning_message = existing.learning_message;
-          row.learning_layers_done = existing.learning_layers_done;
-          row.learning_completed_at = existing.learning_completed_at;
-        }
-        // 如果 db 已是 done，永远不要降级
-        if (existing.learning_status === 'done') {
-          row.learning_status = 'done';
-          row.learning_progress = 100;
-          row.learning_completed_at = existing.learning_completed_at ?? row.learning_completed_at;
-        }
+      if (existing && existing.learning_status === 'done') {
+        row.learning_status = 'done';
+        row.learning_progress = 100;
+        row.learning_completed_at = existing.learning_completed_at ?? row.learning_completed_at;
       }
     } catch { /* 忽略：拿不到就用 row 自己的值 */ }
     await repoUpsertTask(row);
@@ -1766,14 +1750,21 @@ async function saveWithProgress(taskId: string, content: string, confirmedChapte
  * AI学习书籍内容：将书籍内容分块后逐批写入向量知识库
  * 录入完成后自动触发，学习完成后该书知识点才算真正可用
  */
+// 防止同一 task 被并发 processLearning 多次的运行时锁
+const processingLearningSet = new Set<string>();
+
 async function processLearning(taskId: string, bookContent: string): Promise<void> {
   const task = tasks.get(taskId);
   if (!task) return;
   // 允许已录入完成的书和本地内置书籍进行学习
   if (!task.isLocalBook && task.status !== 'done') return;
 
-  // 如果已经在学习中或已学完，跳过
-  if (task.learningStatus === 'learning' || task.learningStatus === 'done') return;
+  // 已学完的跳过；'learning' 状态的允许继续（进程重启 / 队列 resume 后必须能接着学）
+  if (task.learningStatus === 'done') return;
+
+  // 并发锁：同一个 task 同时只能有一个 processLearning 在跑
+  if (processingLearningSet.has(taskId)) return;
+  processingLearningSet.add(taskId);
 
   updateTask(taskId, {
     learningStatus: 'learning',
@@ -2036,6 +2027,9 @@ ${chunk}
       learningMessage: `AI学习失败: ${errMsg}`,
     });
     addLog(taskId, `学习失败: ${errMsg}`);
+  } finally {
+    // 释放并发锁，允许下一次（如手动重启）再 process
+    processingLearningSet.delete(taskId);
   }
 }
 
