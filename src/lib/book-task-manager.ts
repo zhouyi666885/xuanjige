@@ -349,10 +349,10 @@ async function processTask(taskId: string): Promise<void> {
 
     let allResults: Array<{ url: string; title: string; snippet: string }> = [];
 
-    // 基础搜索：先快速搜一遍
+    // 基础搜索：先快速搜一遍（使用 webSearch 推荐方法）
     for (const query of initialSearchQueries) {
       try {
-        const response = await searchClient.search({ query });
+        const response = await searchClient.webSearch(query, 10);
         if (response?.web_items) {
           for (const r of response.web_items) {
             if (r.url && !allResults.some(x => x.url === r.url)) {
@@ -423,7 +423,7 @@ async function processTask(taskId: string): Promise<void> {
       ];
       for (const query of extraQueries1) {
         try {
-          const response = await searchClient.search({ query });
+          const response = await searchClient.webSearch(query, 10);
           if (response?.web_items) {
             for (const r of response.web_items) {
               if (r.url && !allResults.some(x => x.url === r.url)) {
@@ -662,7 +662,7 @@ async function processTask(taskId: string): Promise<void> {
         if (qCheck === 'paused') break;
 
         try {
-          const response = await searchClient.search({ query });
+          const response = await searchClient.webSearch(query, 10);
           if (response?.web_items) {
             for (const r of response.web_items) {
               if (r.url && !allResults.some(x => x.url === r.url)) {
@@ -733,7 +733,7 @@ async function processTask(taskId: string): Promise<void> {
     let confirmedChapterInfo: ConfirmedChapters | null = null;
 
     try {
-      const tocResponse = await searchClient.search({ query: `${task.bookName} 目录 章节 全部` });
+      const tocResponse = await searchClient.webSearch(`${task.bookName} 目录 章节 全部`, 10);
       if (tocResponse?.web_items && tocResponse.web_items.length > 0) {
         // 从搜索结果摘要中提取原书章节信息
         const tocSnippets = tocResponse.web_items
@@ -857,7 +857,7 @@ async function processTask(taskId: string): Promise<void> {
       
       for (const query of round2Queries) {
         try {
-          const response = await searchClient.search({ query });
+          const response = await searchClient.webSearch(query, 10);
           if (response?.web_items) {
             for (const r of response.web_items) {
               if (r.url && !allResults.some(x => x.url === r.url)) {
