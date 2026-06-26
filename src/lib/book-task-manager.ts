@@ -366,6 +366,45 @@ async function processTask(taskId: string): Promise<void> {
     }
     addLog(taskId, `基础搜索完成，找到 ${allResults.length} 个来源`);
 
+    // 🔴🔴🔴 Book Finder 技能：用专门的爬虫脚本搜索QQ阅读、顶点小说、鬼大爷、25zw等
+    // 这些网站通常有完整的书籍内容，是搜索的重要补充渠道
+    let bookFinderContent = '';
+    try {
+      addLog(taskId, `📱 使用 Book Finder 技能搜索《${task.bookName}》...`);
+      const { execFile } = await import('child_process');
+      const scriptPath = path.join(process.cwd(), 'scripts', 'xuanji_fetch.py');
+      if (fs.existsSync(scriptPath)) {
+        const result = await new Promise<{stdout: string; stderr: string}>((resolve, reject) => {
+          execFile('python3', [scriptPath, task.bookName], {
+            timeout: 5 * 60 * 1000, // 5分钟超时
+            maxBuffer: 50 * 1024 * 1024, // 50MB缓冲
+          }, (err, stdout, stderr) => {
+            if (err) reject(err);
+            else resolve({ stdout, stderr });
+          });
+        });
+        
+        if (result.stdout) {
+          try {
+            const fetchResult = JSON.parse(result.stdout);
+            if (fetchResult.success && fetchResult.full_text) {
+              bookFinderContent = fetchResult.full_text;
+              addLog(taskId, `📱 Book Finder 成功！来源：${fetchResult.source}，爬取${fetchResult.fetched_chapters}/${fetchResult.total_chapters}章，共${bookFinderContent.length}字`);
+            } else if (fetchResult.error) {
+              addLog(taskId, `📱 Book Finder 未能找到：${fetchResult.error}`);
+            }
+          } catch (parseErr) {
+            addLog(taskId, `📱 Book Finder 输出解析失败`);
+          }
+        }
+      } else {
+        addLog(taskId, `📱 Book Finder 脚本不存在，跳过`);
+      }
+    } catch (finderErr: unknown) {
+      const errMsg = finderErr instanceof Error ? finderErr.message : String(finderErr);
+      addLog(taskId, `📱 Book Finder 执行出错：${errMsg.substring(0, 100)}`);
+    }
+
     // 🔴 暂停/取消检查点
     {
       const ctrl = checkTaskControl(taskId);
@@ -740,6 +779,13 @@ async function processTask(taskId: string): Promise<void> {
     let usedSource = '';
     let foundContent = false;
     const contentFragments: { source: string; content: string }[] = []; // 收集所有来源的内容片段
+
+    // 🔴🔴🔴 先加入 Book Finder 技能获取的内容（如果有）
+    if (bookFinderContent) {
+      contentFragments.push({ source: 'Book Finder 爬虫', content: bookFinderContent });
+      foundContent = true;
+      addLog(taskId, `📱 Book Finder 内容已加入拼接队列（${bookFinderContent.length}字）`);
+    }
 
     updateTask(taskId, {
       status: 'downloading',
