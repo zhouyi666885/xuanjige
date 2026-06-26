@@ -219,7 +219,7 @@ export async function GET(request: NextRequest) {
     });
 
     // 获取学习统计
-    const learnStats = getLearnedBookCount();
+    const learnStats = await getLearnedBookCount();
 
     return NextResponse.json({
       books: bookList,

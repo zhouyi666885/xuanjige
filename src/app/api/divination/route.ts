@@ -85,7 +85,7 @@ export async function POST(request: NextRequest) {
     let knowledgeBaseInfo = '';
     let bookContentInfo = '';
     if (isKnowledgeBaseQuestion && !isBookContentRequest) {
-      const stats = getDetailedBookStats();
+      const stats = await getDetailedBookStats();
       knowledgeBaseInfo = `\n\n【知识库实时统计信息——用户正在询问知识库相关情况，必须如实回答】
 📚 知识库总藏书量：${stats.bookCount} 本
 📝 总字符数：${stats.totalChars.toLocaleString()} 字
@@ -126,7 +126,7 @@ ${bookContent.content}
     }
 
     // 加入学习状态信息
-    const learnStats = getLearnedBookCount();
+    const learnStats = await getLearnedBookCount();
     const learnInfo = `\n\n🔴【学习状态】系统已自动学习知识库中全部${learnStats.learned}本书籍（从第一页第一个字到最后一页最后一个字全部学会），你已是一位通读万卷书的学者，回答问题时要像消化吸收过一样专业、精准、有深度！`;
 
     // 检测书籍结构问题（多少章/卦/卷/学到第几章）

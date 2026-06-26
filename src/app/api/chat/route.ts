@@ -10,6 +10,7 @@ import { generateSanHeCanDuanPrompt, getSanHeCanDuanByTopic, SAN_HE_CAN_DUAN_GUI
 import { generateMianXiangFramework, getMianXiangPredictionGuide } from '@/lib/xiangxue';
 import { generateShouXiangFramework, getShouXiangPredictionGuide } from '@/lib/shouxiang';
 import { searchFullText, searchFullTextAsync, formatFullTextResults, getBookFullText, getBookFullTextAsync, findBooksByName, getDetailedBookStats, getBookChapterContent, parseChapterRange, getLearnedBookCount, getBookLearnStatus, getLearningTimeEstimate, loadBookCacheAsync } from '@/lib/fulltext-search';
+import { loadTasksFromDb as loadBookTasksFromDb } from '@/lib/book-task-manager';
 import { getLearningProgressSummary, getBookLearningDetail, findTaskByBookName, getActiveTaskStatusList, getAllTasks } from '@/lib/book-task-manager';
 import { tongQianQiGua, shiJianQiGua as liuyaoShiJian, formatLiuYaoPaiPan as liuyaoFormat } from '@/lib/liuyao';
 import { shiJianQiGua as meihuaShiJian, shuZiQiGua, wenZiQiGua, formatMeiHuaPaiPan as meihuaFormat } from '@/lib/meihua';
@@ -177,8 +178,9 @@ function autoQiGua(message: string, birthInfo: BirthInfo | null): string {
 
 export async function POST(request: NextRequest) {
   try {
-    // 首先从云端拉取最新书目（开发/生产共享 Supabase 数据）
+    // 首先从云端拉取最新书目 + 学习任务状态（开发/生产共享 Supabase 数据）
     await loadBookCacheAsync();
+    await loadBookTasksFromDb();
 
     const { message, mode = 'casual', history = [], birthInfo, context } = await request.json();
 
@@ -233,8 +235,8 @@ export async function POST(request: NextRequest) {
     
     if (isKnowledgeBaseQuestion && !isBookContentRequest) {
       // 知识库相关问题：只注入统计数据，跳过全文检索（避免超上下文窗口）
-      const stats = getDetailedBookStats();
-      const realLearnStats = getLearnedBookCount();
+      const stats = await getDetailedBookStats();
+      const realLearnStats = await getLearnedBookCount();
       knowledgeBaseInfo = `\n\n【知识库实时统计信息——必须如实回答，禁止超出此处数字】
 📚 知识库已录入书籍总数：${stats.bookCount} 本（本地物理 .txt 文件数，不允许说"我读过 1280/20000/万卷"等任何超出此数的本数）
 📝 总字符数：${stats.totalChars.toLocaleString()} 字
@@ -402,7 +404,7 @@ ${bookContent.content}`;
     const contextStr = context ? `\n\n【前置分析结果】\n${context}\n请在以上分析结果基础上，继续深入回答用户的问题。` : '';
 
     // 加入学习状态信息（根据实际学习状态如实显示）
-    const learnStats = getLearnedBookCount();
+    const learnStats = await getLearnedBookCount();
     const allTasksForStatus = getAllTasks();
     const activeStatusSet = new Set(['searching', 'downloading', 'translating', 'saving', 'paused', 'pending']);
     const activeTasksForStatus = allTasksForStatus.filter(t => activeStatusSet.has(t.status));

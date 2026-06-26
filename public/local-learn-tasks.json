@@ -34,7 +34,7 @@
   "滴天髓": {
     "learningStatus": "failed",
     "learningMessage": "开始读取《滴天髓》全文...",
-    "updatedAt": 1782485387104,
+    "updatedAt": 1782487176781,
     "learningProgress": 18,
     "learningLayersDone": [
       1,
@@ -44,6 +44,6 @@
     ],
     "learningCurrentChunk": 10,
     "learningTotalChunks": 56,
-    "completedAt": 1782485387104
+    "completedAt": 1782487176781
   }
 }

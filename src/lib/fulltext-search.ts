@@ -235,7 +235,7 @@ export function getBookLearnStatus(bookName: string): BookLearnStatus | null {
 }
 
 /** 获取所有已学习书籍数量 */
-export function getLearnedBookCount(): {
+export async function getLearnedBookCount(): Promise<{
   total: number;
   learned: number;
   learning: number;
@@ -243,7 +243,7 @@ export function getLearnedBookCount(): {
   learnedBookNames: string[];
   pendingBookNames: string[];
   totalChars: number;
-} {
+}> {
   // 优先从缓存拿最新书目（已包含 Supabase + 本地合并结果）
   const stats = getBookStats();
   const allNames = stats.bookNames;
@@ -254,9 +254,24 @@ export function getLearnedBookCount(): {
   const learnedBookNames: string[] = [];
   const pendingBookNames: string[] = [];
 
+  // 同时从 task-manager 获取 learning_status=done 的书（这是真实的学习状态）
+  let taskLearnedSet = new Set<string>();
+  try {
+    // eslint-disable-next-line import/no-cycle
+    const tm = await import('./book-task-manager');
+    const tasks = tm.getAllTasks();
+    for (const t of tasks) {
+      if (t.learningStatus === 'done') {
+        taskLearnedSet.add(t.bookName);
+      }
+    }
+  } catch {
+    taskLearnedSet = new Set();
+  }
+
   for (const name of allNames) {
     const s = statusMap.get(name);
-    if (s && s.learned) {
+    if ((s && s.learned) || taskLearnedSet.has(name)) {
       learnedBookNames.push(name);
     } else {
       pendingBookNames.push(name);
@@ -1239,7 +1254,7 @@ export function getBookStats(): { bookCount: number; totalChars: number; bookNam
  * 获取知识库详细统计信息（供AI回答用户关于知识库的问题）
  * 包括：总书数、总字符数、英文书翻译状态、完整性检查
  */
-export function getDetailedBookStats(): {
+export async function getDetailedBookStats(): Promise<{
   bookCount: number;
   totalChars: number;
   chineseBookCount: number;
@@ -1251,7 +1266,11 @@ export function getDetailedBookStats(): {
   maxChars: number;
   booksUnder1000Chars: number;
   sampleBooks: { name: string; chars: number; language: string }[];
-} {
+  learned: number;
+  pending: number;
+  learnedBookNames: string[];
+  pendingBookNames: string[];
+}> {
   loadBookCache();
   
   if (!bookCache || !bookNameList) {
@@ -1259,7 +1278,7 @@ export function getDetailedBookStats(): {
       bookCount: 0, totalChars: 0, chineseBookCount: 0,
       englishBookCount: 0, englishTranslatedCount: 0, englishUntranslatedCount: 0,
       avgCharsPerBook: 0, minChars: 0, maxChars: 0, booksUnder1000Chars: 0,
-      sampleBooks: [],
+      sampleBooks: [], learned: 0, pending: 0, learnedBookNames: [], pendingBookNames: [],
     };
   }
   
@@ -1322,6 +1341,25 @@ export function getDetailedBookStats(): {
   
   if (minChars === Infinity) minChars = 0;
   
+  // 学习状态（已学完 / 待学习的书名清单）—— 从 task manager 内存中取
+  const learnedBookNames: string[] = [];
+  const pendingBookNames: string[] = [];
+  try {
+    const { getAllTasks } = await import('./book-task-manager');
+    const allTasks = getAllTasks();
+    for (const name of bookNameList) {
+      const t = allTasks.find(tk => tk.bookName === name);
+      if (t && t.learningStatus === 'done') {
+        learnedBookNames.push(name);
+      } else {
+        pendingBookNames.push(name);
+      }
+    }
+  } catch {
+    // task manager 加载失败，全部视为 pending
+    pendingBookNames.push(...bookNameList);
+  }
+  
   return {
     bookCount: bookNameList.length,
     totalChars,
@@ -1334,6 +1372,11 @@ export function getDetailedBookStats(): {
     maxChars,
     booksUnder1000Chars,
     sampleBooks,
+    // 学习状态
+    learned: learnedBookNames.length,
+    pending: pendingBookNames.length,
+    learnedBookNames,
+    pendingBookNames,
   };
 }
 
