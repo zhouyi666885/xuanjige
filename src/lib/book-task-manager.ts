@@ -735,10 +735,11 @@ async function processTask(taskId: string): Promise<void> {
       addLog(taskId, '无法确认原书章节数，将从内容中推断');
     }
 
-    // 4. 逐个来源尝试获取全文（铁规则：一个不行换下一个，绝不轻易放弃）
+    // 4. 逐个来源获取内容，支持跨网站拼接（不要求一个网站必须包含全部内容）
     let bookContent = '';
     let usedSource = '';
     let foundContent = false;
+    const contentFragments: { source: string; content: string }[] = []; // 收集所有来源的内容片段
 
     updateTask(taskId, {
       status: 'downloading',
@@ -773,23 +774,28 @@ async function processTask(taskId: string): Promise<void> {
           
           if (texts.length > 0) {
             const content = texts.join('\n\n');
-            // 保留最长的内容（最可能完整）
+            // 收集所有来源的内容（用于跨网站拼接）
+            contentFragments.push({ source: source.url, content });
+            addLog(taskId, `从 ${source.url} 获取到 ${content.length} 字符`);
+            
+            // 如果单个来源足够长，直接用
             if (content.length > bookContent.length) {
               bookContent = content;
               usedSource = source.url;
-              addLog(taskId, `从 ${source.url} 获取到 ${content.length} 字符（当前最长）`);
             }
-            // 获取到足够长的内容才认为成功（至少2000字才算有效书籍内容）
-            if (bookContent.length >= 2000) {
-              foundContent = true;
-              break;
-            }
-            // 不够长就继续尝试下一个来源
           }
         }
       } catch (e) {
         addLog(taskId, `来源 ${source.url} 获取失败: ${e instanceof Error ? e.message : String(e)}，继续尝试下一个`);
       }
+    }
+
+    // 跨网站拼接：如果单个来源不够长，尝试将多个来源的内容拼接
+    if (bookContent.length < 2000 && contentFragments.length >= 2) {
+      addLog(taskId, `单个来源最长仅 ${bookContent.length} 字符，尝试跨网站拼接 ${contentFragments.length} 个来源的内容...`);
+      bookContent = mergeContentFragments(contentFragments, taskId);
+      usedSource = contentFragments.map(f => f.source).join(' + ');
+      addLog(taskId, `拼接后总内容: ${bookContent.length} 字符`);
     }
 
     // 铁规则：所有来源都试过了但内容不够长，继续追加搜索第二轮
@@ -818,7 +824,7 @@ async function processTask(taskId: string): Promise<void> {
         }
       }
       
-      // 尝试新找到的来源
+      // 尝试新找到的来源，收集内容片段用于拼接
       for (let i = 0; i < allResults.length; i++) {
         if (processingQueue.has(taskId) === false) return;
         const source = allResults[i];
@@ -830,23 +836,32 @@ async function processTask(taskId: string): Promise<void> {
               .filter((t: string) => t.trim().length > 100);
             if (texts.length > 0) {
               const content = texts.join('\n\n');
+              contentFragments.push({ source: source.url, content });
               if (content.length > bookContent.length) {
                 bookContent = content;
                 usedSource = source.url;
-                addLog(taskId, `第二轮从 ${source.url} 获取到 ${content.length} 字符`);
               }
-              if (bookContent.length >= 2000) {
-                foundContent = true;
-                break;
-              }
+              addLog(taskId, `第二轮从 ${source.url} 获取到 ${content.length} 字符`);
             }
           }
         } catch (e) {
           // 继续
         }
       }
+      
+      // 第二轮结束后也尝试拼接
+      if (bookContent.length < 2000 && contentFragments.length >= 2) {
+        addLog(taskId, `第二轮后最长 ${bookContent.length} 字符，尝试拼接 ${contentFragments.length} 个来源...`);
+        bookContent = mergeContentFragments(contentFragments, taskId);
+        usedSource = contentFragments.map(f => f.source).join(' + ');
+        addLog(taskId, `第二轮拼接后总内容: ${bookContent.length} 字符`);
+      }
     }
 
+    // 判定是否找到足够内容（拼接后可能足够长）
+    if (bookContent.length >= 2000) {
+      foundContent = true;
+    }
     // 第三种判定：有内容但不够长，也接受（宁可录入部分内容也不放弃）
     if (!foundContent && bookContent.length >= 200) {
       foundContent = true;
@@ -936,6 +951,84 @@ async function processTask(taskId: string): Promise<void> {
   } finally {
     processingQueue.delete(taskId);
   }
+}
+
+// ==================== 跨网站内容拼接 ====================
+
+/**
+ * 将多个来源的内容片段拼接成完整书籍
+ * 策略：以最长的片段为基底，将其他片段中不重复的内容追加
+ */
+function mergeContentFragments(fragments: { source: string; content: string }[], taskId: string): string {
+  if (fragments.length === 0) return '';
+  if (fragments.length === 1) return fragments[0].content;
+
+  // 按内容长度排序，最长的在前面
+  const sorted = [...fragments].sort((a, b) => b.content.length - a.content.length);
+  
+  // 以最长的内容为基底
+  let merged = sorted[0].content;
+  addLog(taskId, `拼接基底: 来源 ${sorted[0].source}, ${merged.length} 字符`);
+
+  // 将其他片段中不重复的内容追加
+  for (let i = 1; i < sorted.length; i++) {
+    const fragment = sorted[i].content;
+    
+    // 检查这个片段是否已经被基底包含（取前100字符做指纹比对）
+    const fingerprint = fragment.substring(0, 100).trim();
+    if (fingerprint.length > 20 && merged.includes(fingerprint)) {
+      addLog(taskId, `片段 ${i} (来源: ${sorted[i].source}, ${fragment.length}字符) 已包含在基底中，跳过`);
+      continue;
+    }
+    
+    // 取片段的后半部分（假设前半部分和基底重叠，后半部分是新内容）
+    // 用滑动窗口找最佳拼接点
+    const overlapLen = findBestOverlap(merged, fragment);
+    if (overlapLen > 50) {
+      // 有重叠，只追加不重叠的部分
+      const newPart = fragment.substring(overlapLen);
+      if (newPart.trim().length > 100) {
+        merged += '\n\n' + newPart;
+        addLog(taskId, `片段 ${i} 与基底重叠 ${overlapLen} 字符，追加 ${newPart.length} 字符新内容`);
+      }
+    } else {
+      // 没有明显重叠，直接追加（用分隔线隔开）
+      if (fragment.trim().length > 100) {
+        merged += '\n\n———（以下内容来自其他来源）———\n\n' + fragment;
+        addLog(taskId, `片段 ${i} 无重叠，直接追加 ${fragment.length} 字符`);
+      }
+    }
+  }
+
+  return merged;
+}
+
+/**
+ * 查找两个文本的最佳重叠位置
+ * 从短文本的开头取一段，在长文本的末尾搜索最匹配的位置
+ */
+function findBestOverlap(baseText: string, fragmentText: string): number {
+  // 在基底的最后30%范围内搜索重叠
+  const searchStart = Math.floor(baseText.length * 0.7);
+  const searchRegion = baseText.substring(searchStart);
+  
+  let bestOverlap = 0;
+  // 取片段开头不同长度的子串去搜索
+  for (const len of [200, 150, 100, 50]) {
+    if (fragmentText.length < len) continue;
+    const probe = fragmentText.substring(0, len).trim();
+    if (probe.length < 20) continue;
+    
+    const idx = searchRegion.lastIndexOf(probe);
+    if (idx !== -1) {
+      // 找到了重叠，计算实际重叠长度
+      const overlapStart = searchStart + idx;
+      bestOverlap = Math.max(bestOverlap, baseText.length - overlapStart);
+      break;
+    }
+  }
+  
+  return bestOverlap;
 }
 
 // ==================== 翻译 ====================
