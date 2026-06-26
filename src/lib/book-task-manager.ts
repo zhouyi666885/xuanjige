@@ -428,17 +428,11 @@ async function processTask(taskId: string): Promise<void> {
       'en.wikisource.org',          // 英文维基文库
     ];
 
+    // ⚡ 用户规则：搜索只用书名，不拼接任何关键词
+    // 通用一条 + 为每个固定站点单发一条 site: 查询（仅在站点内搜书名）
     const initialSearchQueries = [
-      `${task.bookName} 全文`,
-      `${task.bookName} 原文 完整版`,
-      `${task.bookName} text full`,
-      `${task.bookName} filetype:txt`,
-      // 全网数据源池：为每个固定站点单独发一条 site: 查询
+      `${task.bookName}`,
       ...ALL_SITE_DOMAINS.map(domain => `${task.bookName} site:${domain}`),
-      `${task.bookName} 百度文库 OR 道客巴巴 OR 豆丁 全文`,
-      `${task.bookName} 电子书 下载 txt OR PDF`,
-      `${task.bookName} 古籍 数字化 OR 读秀 OR 超星`,
-      `"${task.bookName}" 全文 在线 OR 免费阅读`,
     ];
 
     let allResults: Array<{ url: string; title: string; snippet: string }> = [];
@@ -509,13 +503,11 @@ async function processTask(taskId: string): Promise<void> {
     }
 
     // 铁规则：不存在搜索次数上限！必须搜遍全网所有渠道才能判定版权问题
+    // ⚡ 用户规则：搜索只用书名，不拼接任何关键词
+    // 如果第一批为空，重复一次书名搜索（搜索引擎可能临时波动）
     if (allResults.length === 0) {
-      // 第一批追加：基础扩展搜索
       const extraQueries1 = [
-        `${task.bookName} 书`,
-        `${task.bookName} 作者 全文`,
-        `${task.bookName} 目录 章节`,
-        `${task.bookName} 简介 内容 阅读`,
+        `${task.bookName}`,
       ];
       for (const query of extraQueries1) {
         try {
@@ -531,7 +523,7 @@ async function processTask(taskId: string): Promise<void> {
           // 继续
         }
       }
-      addLog(taskId, `追加搜索第1批完成，累计 ${allResults.length} 个来源`);
+      addLog(taskId, `追加搜索第1批完成（仅书名），累计 ${allResults.length} 个来源`);
     }
 
     // 🔴🔴🔴 "搜遍全网"定义：不是搜三遍就叫搜遍全网！
@@ -829,7 +821,8 @@ async function processTask(taskId: string): Promise<void> {
     let confirmedChapterInfo: ConfirmedChapters | null = null;
 
     try {
-      const tocResponse = await searchClient.webSearch(`${task.bookName} 目录 章节 全部`, 10);
+      // ⚡ 用户规则：搜索只用书名
+      const tocResponse = await searchClient.webSearch(`${task.bookName}`, 10);
       if (tocResponse?.web_items && tocResponse.web_items.length > 0) {
         // 从搜索结果摘要中提取原书章节信息
         const tocSnippets = tocResponse.web_items
