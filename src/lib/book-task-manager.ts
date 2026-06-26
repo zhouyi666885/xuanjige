@@ -378,16 +378,10 @@ async function processTask(taskId: string): Promise<void> {
   processingQueue.add(taskId);
 
   try {
-    // 1. 检查是否已存在
+    // 用户主动添加书籍 = 强制重新录入（即使知识库已存在也覆盖）
+    // 不再因 isBookExists 拦截，确保用户能看到完整录入流程
     if (isBookExists(task.bookName)) {
-      updateTask(taskId, {
-        status: 'exists',
-        message: `《${task.bookName}》已有这本书`,
-        progress: 100,
-        completedAt: Date.now(),
-      });
-      addLog(taskId, '检测到知识库中已有此书');
-      return;
+      addLog(taskId, `⚠️ 知识库中已有同名书，将重新录入覆盖原版本`);
     }
 
     updateTask(taskId, {
@@ -1699,6 +1693,23 @@ export function initTaskManager(): void {
 export function createTask(bookName: string): { task: BookTask; isNew: boolean } {
   if (!isInitialized) initTaskManager();
   
+  // 用户主动重新添加同名书 = 取消墓碑（书名级）
+  // 同时清理掉与此书名关联的旧 ID 级墓碑，避免新任务被误杀
+  const g = globalThis as unknown as { __deletedBookNames?: Set<string> };
+  if (g.__deletedBookNames?.has(bookName)) {
+    g.__deletedBookNames.delete(bookName);
+    // 同步从磁盘墓碑文件中移除
+    try {
+      if (fs.existsSync(TOMBSTONE_FILE)) {
+        const tomb = JSON.parse(fs.readFileSync(TOMBSTONE_FILE, 'utf-8'));
+        const names: string[] = tomb.deletedNames || [];
+        tomb.deletedNames = names.filter((n) => n !== bookName);
+        fs.writeFileSync(TOMBSTONE_FILE, JSON.stringify(tomb, null, 2));
+      }
+    } catch { /* 忽略 */ }
+    console.log(`[TaskManager] 用户重新添加《${bookName}》，已撤销同名墓碑`);
+  }
+  
   // 检查是否已有同名任务
   for (const [, existing] of tasks) {
     if (existing.bookName === bookName && ['pending', 'searching', 'downloading', 'translating', 'saving', 'paused'].includes(existing.status)) {
@@ -1706,11 +1717,8 @@ export function createTask(bookName: string): { task: BookTask; isNew: boolean }
     }
   }
   
-  // 检查知识库是否已有此书
-  if (isBookExists(bookName)) {
-    // 已有此书，不创建任务，直接返回标记
-    return { task: { id: '', bookName, status: 'exists', message: `《${bookName}》已有这本书`, progress: 100, currentChapter: 0, totalChapters: 0, currentChapterName: '', remainingChapters: 0, source: '', size: '', chars: 0, learningStatus: 'done' as const, learningProgress: 100, learningCurrentChunk: 0, learningTotalChunks: 0, learningMessage: '已学习', learningLayersDone: [1,2,3,4], hasMissingChapters: false, createdAt: Date.now(), updatedAt: Date.now(), startedAt: Date.now(), completedAt: Date.now(), error: '', logs: [], chapters: [], chapterStructure: '' } as BookTask, isNew: false };
-  }
+  // 用户主动重新添加 = 强制重新录入（覆盖知识库现有版本）
+  // 不再因 isBookExists 拦截，让用户能看到完整录入流程
   
   const id = generateId();
   const task: BookTask = {
