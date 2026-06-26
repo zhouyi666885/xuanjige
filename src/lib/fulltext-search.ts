@@ -11,9 +11,9 @@ import * as path from 'path';
 import { saveBook as saveBookToS3, getBookContent as getBookContentFromS3, deleteBookFromS3, getAllBookNames } from './book-storage';
 import {
   upsertBook as upsertBookToDb,
-  getAllBookNames as getAllBookNamesFromDb,
   getBookContent as getBookContentFromDb,
   deleteBook as deleteBookFromDb,
+  listBooks as listBooksFromDb,
 } from './book-repo';
 
 // 数据库优先策略：所有书籍以 Supabase 为唯一真相源；本地 fs / S3 只是缓存层
@@ -22,6 +22,9 @@ let dbCachePrimed = false;
 // 书籍内容缓存
 let bookCache: Map<string, string> | null = null;
 let bookNameList: string[] | null = null;
+// 字数缓存（懒加载场景下，bookCache 的 value 可能是占位符 ''，
+// 真正的字数需要从此处获取，由 loadBookCacheAsync 从 Supabase listBooks 填充）
+let bookCharCountCache: Map<string, number> | null = null;
 
 // ============ 学习状态系统 ============
 
@@ -482,6 +485,8 @@ export function getLocalBookInfo(): { total: number; bookNames: string[] } {
 export function invalidateCache(): void {
   bookCache = null;
   bookNameList = null;
+  bookCharCountCache = null;
+  dbCachePrimed = false;
   learnStatusCache = null;
 }
 
@@ -531,13 +536,16 @@ export async function loadBookCacheAsync(): Promise<void> {
   // 优先策略：从 Supabase（云端持久化）拉取所有书籍
   // 这是开发/生产共享的唯一真相源，确保扣子录入后部署到微信也能看到
   try {
-    const names = await getAllBookNamesFromDb();
-    for (const name of names) {
-      bookNameList.push(name);
-      bookCache.set(name, ''); // 占位，全文按需懒加载
+    // 用 listBooks 拿到 name + char_count（一次查询拿全元数据）
+    const dbBooks = await listBooksFromDb({ pageSize: 10000 });
+    bookCharCountCache = new Map();
+    for (const b of dbBooks.books) {
+      bookNameList.push(b.name);
+      bookCache.set(b.name, ''); // 占位，全文按需懒加载
+      bookCharCountCache.set(b.name, b.char_count ?? 0);
     }
     dbCachePrimed = true;
-    console.log(`[全文检索] 已从 Supabase 加载 ${names.length} 本书的目录`);
+    console.log(`[全文检索] 已从 Supabase 加载 ${dbBooks.books.length} 本书的目录（含字数）`);
     // 同步合并本地 fs 中的书目（防止本地有但 db 没的情况）
     try {
       const dir = getBookContentDir();
@@ -548,6 +556,11 @@ export async function loadBookCacheAsync(): Promise<void> {
           if (!bookCache.has(localName)) {
             bookCache.set(localName, '');
             bookNameList.push(localName);
+            // 本地兜底字数：读文件长度
+            try {
+              const content = fs.readFileSync(path.join(dir, file), 'utf-8');
+              bookCharCountCache.set(localName, content.length);
+            } catch { /* 失败用 0 */ }
           }
         }
       }
@@ -1047,15 +1060,24 @@ export function getBookStats(): { bookCount: number; totalChars: number; bookNam
     return { bookCount: 0, totalChars: 0, bookNames: [] };
   }
   
-  let totalChars = 0;
-  for (const content of bookCache.values()) {
-    totalChars += content.length;
-  }
-  
   // 防御性去重：避免 HMR 闭包污染或并发加载导致 bookNameList 出现重复
   const uniqueNames = Array.from(new Set(bookNameList));
   if (uniqueNames.length !== bookNameList.length) {
     bookNameList = uniqueNames;
+  }
+
+  // 字数计算：
+  // 1) 优先用 bookCharCountCache（Supabase listBooks 返回的真实 char_count）
+  // 2) 兜底用 bookCache 中的内容长度（仅在已懒加载过全文时不为 0）
+  let totalChars = 0;
+  for (const name of uniqueNames) {
+    const cached = bookCharCountCache?.get(name) ?? 0;
+    if (cached > 0) {
+      totalChars += cached;
+      continue;
+    }
+    const content = bookCache.get(name) ?? '';
+    totalChars += content.length;
   }
 
   return {
@@ -1372,8 +1394,13 @@ export function addBookToKnowledgeBase(bookName: string, content: string): strin
   // 刷新缓存，让新书可被检索到
   bookCache = null;
   bookNameList = null;
+  bookCharCountCache = null;
   dbCachePrimed = false;
   loadBookCache();
+  
+  // 立即把字数写入缓存（fix: 解决字数显示为 0 的问题）
+  bookCharCountCache = bookCharCountCache ?? new Map();
+  bookCharCountCache.set(bookName, content.length);
   
   // 🔴 录入即学习：开始学习，解析章节信息
   const chapterInfo = parseChapterInfoFromContent(bookName);
@@ -1459,6 +1486,7 @@ export function removeBookFromKnowledgeBase(bookName: string): boolean {
   
   // 从缓存中移除
   bookCache?.delete(matchedName);
+  bookCharCountCache?.delete(matchedName);
   if (bookNameList) {
     const idx = bookNameList.indexOf(matchedName);
     if (idx >= 0) bookNameList.splice(idx, 1);
