@@ -430,6 +430,15 @@ function loadBookCache(): void {
   }
 }
 
+/** 获取本地书籍总数和书名列表（不加载全文内容，仅读取文件名） */
+export function getLocalBookInfo(): { count: number; names: string[] } {
+  const dir = getBookContentDir();
+  if (!fs.existsSync(dir)) return { count: 0, names: [] };
+  const files = fs.readdirSync(dir).filter(f => f.endsWith('.txt'));
+  const names = files.map(f => f.replace('.txt', ''));
+  return { count: names.length, names };
+}
+
 /**
  * 异步加载书籍缓存（生产环境从S3拉取）
  * 在生产环境中，启动时从S3拉取书名列表，按需获取内容

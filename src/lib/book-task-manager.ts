@@ -11,7 +11,7 @@
 import fs from 'fs';
 import path from 'path';
 import { Config, LLMClient, SearchClient, FetchClient, FetchContentItem, KnowledgeClient } from 'coze-coding-dev-sdk';
-import { isBookExists, addBookToKnowledgeBase, findBooksByName } from './fulltext-search';
+import { isBookExists, addBookToKnowledgeBase, findBooksByName, getLocalBookInfo } from './fulltext-search';
 import { saveBook } from './book-storage';
 
 // ==================== 类型定义 ====================
@@ -1513,24 +1513,48 @@ export function getLearningProgressSummary(): string {
   if (!isInitialized) initTaskManager();
   const allTasks = Array.from(tasks.values());
   
+  // 获取本地书籍信息（public/book-content 里的1280本）
+  const localBooks = getLocalBookInfo();
+  
+  // 通过add-book录入的书籍按状态分类
   const done = allTasks.filter(t => t.status === 'done');
   const learning = allTasks.filter(t => t.learningStatus === 'learning');
-  const pending = allTasks.filter(t => t.status === 'done' && (!t.learningStatus || t.learningStatus === 'pending'));
+  const pendingLearn = allTasks.filter(t => t.status === 'done' && (!t.learningStatus || t.learningStatus === 'pending'));
   const paused = allTasks.filter(t => t.status === 'paused');
   const active = allTasks.filter(t => ['searching', 'downloading', 'translating', 'saving'].includes(t.status));
+  const copyright = allTasks.filter(t => t.status === 'copyright');
+  
+  // 本地书籍中不在add-book任务列表里的数量
+  const addBookNames = new Set(allTasks.map(t => t.bookName));
+  const localOnlyCount = localBooks.names.filter(n => !addBookNames.has(n)).length;
   
   const lines: string[] = [];
   lines.push(`📚 知识库学习进度实时报告`);
   lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━`);
-  lines.push(`✅ 已完整学完：${done.length} 本`);
-  lines.push(`📖 正在学习中：${learning.length} 本`);
-  lines.push(`⏳ 等待学习：${pending.length} 本`);
-  lines.push(`⏸️ 录入暂停：${paused.length} 本`);
-  lines.push(`🔄 正在录入：${active.length} 本`);
+  lines.push(``);
+  lines.push(`【总览】`);
+  lines.push(`  系统内置书籍：${localBooks.count} 本`);
+  lines.push(`  用户录入书籍：${allTasks.length} 本`);
+  lines.push(`  合计：${localBooks.count + allTasks.length} 本`);
+  lines.push(``);
+  lines.push(`【通过add-book录入的书籍状态】`);
+  lines.push(`  ✅ 已完整录入+学完：${done.filter(t => t.learningStatus === 'done').length} 本`);
+  lines.push(`  📖 录入完成，正在学习：${learning.length} 本`);
+  lines.push(`  ⏳ 录入完成，等待学习：${pendingLearn.length} 本`);
+  lines.push(`  🔄 正在录入：${active.length} 本`);
+  lines.push(`  ⏸️ 录入暂停：${paused.length} 本`);
+  lines.push(`  ❌ 版权问题无法录入：${copyright.length} 本`);
+  lines.push(``);
+  lines.push(`【系统内置书籍学习状态】`);
+  lines.push(`  内置${localBooks.count}本书籍目前直接用于全文检索，尚未经过4层深度学习。`);
+  lines.push(`  这些书籍的内容可以直接搜索和引用，但AI还未逐本"吃透"——即尚未理解每本书的推理逻辑、分析思路、结论依据。`);
+  if (localOnlyCount > 0 && localOnlyCount <= 50) {
+    lines.push(`  内置书籍列表：${localBooks.names.filter(n => !addBookNames.has(n)).slice(0, 50).map(n => `《${n}》`).join('、')}`);
+  }
   lines.push(``);
   
   if (learning.length > 0) {
-    lines.push(`【正在学习的书籍】`);
+    lines.push(`【正在学习的书籍详情】`);
     for (const t of learning) {
       const progress = t.learningTotalChunks ? `${t.learningCurrentChunk}/${t.learningTotalChunks}` : '计算中';
       const pct = t.learningTotalChunks ? Math.round(t.learningCurrentChunk / t.learningTotalChunks * 100) : 0;
@@ -1544,10 +1568,11 @@ export function getLearningProgressSummary(): string {
     lines.push(``);
   }
   
-  if (done.length > 0) {
-    lines.push(`【已学完的书籍】`);
-    for (const t of done) {
-      lines.push(`  《${t.bookName}》：已完整学完✅`);
+  const learnedDone = done.filter(t => t.learningStatus === 'done');
+  if (learnedDone.length > 0) {
+    lines.push(`【已完整学完的书籍】`);
+    for (const t of learnedDone) {
+      lines.push(`  《${t.bookName}》：已完整录入+学完✅`);
     }
     lines.push(``);
   }
