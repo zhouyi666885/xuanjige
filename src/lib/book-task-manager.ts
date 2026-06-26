@@ -43,6 +43,8 @@ interface BookTask {
   learningCurrentChunk: number; // 当前学习的分块
   learningTotalChunks: number; // 总分块数
   learningMessage: string; // 学习状态消息
+  learningLayersDone: number[]; // 已完成的学习层次 [1,2,3,4]
+  hasMissingChapters: boolean; // 是否缺章节
   createdAt: number;
   updatedAt: number;
   startedAt: number | null;
@@ -1132,6 +1134,7 @@ async function processLearning(taskId: string, bookContent: string): Promise<voi
   updateTask(taskId, {
     learningStatus: 'learning',
     learningProgress: 0,
+    learningLayersDone: [],
     learningMessage: `AI开始学习《${task.bookName}》全部内容...`,
   });
   addLog(taskId, '开始AI深度学习阶段');
@@ -1245,9 +1248,15 @@ ${chunk}
 
       processedChunks = i + 1;
       const progress = Math.floor((processedChunks / totalChunks) * 100);
+      // 更新学习层次进度
+      const layersDone: number[] = [];
+      if (progress >= 25) layersDone.push(1); // ①术语理解
+      if (progress >= 50) layersDone.push(2); // ②逻辑推理
+      if (progress >= 75) layersDone.push(3); // ③交叉关联
       updateTask(taskId, {
         learningProgress: progress,
         learningCurrentChunk: processedChunks,
+        learningLayersDone: layersDone,
         learningMessage: `AI学习中: ${processedChunks}/${totalChunks}块 (${progress}%) - 正在理解术语/逻辑/关联/应用`,
       });
 
@@ -1315,6 +1324,7 @@ ${chunk}
       learningProgress: 100,
       learningCurrentChunk: totalChunks,
       learningTotalChunks: totalChunks,
+      learningLayersDone: [1, 2, 3, 4],
       learningMessage: `AI已深度学完《${task.bookName}》全部内容 (${totalChunks}块, 含术语理解+逻辑掌握+知识关联+应用方法)`,
     });
     addLog(taskId, `深度学习完成: ${totalChunks}块 → ${tableName} (含4层学习笔记)`);
@@ -1445,7 +1455,7 @@ export function createTask(bookName: string): { task: BookTask; isNew: boolean }
   // 检查知识库是否已有此书
   if (isBookExists(bookName)) {
     // 已有此书，不创建任务，直接返回标记
-    return { task: { id: '', bookName, status: 'exists', message: `《${bookName}》已有这本书`, progress: 100, currentChapter: 0, totalChapters: 0, currentChapterName: '', remainingChapters: 0, source: '', size: '', chars: 0, learningStatus: 'done' as const, learningProgress: 100, learningCurrentChunk: 0, learningTotalChunks: 0, learningMessage: '已学习', createdAt: Date.now(), updatedAt: Date.now(), startedAt: Date.now(), completedAt: Date.now(), error: '', logs: [], chapters: [], chapterStructure: '' } as BookTask, isNew: false };
+    return { task: { id: '', bookName, status: 'exists', message: `《${bookName}》已有这本书`, progress: 100, currentChapter: 0, totalChapters: 0, currentChapterName: '', remainingChapters: 0, source: '', size: '', chars: 0, learningStatus: 'done' as const, learningProgress: 100, learningCurrentChunk: 0, learningTotalChunks: 0, learningMessage: '已学习', learningLayersDone: [1,2,3,4], hasMissingChapters: false, createdAt: Date.now(), updatedAt: Date.now(), startedAt: Date.now(), completedAt: Date.now(), error: '', logs: [], chapters: [], chapterStructure: '' } as BookTask, isNew: false };
   }
   
   const id = generateId();
@@ -1467,6 +1477,8 @@ export function createTask(bookName: string): { task: BookTask; isNew: boolean }
     learningCurrentChunk: 0,
     learningTotalChunks: 0,
     learningMessage: '等待录入完成...',
+    learningLayersDone: [],
+    hasMissingChapters: false,
     createdAt: Date.now(),
     updatedAt: Date.now(),
     startedAt: null,
@@ -1492,6 +1504,119 @@ export function createTask(bookName: string): { task: BookTask; isNew: boolean }
 export function getAllTasks(): BookTask[] {
   if (!isInitialized) initTaskManager();
   return Array.from(tasks.values()).sort((a, b) => b.createdAt - a.createdAt);
+}
+
+/**
+ * 获取学习进度摘要（供AI问答使用）
+ */
+export function getLearningProgressSummary(): string {
+  if (!isInitialized) initTaskManager();
+  const allTasks = Array.from(tasks.values());
+  
+  const done = allTasks.filter(t => t.status === 'done');
+  const learning = allTasks.filter(t => t.learningStatus === 'learning');
+  const pending = allTasks.filter(t => t.status === 'done' && (!t.learningStatus || t.learningStatus === 'pending'));
+  const paused = allTasks.filter(t => t.status === 'paused');
+  const active = allTasks.filter(t => ['searching', 'downloading', 'translating', 'saving'].includes(t.status));
+  
+  const lines: string[] = [];
+  lines.push(`📚 知识库学习进度实时报告`);
+  lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━`);
+  lines.push(`✅ 已完整学完：${done.length} 本`);
+  lines.push(`📖 正在学习中：${learning.length} 本`);
+  lines.push(`⏳ 等待学习：${pending.length} 本`);
+  lines.push(`⏸️ 录入暂停：${paused.length} 本`);
+  lines.push(`🔄 正在录入：${active.length} 本`);
+  lines.push(``);
+  
+  if (learning.length > 0) {
+    lines.push(`【正在学习的书籍】`);
+    for (const t of learning) {
+      const progress = t.learningTotalChunks ? `${t.learningCurrentChunk}/${t.learningTotalChunks}` : '计算中';
+      const pct = t.learningTotalChunks ? Math.round(t.learningCurrentChunk / t.learningTotalChunks * 100) : 0;
+      const layerInfo: string[] = [];
+      if (t.learningLayersDone?.includes(1)) layerInfo.push('①术语');
+      if (t.learningLayersDone?.includes(2)) layerInfo.push('②逻辑');
+      if (t.learningLayersDone?.includes(3)) layerInfo.push('③关联');
+      if (t.learningLayersDone?.includes(4)) layerInfo.push('④应用');
+      lines.push(`  《${t.bookName}》：学习进度 ${progress}（${pct}%）${layerInfo.length > 0 ? ' 已完成：' + layerInfo.join('') : ''}${t.learningMessage ? ' ' + t.learningMessage : ''}`);
+    }
+    lines.push(``);
+  }
+  
+  if (done.length > 0) {
+    lines.push(`【已学完的书籍】`);
+    for (const t of done) {
+      lines.push(`  《${t.bookName}》：已完整学完✅`);
+    }
+    lines.push(``);
+  }
+  
+  if (active.length > 0) {
+    lines.push(`【正在录入的书籍】`);
+    for (const t of active) {
+      const progress = t.totalChapters ? `${t.currentChapter}/${t.totalChapters}章` : '计算中';
+      lines.push(`  《${t.bookName}》：录入进度 ${progress}（${t.status}）`);
+    }
+    lines.push(``);
+  }
+  
+  return lines.join('\n');
+}
+
+/**
+ * 获取单本书的学习进度（供AI问答使用）
+ */
+export function getBookLearningDetail(bookName: string): string {
+  if (!isInitialized) initTaskManager();
+  const allTasks = Array.from(tasks.values());
+  const task = allTasks.find(t => t.bookName === bookName || t.bookName.includes(bookName));
+  
+  if (!task) return `未找到《${bookName}》的相关记录。`;
+  
+  const lines: string[] = [];
+  lines.push(`📖《${task.bookName}》详细学习进度`);
+  lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━`);
+  
+  if (task.status === 'done') {
+    lines.push(`录入状态：✅ 已完整录入`);
+    if (task.totalChapters) lines.push(`章节：${task.currentChapter}/${task.totalChapters}章`);
+    if (task.hasMissingChapters) lines.push(`⚠️ 注意：存在缺章节`);
+  } else if (['searching', 'downloading', 'translating', 'saving'].includes(task.status)) {
+    lines.push(`录入状态：🔄 正在${task.status === 'searching' ? '搜索' : task.status === 'downloading' ? '下载' : task.status === 'translating' ? '翻译' : '保存'}中`);
+    if (task.totalChapters) lines.push(`录入进度：${task.currentChapter}/${task.totalChapters}章`);
+  } else if (task.status === 'paused') {
+    lines.push(`录入状态：⏸️ 已暂停`);
+  } else if (task.status === 'copyright') {
+    lines.push(`录入状态：❌ 因版权问题无法录入`);
+  } else {
+    lines.push(`录入状态：${task.status}`);
+  }
+  
+  lines.push(``);
+  lines.push(`学习状态：${task.learningStatus === 'done' ? '✅ 已完整学完' : task.learningStatus === 'learning' ? '📖 正在学习' : task.learningStatus === 'pending' ? '⏳ 等待学习' : '未开始'}`);
+  
+  if (task.learningStatus === 'learning') {
+    if (task.learningTotalChunks) {
+      const pct = Math.round(task.learningCurrentChunk / task.learningTotalChunks * 100);
+      lines.push(`学习进度：${task.learningCurrentChunk}/${task.learningTotalChunks}（${pct}%）`);
+    }
+    const layerInfo: string[] = [];
+    if (task.learningLayersDone?.includes(1)) layerInfo.push('①术语理解');
+    if (task.learningLayersDone?.includes(2)) layerInfo.push('②逻辑推理');
+    if (task.learningLayersDone?.includes(3)) layerInfo.push('③交叉关联');
+    if (task.learningLayersDone?.includes(4)) layerInfo.push('④实际应用');
+    if (layerInfo.length > 0) lines.push(`已完成层次：${layerInfo.join(' → ')}`);
+    const layerPending: string[] = [];
+    if (!task.learningLayersDone?.includes(1)) layerPending.push('①术语理解');
+    if (!task.learningLayersDone?.includes(2)) layerPending.push('②逻辑推理');
+    if (!task.learningLayersDone?.includes(3)) layerPending.push('③交叉关联');
+    if (!task.learningLayersDone?.includes(4)) layerPending.push('④实际应用');
+    if (layerPending.length > 0) lines.push(`待完成层次：${layerPending.join(' → ')}`);
+    if (task.learningMessage) lines.push(`当前消息：${task.learningMessage}`);
+  }
+  
+  return lines.join('\n');
 }
 
 /**

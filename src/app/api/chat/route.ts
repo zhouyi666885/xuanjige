@@ -10,6 +10,7 @@ import { generateSanHeCanDuanPrompt, getSanHeCanDuanByTopic, SAN_HE_CAN_DUAN_GUI
 import { generateMianXiangFramework, getMianXiangPredictionGuide } from '@/lib/xiangxue';
 import { generateShouXiangFramework, getShouXiangPredictionGuide } from '@/lib/shouxiang';
 import { searchFullText, searchFullTextAsync, formatFullTextResults, getBookFullText, getBookFullTextAsync, findBooksByName, getDetailedBookStats, getBookChapterContent, parseChapterRange, getLearnedBookCount, getBookLearnStatus } from '@/lib/fulltext-search';
+import { getLearningProgressSummary, getBookLearningDetail } from '@/lib/book-task-manager';
 import { tongQianQiGua, shiJianQiGua as liuyaoShiJian, formatLiuYaoPaiPan as liuyaoFormat } from '@/lib/liuyao';
 import { shiJianQiGua as meihuaShiJian, shuZiQiGua, wenZiQiGua, formatMeiHuaPaiPan as meihuaFormat } from '@/lib/meihua';
 import { paiPan as qimenPaiPan, formatQiMenPaiPan as qimenFormat } from '@/lib/qimen';
@@ -214,11 +215,15 @@ export async function POST(request: NextRequest) {
     // 检测用户是否在问书籍结构问题（多少章/卦/卷/学到哪了）
     const isBookStructureQuestion = /多少[卦篇章卷部节回]|几[卦篇章卷部节回]|总共.*[卦篇章卷部节回]|[卦篇章卷部节回].*数量|学到.*第|学习.*进度|学完.*多少|学到哪/.test(message);
     
+    // 检测用户是否在问AI学习进度
+    const isLearningProgressQuestion = /学得怎么样|学会了哪些|哪本.*没学完|学到哪|学习.*进度|学完.*几本|觉得自己.*学会|学习.*状态|你.*学了|你.*正在学|学了多少|哪些.*学完|哪些.*没学|翻译.*质量|翻译.*检查|英文.*翻译.*质量|乱码|缺页|漏译/.test(message);
+    
     let knowledgeBaseInfo = '';
     let fullTextStr = '';
     let specificBookFullText = '';
     let bookContentInstruction = '';
     let bookStructureInfo = '';
+    let learningProgressInfo = '';
     
     if (isKnowledgeBaseQuestion && !isBookContentRequest) {
       // 知识库相关问题：只注入统计数据，跳过全文检索（避免超上下文窗口）
@@ -263,7 +268,21 @@ ${stats.sampleBooks.map(b => `  《${b.name}》${b.chars.toLocaleString()}字 [$
       }
     }
     
-    if (!isKnowledgeBaseQuestion) {
+    // 检测AI学习进度问题
+    if (isLearningProgressQuestion) {
+      // 先检查用户是否问的是某本特定书
+      const specificBookMatch = findBooksByName(message);
+      if (specificBookMatch.length > 0) {
+        const bestMatch = specificBookMatch.sort((a, b) => a.name.length - b.name.length)[0];
+        const detail = getBookLearningDetail(bestMatch.name);
+        learningProgressInfo = `\n\n【AI学习进度——用户正在询问学习情况，必须如实回答】\n${detail}\n\n请根据以上实时数据如实回答用户关于学习进度的问题。用自然语言，像跟朋友聊天一样回答，不要机械地复述数据。`;
+      } else {
+        const summary = getLearningProgressSummary();
+        learningProgressInfo = `\n\n【AI学习进度——用户正在询问学习情况，必须如实回答】\n${summary}\n\n请根据以上实时数据如实回答用户关于学习进度的问题。用自然语言，像跟朋友聊天一样回答，不要机械地复述数据。对于翻译质量检查问题，请根据知识库中已收录的英文书籍翻译内容来判断，如实告知用户哪些书可能存在翻译质量问题。`;
+      }
+    }
+    
+    if (!isKnowledgeBaseQuestion && !isLearningProgressQuestion) {
       // 非知识库统计问题：正常全文检索
       // 全文检索：从本地txt文件或S3中搜索相关古籍原文段落（不限制！从第一个字到最后一个字完整收录！）
       const fullTextPassages = await searchFullTextAsync(message, 0, 0, 0);
@@ -312,6 +331,9 @@ ${bookContent.content}`;
       + (extendedKnowledgeStr ? '\n\n【全部典籍核心论断——必须全部引用】\n' + extendedKnowledgeStr : '')
       + (fullTextStr ? '\n\n【典籍原文摘录（来自知识库藏书全文）——优先引用原文】\n' + fullTextStr : '')
       + (specificBookFullText ? specificBookFullText : '')
+      + (knowledgeBaseInfo ? knowledgeBaseInfo : '')
+      + (bookStructureInfo ? bookStructureInfo : '')
+      + (learningProgressInfo ? learningProgressInfo : '')
       + '\n\n【知识库学习指引——学思路不学结果】以上知识库内容不是让你照搬原文，而是让你学习其中的分析思路和方法论。重点关注：1.宗师看到某组合时按什么逻辑推理；2.用神忌神在实际案例中如何运用；3.宫位星曜配合的判断规则；4.大运流年叠加的具体方法。理解其分析逻辑后融入你自己的推理链，不是机械复制原文凑数。';
 
     // 知识库强制引用铁律（追加到systemPrompt最末尾，确保最高优先级）
