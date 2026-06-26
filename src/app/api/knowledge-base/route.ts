@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getBookStats, removeBookFromKnowledgeBase, getBookLearnStatus, getLearnedBookCount } from '@/lib/fulltext-search';
+import { getBookStats, removeBookFromKnowledgeBase, getBookLearnStatus, getLearnedBookCount, invalidateCache } from '@/lib/fulltext-search';
 import { getAllTasks, startLearningAllLocalBooks, getLocalLearningProgress } from '@/lib/book-task-manager';
 
 /**
@@ -150,6 +150,12 @@ export async function POST(request: NextRequest) {
     if (action === 'start-learning') {
       const result = await startLearningAllLocalBooks();
       return NextResponse.json({ success: true, data: result });
+    }
+
+    if (action === 'refresh-cache') {
+      invalidateCache();
+      const stats = getBookStats();
+      return NextResponse.json({ success: true, data: { message: `缓存已刷新，当前${stats.bookCount}本书`, total: stats.bookCount } });
     }
 
     if (action === 'learning-progress') {

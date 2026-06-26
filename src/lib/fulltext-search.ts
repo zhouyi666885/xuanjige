@@ -439,6 +439,13 @@ export function getLocalBookInfo(): { total: number; bookNames: string[] } {
   return { total: bookNames.length, bookNames };
 }
 
+/** 清除所有缓存，强制下次调用时重新从磁盘加载 */
+export function invalidateCache(): void {
+  bookCache = null;
+  bookNameList = null;
+  learnStatusCache = null;
+}
+
 /** 标记书籍学习状态（供book-task-manager调用） */
 export function markBookLearned(bookName: string, learned: boolean): void {
   const cache = loadLearnStatus();
