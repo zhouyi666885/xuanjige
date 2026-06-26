@@ -24,6 +24,13 @@ import requests
 from urllib.parse import quote
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# 屏蔽 SSL 警告（部分中文古籍站点证书过期/自签）
+try:
+    import urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+except Exception:
+    pass
+
 # 复用 book-crawler 的核心函数
 from book_crawler import (
     search_qq_read, search_dingdian, search_guidaye, search_25zw,
@@ -141,6 +148,289 @@ def search_gutenberg(book_name):
         return []
 
 
+# ===================== 扩展数据源（全网书籍来源） =====================
+
+HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
+
+
+def _safe_get(url, timeout=10):
+    """统一 GET 请求，自动容错"""
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=timeout, verify=False)
+        if r.status_code == 200:
+            r.encoding = r.apparent_encoding or 'utf-8'
+            return r.text
+    except Exception:
+        return None
+    return None
+
+
+def search_shicimingju(book_name):
+    """诗词名句网 shicimingju.com - 古籍/诗词全文"""
+    results = []
+    try:
+        html = _safe_get(f'https://www.shicimingju.com/search.html?keyword={quote(book_name)}')
+        if not html or book_name not in html:
+            return []
+        from bs4 import BeautifulSoup
+        s = BeautifulSoup(html, 'lxml')
+        for a in s.find_all('a', href=True):
+            href = a.get('href', '')
+            title = a.get_text(strip=True)
+            if title and book_name in title and ('/book/' in href or '/chaxun/' in href):
+                full_url = href if href.startswith('http') else f'https://www.shicimingju.com{href}'
+                results.append({'source': 'shicimingju', 'url': full_url, 'name': title})
+    except Exception as e:
+        print(f"[搜索] 诗词名句网失败: {e}", file=sys.stderr)
+    return results[:5]
+
+
+def search_zhonghuadiancang(book_name):
+    """中华典藏 zhonghuadiancang.com - 古籍专用"""
+    results = []
+    try:
+        html = _safe_get(f'https://www.zhonghuadiancang.com/search.php?q={quote(book_name)}')
+        if not html or book_name not in html:
+            return []
+        from bs4 import BeautifulSoup
+        s = BeautifulSoup(html, 'lxml')
+        for a in s.find_all('a', href=True):
+            href = a.get('href', '')
+            title = a.get_text(strip=True)
+            if title and book_name in title:
+                full_url = href if href.startswith('http') else f'https://www.zhonghuadiancang.com{href}'
+                results.append({'source': 'zhonghuadiancang', 'url': full_url, 'name': title})
+    except Exception as e:
+        print(f"[搜索] 中华典藏失败: {e}", file=sys.stderr)
+    return results[:5]
+
+
+def search_guoxuemeng(book_name):
+    """国学梦 guoxuemeng.com - 国学经典全文"""
+    results = []
+    try:
+        html = _safe_get(f'https://www.guoxuemeng.com/search.php?keyword={quote(book_name)}')
+        if not html or book_name not in html:
+            return []
+        from bs4 import BeautifulSoup
+        s = BeautifulSoup(html, 'lxml')
+        for a in s.find_all('a', href=True):
+            href = a.get('href', '')
+            title = a.get_text(strip=True)
+            if title and book_name in title:
+                full_url = href if href.startswith('http') else f'https://www.guoxuemeng.com{href}'
+                results.append({'source': 'guoxuemeng', 'url': full_url, 'name': title})
+    except Exception as e:
+        print(f"[搜索] 国学梦失败: {e}", file=sys.stderr)
+    return results[:5]
+
+
+def search_wikisource_zh(book_name):
+    """中文维基文库 zh.wikisource.org - 公版全文"""
+    results = []
+    try:
+        api = f'https://zh.wikisource.org/w/api.php?action=opensearch&search={quote(book_name)}&limit=10&format=json'
+        r = requests.get(api, headers=HEADERS, timeout=10)
+        if r.status_code != 200:
+            return []
+        data = r.json()
+        titles = data[1] if len(data) > 1 else []
+        urls = data[3] if len(data) > 3 else []
+        for i, title in enumerate(titles):
+            if i >= len(urls):
+                break
+            if book_name in title:
+                results.append({'source': 'wikisource_zh', 'url': urls[i], 'name': title})
+    except Exception as e:
+        print(f"[搜索] 中文维基文库失败: {e}", file=sys.stderr)
+    return results[:5]
+
+
+def search_wikisource_en(book_name):
+    """英文维基文库 en.wikisource.org - 英文公版"""
+    results = []
+    try:
+        api = f'https://en.wikisource.org/w/api.php?action=opensearch&search={quote(book_name)}&limit=5&format=json'
+        r = requests.get(api, headers=HEADERS, timeout=10)
+        if r.status_code != 200:
+            return []
+        data = r.json()
+        titles = data[1] if len(data) > 1 else []
+        urls = data[3] if len(data) > 3 else []
+        for i, title in enumerate(titles):
+            if i >= len(urls):
+                break
+            results.append({'source': 'wikisource_en', 'url': urls[i], 'name': title})
+    except Exception as e:
+        print(f"[搜索] 英文维基文库失败: {e}", file=sys.stderr)
+    return results[:5]
+
+
+def search_archive_org(book_name):
+    """Internet Archive archive.org - 海量电子书"""
+    results = []
+    try:
+        api = f'https://archive.org/advancedsearch.php?q=title%3A%28{quote(book_name)}%29+AND+mediatype%3Atexts&fl%5B%5D=identifier&fl%5B%5D=title&fl%5B%5D=creator&rows=10&output=json'
+        r = requests.get(api, headers=HEADERS, timeout=15)
+        if r.status_code != 200:
+            return []
+        data = r.json()
+        docs = data.get('response', {}).get('docs', [])
+        for d in docs:
+            ident = d.get('identifier', '')
+            title = d.get('title', '')
+            if ident and title:
+                results.append({
+                    'source': 'archive_org',
+                    'url': f'https://archive.org/stream/{ident}/{ident}_djvu.txt',
+                    'name': title if isinstance(title, str) else (title[0] if title else ''),
+                    'book_id': ident,
+                    'author': d.get('creator', '') if isinstance(d.get('creator'), str) else '',
+                })
+    except Exception as e:
+        print(f"[搜索] Internet Archive失败: {e}", file=sys.stderr)
+    return results[:5]
+
+
+def search_biquge(book_name):
+    """笔趣阁系列 - 中文小说聚合（多镜像容错）"""
+    results = []
+    mirrors = [
+        ('https://www.xbiquge.so/modules/article/waps.php', 'searchkey'),
+        ('https://www.biqu5200.net/modules/article/search.php', 'searchkey'),
+        ('https://www.bequgexs.com/modules/article/search.php', 'searchkey'),
+    ]
+    for base, key in mirrors:
+        try:
+            html = _safe_get(f'{base}?{key}={quote(book_name)}')
+            if not html or book_name not in html:
+                continue
+            from bs4 import BeautifulSoup
+            s = BeautifulSoup(html, 'lxml')
+            for a in s.find_all('a', href=True):
+                href = a.get('href', '')
+                title = a.get_text(strip=True)
+                if title and book_name in title and ('/book/' in href or '/xs/' in href or '.html' in href):
+                    domain = base.split('/modules')[0]
+                    full_url = href if href.startswith('http') else f'{domain}{href}'
+                    results.append({'source': 'biquge', 'url': full_url, 'name': title})
+            if results:
+                break
+        except Exception as e:
+            print(f"[搜索] 笔趣阁({base})失败: {e}", file=sys.stderr)
+            continue
+    return results[:5]
+
+
+def search_quanben(book_name):
+    """全本小说网 quanben5.com - 中文小说"""
+    results = []
+    try:
+        html = _safe_get(f'https://www.quanben5.com/index.php?c=book&a=search&keywords={quote(book_name)}')
+        if not html or book_name not in html:
+            return []
+        from bs4 import BeautifulSoup
+        s = BeautifulSoup(html, 'lxml')
+        for a in s.find_all('a', href=True):
+            href = a.get('href', '')
+            title = a.get_text(strip=True)
+            if title and book_name in title and '/n/' in href:
+                full_url = href if href.startswith('http') else f'https://www.quanben5.com{href}'
+                results.append({'source': 'quanben', 'url': full_url, 'name': title})
+    except Exception as e:
+        print(f"[搜索] 全本小说网失败: {e}", file=sys.stderr)
+    return results[:5]
+
+
+def search_shuhai(book_name):
+    """书海小说网 shuhai.tw - 中文小说"""
+    results = []
+    try:
+        html = _safe_get(f'https://www.shuhai.tw/s?wd={quote(book_name)}')
+        if not html or book_name not in html:
+            return []
+        from bs4 import BeautifulSoup
+        s = BeautifulSoup(html, 'lxml')
+        for a in s.find_all('a', href=True):
+            href = a.get('href', '')
+            title = a.get_text(strip=True)
+            if title and book_name in title:
+                full_url = href if href.startswith('http') else f'https://www.shuhai.tw{href}'
+                results.append({'source': 'shuhai', 'url': full_url, 'name': title})
+    except Exception as e:
+        print(f"[搜索] 书海小说网失败: {e}", file=sys.stderr)
+    return results[:5]
+
+
+def search_360doc(book_name):
+    """360doc 个人图书馆 - 全文文章/书摘"""
+    results = []
+    try:
+        html = _safe_get(f'https://www.so.com/s?q={quote(book_name + " site:360doc.com")}')
+        if not html:
+            return []
+        import re as _re
+        # 提取 360doc 链接
+        for m in _re.finditer(r'https?://www\.360doc\.com/content/[^"\'\s<>]+\.shtml', html):
+            results.append({'source': '360doc', 'url': m.group(0), 'name': book_name})
+            if len(results) >= 5:
+                break
+    except Exception as e:
+        print(f"[搜索] 360doc失败: {e}", file=sys.stderr)
+    return results[:5]
+
+
+def search_openlibrary(book_name):
+    """OpenLibrary openlibrary.org - 图书元数据/部分全文"""
+    results = []
+    try:
+        api = f'https://openlibrary.org/search.json?title={quote(book_name)}&limit=5'
+        r = requests.get(api, headers=HEADERS, timeout=10)
+        if r.status_code != 200:
+            return []
+        data = r.json()
+        for doc in data.get('docs', [])[:5]:
+            ia_keys = doc.get('ia', []) or []
+            if ia_keys:
+                results.append({
+                    'source': 'openlibrary',
+                    'url': f'https://archive.org/stream/{ia_keys[0]}/{ia_keys[0]}_djvu.txt',
+                    'name': doc.get('title', ''),
+                    'book_id': ia_keys[0],
+                    'author': (doc.get('author_name', []) or [''])[0],
+                })
+    except Exception as e:
+        print(f"[搜索] OpenLibrary失败: {e}", file=sys.stderr)
+    return results[:5]
+
+
+# ===================== SOURCES 全网数据源注册表 =====================
+# 每个源 = (名称, search函数, 类型['ancient'/'novel'/'foreign'/'general'])
+ALL_SOURCES = [
+    # 中文古籍专用源
+    ('CText古籍', search_ctext, 'ancient'),
+    ('国学网站(古诗文/国学大师/词典网)', search_guoxue_sites, 'ancient'),
+    ('诗词名句网', search_shicimingju, 'ancient'),
+    ('中华典藏', search_zhonghuadiancang, 'ancient'),
+    ('国学梦', search_guoxuemeng, 'ancient'),
+    ('中文维基文库', search_wikisource_zh, 'ancient'),
+    # 中文小说/通用源
+    ('QQ阅读', search_qq_read, 'novel'),
+    ('顶点小说', search_dingdian, 'novel'),
+    ('鬼大爷', search_guidaye, 'novel'),
+    ('25zw', search_25zw, 'novel'),
+    ('笔趣阁', search_biquge, 'novel'),
+    ('全本小说网', search_quanben, 'novel'),
+    ('书海小说网', search_shuhai, 'novel'),
+    ('360doc个人图书馆', search_360doc, 'general'),
+    # 海外/英文源
+    ('Internet Archive', search_archive_org, 'foreign'),
+    ('OpenLibrary', search_openlibrary, 'foreign'),
+    ('Gutenberg', search_gutenberg, 'foreign'),
+    ('英文维基文库', search_wikisource_en, 'foreign'),
+]
+
+
 # 古籍关键词判断
 ANCIENT_KEYWORDS = ['易', '经', '传', '论', '注', '疏', '诀', '鉴', '赋', '纲', '志', '卦', '命', '卜', '风水', '相', '紫微', '六爻', '奇门', '六壬', '八字', '梅花', '遁甲', '阴阳', '五行', '天干', '地支', '黄帝', '老子', '庄子', '列子', '管子', '鬼谷', '孙', '墨', '韩非', '滴天髓', '渊海子平', '三命通会', '子平真诠', '穷通宝鉴', '神峰通考', '紫微斗数', '卜筮正宗', '增删卜易', '梅花易数', '皇极经世', '太乙神数', '铁板神数']
 
@@ -155,33 +445,30 @@ def is_ancient_book(book_name):
 def search_and_fetch(book_name, author=''):
     """搜索并爬取书籍内容，返回JSON格式结果
     
-    搜索顺序根据书籍类型自动调整：
-    - 中国古籍：CText优先（中国哲学书电子化计划）
-    - 英文公版书：Gutenberg优先
-    - 中文小说：QQ阅读 → 顶点小说 → 鬼大爷 → 25zw
+    搜索策略：遍历 ALL_SOURCES 注册表中所有数据源，无遗漏。
+    根据书籍类型动态调整优先级：
+    - 中国古籍：ancient 优先 → novel → foreign
+    - 中文小说：novel 优先 → ancient → foreign
+    - 其他：所有源平等遍历
+    
+    所有注册的数据源都会被尝试，不会跳过任何一个。
     """
     
-    # 古籍用CText优先
+    # 根据书籍类型对 ALL_SOURCES 排序，但每个源都会被尝试
     if is_ancient_book(book_name):
-        search_functions = [
-            ('CText古籍', search_ctext),
-            ('QQ阅读', search_qq_read),
-            ('顶点小说', search_dingdian),
-            ('鬼大爷', search_guidaye),
-            ('25zw', search_25zw),
-            ('Gutenberg', search_gutenberg),
-            ('国学网站', search_guoxue_sites),
-        ]
+        # 古籍：古籍源优先，但小说源和海外源也要尝试
+        priority = {'ancient': 0, 'novel': 1, 'general': 1, 'foreign': 2}
     else:
-        search_functions = [
-            ('CText古籍', search_ctext),
-            ('国学网站', search_guoxue_sites),
-            ('QQ阅读', search_qq_read),
-            ('顶点小说', search_dingdian),
-            ('鬼大爷', search_guidaye),
-            ('25zw', search_25zw),
-            ('Gutenberg', search_gutenberg),
-        ]
+        # 非古籍：小说源优先，古籍源次之
+        priority = {'novel': 0, 'general': 0, 'ancient': 1, 'foreign': 2}
+    
+    search_functions = sorted(
+        [(name, fn) for name, fn, _ in ALL_SOURCES],
+        key=lambda x: priority.get(next((t for n, f, t in ALL_SOURCES if n == x[0]), 'general'), 99)
+    )
+    
+    # 关键日志：告知 Node 端实际使用了多少数据源
+    print(f"[搜索] 共注册 {len(ALL_SOURCES)} 个数据源，全部尝试", file=sys.stderr)
     
     all_search_results = []
     
@@ -192,6 +479,9 @@ def search_and_fetch(book_name, author=''):
                 for r in results:
                     r['source_name'] = source_name
                     all_search_results.append(r)
+                print(f"[搜索] {source_name}: 找到 {len(results)} 个结果", file=sys.stderr)
+            else:
+                print(f"[搜索] {source_name}: 无结果", file=sys.stderr)
         except Exception as e:
             print(f"[搜索] {source_name} 搜索失败: {e}", file=sys.stderr)
             continue
@@ -199,8 +489,9 @@ def search_and_fetch(book_name, author=''):
     if not all_search_results:
         return {
             'success': False,
-            'error': f'未在任何来源找到《{book_name}》',
+            'error': f'未在任何来源找到《{book_name}》（已遍历 {len(search_functions)} 个数据源）',
             'searched_sources': [s[0] for s in search_functions],
+            'total_sources': len(search_functions),
         }
     
     # 按来源优先级排序，尝试爬取
@@ -324,6 +615,37 @@ def search_and_fetch(book_name, author=''):
                             }]
                 except:
                     pass
+            
+            # 单页全文型来源：Internet Archive / Wikisource / OpenLibrary
+            elif source in ('archive_org', 'wikisource_zh', 'wikisource_en', 'openlibrary') and url:
+                try:
+                    r = requests.get(url, headers=HEADERS, timeout=30, verify=False)
+                    if r.status_code == 200:
+                        r.encoding = r.apparent_encoding or 'utf-8'
+                        if source == 'archive_org' or source == 'openlibrary':
+                            # _djvu.txt 是纯文本
+                            text = r.text
+                            if 'archive.org/stream' in url and len(text) < 500:
+                                # stream 页是 HTML，提取里面的文本
+                                from bs4 import BeautifulSoup
+                                gs = BeautifulSoup(r.text, 'lxml')
+                                text = gs.get_text(strip=True)
+                        else:
+                            # wikisource 是 HTML
+                            from bs4 import BeautifulSoup
+                            gs = BeautifulSoup(r.text, 'lxml')
+                            content_div = gs.find('div', id='mw-content-text') or gs.find('div', class_='mw-parser-output')
+                            text = content_div.get_text(strip=True) if content_div else gs.get_text(strip=True)
+                        
+                        if text and len(text) > 200:
+                            chapter_titles = [name]
+                            chapters_data = [{
+                                'order': 1,
+                                'title': name,
+                                'content': text,
+                            }]
+                except Exception as e:
+                    print(f"[爬取] {source_name} 单页爬取失败: {e}", file=sys.stderr)
             
             # 其他来源（顶点/鬼大爷/25zw等）
             elif url:

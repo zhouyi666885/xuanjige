@@ -391,7 +391,9 @@ async function processTask(taskId: string): Promise<void> {
               bookFinderContent = fetchResult.full_text;
               addLog(taskId, `📱 Book Finder 成功！来源：${fetchResult.source}，爬取${fetchResult.fetched_chapters}/${fetchResult.total_chapters}章，共${bookFinderContent.length}字`);
             } else if (fetchResult.error) {
-              addLog(taskId, `📱 Book Finder 未能找到：${fetchResult.error}`);
+              const sources = fetchResult.searched_sources || [];
+              const total = fetchResult.total_sources || sources.length;
+              addLog(taskId, `📱 Book Finder 未能找到：${fetchResult.error}${total ? `（已遍历${total}个数据源：${sources.slice(0, 6).join('、')}${sources.length > 6 ? '等' : ''}）` : ''}`);
             }
           } catch (parseErr) {
             addLog(taskId, `📱 Book Finder 输出解析失败`);
