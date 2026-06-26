@@ -623,7 +623,9 @@ function updateTask(id: string, updates: Partial<BookTask>): BookTask | null {
   
   Object.assign(task, updates, { updatedAt: Date.now() });
   tasks.set(id, task);
-  saveTasks(); // 每次更新都持久化
+  saveTasks(); // 每次更新都持久化到本地
+  // 🔴 关键：每次状态变更都实时同步到 Supabase，确保 AI truthBlock 能读到最新状态
+  void syncTaskToDb(task);
   return task;
 }
 
@@ -636,6 +638,7 @@ function addLog(id: string, message: string): void {
   if (task.logs.length > 100) task.logs = task.logs.slice(-50);
   task.updatedAt = Date.now();
   saveTasks();
+  // 日志变更不同步到 Supabase（频率太高），只在状态变更时同步
 }
 
 // ==================== 暂停/取消检查 ====================
