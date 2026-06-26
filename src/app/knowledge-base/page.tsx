@@ -71,6 +71,16 @@ export default function KnowledgeBasePage() {
     fetchBooks(searchQuery, page);
   }, [fetchBooks, searchQuery, page]);
 
+  // 自动轮询学习进度：有 learning 状态的书时每 3 秒刷新一次
+  useEffect(() => {
+    const hasLearning = books.some(b => b.learningStatus === 'learning');
+    if (!hasLearning) return;
+    const timer = setInterval(() => {
+      fetchBooks(searchQuery, page);
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [books, fetchBooks, searchQuery, page]);
+
   // 搜索防抖
   const [searchInput, setSearchInput] = useState('');
   useEffect(() => {
@@ -121,6 +131,8 @@ export default function KnowledgeBasePage() {
       const data = await res.json();
       if (data.success) {
         setLearningStarted(true);
+        // 立刻刷新书籍列表以显示"学习中"状态
+        await fetchBooks(searchQuery, page);
       }
     } catch {
       // 静默
