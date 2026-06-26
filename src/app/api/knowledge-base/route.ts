@@ -1,8 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getBookStats, removeBookFromKnowledgeBase, getBookLearnStatus, getLearnedBookCount, invalidateCache, loadBookCacheAsync } from '@/lib/fulltext-search';
 import { getAllTasks, startLearningAllLocalBooks, getLocalLearningProgress, deleteTask } from '@/lib/book-task-manager';
+import { upsertTask, getTaskByBookName, listTasks } from '@/lib/book-repo';
 import fsRaw from 'fs';
 import pathRaw from 'path';
+
+/** 选择可写的状态文件目录：生产用 /tmp（唯一可写），开发用 public/ */
+function getStatusFileDir(): string {
+  const isProd = process.env.COZE_PROJECT_ENV === 'PROD';
+  if (isProd) {
+    const dir = '/tmp/book-content';
+    try { fsRaw.mkdirSync(dir, { recursive: true }); } catch { /* ignore */ }
+    return dir;
+  }
+  return pathRaw.join(process.env.COZE_WORKSPACE_PATH || '/workspace/projects', 'public', 'book-content');
+}
+
+function getStatusFilePath(): string {
+  return pathRaw.join(getStatusFileDir(), 'local-learn-tasks.json');
+}
 
 /** 读 local-learn-tasks.json 拿"权威的本地学习状态"（API 层直写，最新值） */
 function readLocalLearnStatusFile(): Record<string, {
@@ -15,13 +31,64 @@ function readLocalLearnStatusFile(): Record<string, {
   startedAt?: number;
   completedAt?: number;
 }> {
+  // 候选路径：生产 /tmp、开发 public，都尝试一下取最新
+  const candidates = [getStatusFilePath()];
+  if (process.env.COZE_PROJECT_ENV === 'PROD') {
+    // 生产也尝试读 public（如果有兜底）
+    candidates.push(pathRaw.join(process.env.COZE_WORKSPACE_PATH || '/workspace/projects', 'public', 'book-content', 'local-learn-tasks.json'));
+  }
+  let merged: Record<string, ReturnType<typeof readLocalLearnStatusFile>[string]> = {};
+  for (const file of candidates) {
+    try {
+      if (fsRaw.existsSync(file)) {
+        const data = JSON.parse(fsRaw.readFileSync(file, 'utf-8'));
+        merged = { ...merged, ...data };
+      }
+    } catch { /* ignore */ }
+  }
+  return merged;
+}
+
+/** 双写 Supabase：把学习进度同步到 book_tasks 表 */
+async function syncLearningStatusToDb(bookName: string, status: {
+  learningStatus: string;
+  learningProgress: number;
+  learningCurrentChunk: number;
+  learningTotalChunks: number;
+  learningMessage: string;
+}) {
   try {
-    const file = pathRaw.join(process.env.COZE_WORKSPACE_PATH || '/workspace/projects', 'public', 'book-content', 'local-learn-tasks.json');
-    if (fsRaw.existsSync(file)) {
-      return JSON.parse(fsRaw.readFileSync(file, 'utf-8'));
-    }
-  } catch { /* ignore */ }
-  return {};
+    const existing = await getTaskByBookName(bookName);
+    const now = new Date().toISOString();
+    const taskId = existing?.id || `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    await upsertTask({
+      id: taskId,
+      book_name: bookName,
+      status: existing?.status || 'done',
+      progress: existing?.progress ?? 100,
+      message: existing?.message ?? null,
+      chars: existing?.chars ?? 0,
+      current_chapter: existing?.current_chapter ?? 0,
+      total_chapters: existing?.total_chapters ?? 0,
+      chapter_structure: existing?.chapter_structure ?? '章',
+      source: existing?.source ?? 'local',
+      is_local_book: true,
+      learning_status: status.learningStatus,
+      learning_progress: status.learningProgress,
+      learning_current_chunk: status.learningCurrentChunk,
+      learning_total_chunks: status.learningTotalChunks,
+      learning_message: status.learningMessage,
+      learning_layers_done: existing?.learning_layers_done ?? [],
+      learning_started_at: existing?.learning_started_at ?? now,
+      learning_completed_at: status.learningStatus === 'done' ? now : (existing?.learning_completed_at ?? null),
+      logs: existing?.logs ?? [],
+      created_at: existing?.created_at ?? now,
+      updated_at: now,
+      completed_at: existing?.completed_at ?? null,
+    });
+  } catch (e) {
+    console.warn('[syncLearningStatusToDb]', bookName, e instanceof Error ? e.message : e);
+  }
 }
 
 /**
@@ -62,6 +129,26 @@ export async function GET(request: NextRequest) {
     const allTasks = getAllTasks();
     // 同时读取 local-learn-tasks.json，优先级最高（API 层最新写入）
     const localLearnStatus = readLocalLearnStatusFile();
+    // 生产环境关键：从 Supabase book_tasks 表拉最新状态（部署后内存丢失，文件可能也读不到）
+    let dbTaskMap: Map<string, {
+      learning_status?: string;
+      learning_progress?: number;
+      learning_current_chunk?: number;
+      learning_total_chunks?: number;
+      learning_message?: string | null;
+    }> = new Map();
+    try {
+      const dbTasks = await listTasks();
+      for (const t of dbTasks) {
+        // 同名时优先 learning
+        const existing = dbTaskMap.get(t.book_name);
+        if (!existing || (t.learning_status === 'learning' && existing.learning_status !== 'learning')) {
+          dbTaskMap.set(t.book_name, t);
+        }
+      }
+    } catch (e) {
+      console.warn('[GET /api/knowledge-base] listTasks 从 Supabase 拉失败:', e instanceof Error ? e.message : e);
+    }
     // 多个 task 同名时优先选 learningStatus=learning > done > pending > failed
     // 避免"状态同步"修复后留下的 done+pending 旧 task 把"学习中"的进度盖掉
     const taskPriority = (s?: string) => {
@@ -88,28 +175,29 @@ export async function GET(request: NextRequest) {
       const task = taskMap.get(name);
       // 优先用 local-learn-tasks.json 中的最新状态（API 层直接写入，是权威值）
       const liveLearn = localLearnStatus[name];
+      // 从 Supabase 拉的最新 task（生产环境最权威，文件可能不可写）
+      const dbTask = dbTaskMap.get(name);
       // 物理文件存在 ⇒ 内容完整，绝不能误报"缺章节"
       // 章节数：优先取 learnStatus.totalChapters（本地物理书的真实章节），其次 task.totalChapters
       const realTotalChapters = (learnStatus?.totalChapters && learnStatus.totalChapters > 0)
         ? learnStatus.totalChapters
         : (task?.totalChapters ?? 0);
       const realCurrentChapter = realTotalChapters; // 本地书必然完整，currentChapter = totalChapters
-      // 学习字段三优先级：liveLearn > task > learnStatus
-      const finalLearningStatus = (liveLearn?.learningStatus as string | undefined)
-        ?? task?.learningStatus
-        ?? (learnStatus?.learned ? 'done' : 'pending');
-      const finalLearningProgress = liveLearn?.learningProgress
-        ?? task?.learningProgress
-        ?? (learnStatus?.learned ? 100 : 0);
-      const finalLearningMessage = liveLearn?.learningMessage
-        ?? task?.learningMessage
-        ?? '';
-      const finalLearningCurrentChunk = liveLearn?.learningCurrentChunk
-        ?? task?.learningCurrentChunk
-        ?? 0;
-      const finalLearningTotalChunks = liveLearn?.learningTotalChunks
-        ?? task?.learningTotalChunks
-        ?? 0;
+      // 学习字段优先级：liveLearn(本地文件) > dbTask(Supabase) > task(内存) > learnStatus
+      // 选一个 learning > done > pending > failed 优先级最高的
+      const candidates: Array<{ s?: string; p?: number; c?: number; t?: number; m?: string | null }> = [
+        liveLearn ? { s: liveLearn.learningStatus, p: liveLearn.learningProgress, c: liveLearn.learningCurrentChunk, t: liveLearn.learningTotalChunks, m: liveLearn.learningMessage } : null,
+        dbTask ? { s: dbTask.learning_status, p: dbTask.learning_progress, c: dbTask.learning_current_chunk, t: dbTask.learning_total_chunks, m: dbTask.learning_message } : null,
+        task ? { s: task.learningStatus, p: task.learningProgress, c: task.learningCurrentChunk, t: task.learningTotalChunks, m: task.learningMessage } : null,
+      ].filter(Boolean) as Array<{ s?: string; p?: number; c?: number; t?: number; m?: string | null }>;
+      const prio = (s?: string) => s === 'learning' ? 4 : s === 'done' ? 3 : s === 'pending' ? 2 : 1;
+      candidates.sort((a, b) => prio(b.s) - prio(a.s));
+      const best = candidates[0] || {};
+      const finalLearningStatus = best.s ?? (learnStatus?.learned ? 'done' : 'pending');
+      const finalLearningProgress = best.p ?? (learnStatus?.learned ? 100 : 0);
+      const finalLearningMessage = best.m ?? '';
+      const finalLearningCurrentChunk = best.c ?? 0;
+      const finalLearningTotalChunks = best.t ?? 0;
       return {
         name,
         category,
@@ -242,6 +330,8 @@ export async function POST(request: NextRequest) {
         const fs = await import('fs');
         const path = await import('path');
         const TASKS_DIR = path.join(process.env.COZE_WORKSPACE_PATH || '/workspace/projects', 'public', 'book-content');
+        // 学习状态目录（生产用 /tmp，开发用 public，统一管理）
+        const STATUS_DIR = getStatusFileDir();
         
         // 获取所有可学习的书：本地 fs + Supabase（生产环境本地 fs 是空的）
         let bookNames: string[] = [];
@@ -256,7 +346,7 @@ export async function POST(request: NextRequest) {
             bookNames = files.map((f: string) => f.replace('.txt', ''));
           } catch {}
         }
-        const statusFile = path.join(TASKS_DIR, 'local-learn-tasks.json');
+        const statusFile = path.join(STATUS_DIR, 'local-learn-tasks.json');
         let learningStatus: Record<string, any> = {};
         try { learningStatus = JSON.parse(fs.readFileSync(statusFile, 'utf-8')); } catch {}
         
@@ -292,7 +382,15 @@ export async function POST(request: NextRequest) {
               }
               if (!fullText || fullText.length < 100) {
                 learningStatus[bookName] = { ...learningStatus[bookName], learningStatus: 'failed', learningMessage: '无法读取书籍内容' };
-                fs.writeFileSync(statusFile, JSON.stringify(learningStatus, null, 2));
+                try { fs.writeFileSync(statusFile, JSON.stringify(learningStatus, null, 2)); } catch (writeErr) { console.warn('[learn] 写 statusFile 失败:', writeErr); }
+                // 双写 Supabase 让生产环境也能拿到状态
+                void syncLearningStatusToDb(bookName, {
+                  learningStatus: 'failed',
+                  learningProgress: 0,
+                  learningCurrentChunk: 0,
+                  learningTotalChunks: 0,
+                  learningMessage: '无法读取书籍内容',
+                });
                 return;
               }
               
@@ -357,7 +455,17 @@ export async function POST(request: NextRequest) {
                   learningLayersDone: layersDone,
                   learningMessage: progress >= 100 ? '✅ 已学完，可用于回答问题' : `正在学习第 ${i+1}/${totalChunks} 块...`,
                 };
-                fs.writeFileSync(statusFile, JSON.stringify(learningStatus, null, 2));
+                try { fs.writeFileSync(statusFile, JSON.stringify(learningStatus, null, 2)); } catch (writeErr) { console.warn('[learn] 写 statusFile 失败:', writeErr); }
+                // 双写 Supabase（每 5 块或学完时写一次，避免过频）
+                if ((i + 1) % 5 === 0 || progress >= 100) {
+                  void syncLearningStatusToDb(bookName, {
+                    learningStatus: progress >= 100 ? 'done' : 'learning',
+                    learningProgress: progress,
+                    learningCurrentChunk: i + 1,
+                    learningTotalChunks: totalChunks,
+                    learningMessage: progress >= 100 ? '✅ 已学完，可用于回答问题' : `正在学习第 ${i+1}/${totalChunks} 块...`,
+                  });
+                }
               }
               
               // 标记知识库学习完成
@@ -369,13 +477,33 @@ export async function POST(request: NextRequest) {
             } catch (err: any) {
               console.error(`[learnLocalBook] ❌ ${bookName} 学习失败:`, err.message);
               learningStatus[bookName] = { ...learningStatus[bookName], learningStatus: 'failed', learningMessage: `学习失败: ${err.message}` };
-              fs.writeFileSync(statusFile, JSON.stringify(learningStatus, null, 2));
+              try { fs.writeFileSync(statusFile, JSON.stringify(learningStatus, null, 2)); } catch (writeErr) { console.warn('[learn] 写 statusFile 失败:', writeErr); }
+              void syncLearningStatusToDb(bookName, {
+                learningStatus: 'failed',
+                learningProgress: 0,
+                learningCurrentChunk: 0,
+                learningTotalChunks: 0,
+                learningMessage: `学习失败: ${err.message}`,
+              });
             }
           });
         }
         
-        // 保存初始状态
-        fs.writeFileSync(statusFile, JSON.stringify(learningStatus, null, 2));
+        // 保存初始状态（生产环境会写 /tmp，开发写 public）
+        try { fs.writeFileSync(statusFile, JSON.stringify(learningStatus, null, 2)); } catch (writeErr) { console.warn('[learn] 写 statusFile 失败:', writeErr); }
+        // 初始状态同步到 Supabase
+        for (const bookName of Object.keys(learningStatus)) {
+          const s = learningStatus[bookName];
+          if (s.learningStatus === 'learning') {
+            void syncLearningStatusToDb(bookName, {
+              learningStatus: 'learning',
+              learningProgress: 0,
+              learningCurrentChunk: 0,
+              learningTotalChunks: 0,
+              learningMessage: '学习已加入队列',
+            });
+          }
+        }
         
         return NextResponse.json({ success: true, data: { total: bookNames.length, started, message: started > 0 ? `已启动 ${started} 本书的学习${skipped > 0 ? `，${skipped} 本已学完跳过` : ''}` : `共 ${bookNames.length} 本书，全部已学完，无需再学习` } });
       } catch (err: any) {
