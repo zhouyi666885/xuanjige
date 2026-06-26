@@ -1,0 +1,46 @@
+{
+  "local-1782467825161-oyjeu2": {
+    "id": "local-1782467825161-oyjeu2",
+    "bookName": "滴天髓",
+    "status": "done",
+    "progress": 100,
+    "totalChapters": 0,
+    "currentChapter": 0,
+    "currentChapterName": "",
+    "remainingChapters": 0,
+    "chapterStructure": "",
+    "message": "本地内置书籍，内容已就绪",
+    "source": "local",
+    "size": "",
+    "chars": 0,
+    "chapters": [],
+    "isLocalBook": true,
+    "logs": [
+      "本地书籍，等待学习"
+    ],
+    "learningStatus": "pending",
+    "learningProgress": 0,
+    "learningCurrentChunk": 0,
+    "learningTotalChunks": 0,
+    "learningMessage": "等待开始学习",
+    "learningLayersDone": [],
+    "hasMissingChapters": false,
+    "createdAt": 1782467825161,
+    "updatedAt": 1782467825161,
+    "startedAt": null,
+    "completedAt": null,
+    "error": ""
+  },
+  "滴天髓": {
+    "learningStatus": "failed",
+    "learningMessage": "开始读取《滴天髓》全文...",
+    "updatedAt": 1782469654608,
+    "learningProgress": 48,
+    "learningLayersDone": [
+      1
+    ],
+    "learningCurrentChunk": 27,
+    "learningTotalChunks": 56,
+    "completedAt": 1782469654608
+  }
+}

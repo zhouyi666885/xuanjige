@@ -116,6 +116,7 @@ export default function KnowledgeBasePage() {
       const res = await fetch('/api/knowledge-base', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'start-learning' }),
       });
       const data = await res.json();
       if (data.success) {

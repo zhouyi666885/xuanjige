@@ -34,7 +34,21 @@ export async function GET(request: NextRequest) {
 
     // 获取所有任务（含学习进度）
     const allTasks = getAllTasks();
-    const taskMap = new Map(allTasks.map(t => [t.bookName, t]));
+    // 多个 task 同名时优先选 learningStatus=learning > done > pending > failed
+    // 避免"状态同步"修复后留下的 done+pending 旧 task 把"学习中"的进度盖掉
+    const taskPriority = (s?: string) => {
+      if (s === 'learning') return 4;
+      if (s === 'done') return 3;
+      if (s === 'pending') return 2;
+      return 1;
+    };
+    const taskMap = new Map<string, typeof allTasks[number]>();
+    for (const t of allTasks) {
+      const existing = taskMap.get(t.bookName);
+      if (!existing || taskPriority(t.learningStatus) > taskPriority(existing.learningStatus)) {
+        taskMap.set(t.bookName, t);
+      }
+    }
 
     // 为每本书附加基本信息
     const bookList = pagedBooks.map(name => {
@@ -167,7 +181,133 @@ export async function POST(request: NextRequest) {
 
     if (action === 'start-learning') {
       const result = await startLearningAllLocalBooks();
-      return NextResponse.json({ success: true, data: result });
+      // 直接在 API 层触发学习（绕过 HMR 闭包问题）
+      try {
+        const { getBookFullText, markBookLearned } = require('@/lib/fulltext-search');
+        const { getCozeClient } = require('@/lib/utils');
+        const fs = require('fs');
+        const path = require('path');
+        const TASKS_DIR = path.join(process.env.COZE_WORKSPACE_PATH || '/workspace/projects', 'public', 'book-content');
+        
+        // 获取所有本地书
+        const files = fs.readdirSync(TASKS_DIR).filter((f: string) => f.endsWith('.txt'));
+        const statusFile = path.join(TASKS_DIR, 'local-learn-tasks.json');
+        let learningStatus: Record<string, any> = {};
+        try { learningStatus = JSON.parse(fs.readFileSync(statusFile, 'utf-8')); } catch {}
+        
+        let started = 0;
+        for (const file of files) {
+          const bookName = file.replace('.txt', '');
+          const existing = learningStatus[bookName];
+          if (existing && existing.learningStatus === 'done') continue; // 跳过已学完
+          if (existing && existing.learningStatus === 'learning') continue; // 跳过正在学
+          
+          // 标记为学习中
+          learningStatus[bookName] = {
+            learningStatus: 'learning',
+            learningProgress: 0,
+            learningMessage: '准备学习...',
+            learningLayersDone: [],
+            startedAt: Date.now(),
+          };
+          started++;
+          
+          // 异步执行学习（不阻塞 API 响应）
+          setImmediate(async () => {
+            try {
+              const fullText = getBookFullText(bookName);
+              if (!fullText || fullText.length < 100) {
+                learningStatus[bookName] = { ...learningStatus[bookName], learningStatus: 'failed', learningMessage: '无法读取书籍内容' };
+                fs.writeFileSync(statusFile, JSON.stringify(learningStatus, null, 2));
+                return;
+              }
+              
+              // 分块
+              const CHUNK_SIZE = 3000;
+              const paragraphs = fullText.split(/\n{2,}/);
+              const chunks: string[] = [];
+              let currentChunk = '';
+              for (const p of paragraphs) {
+                if ((currentChunk + '\n\n' + p).length > CHUNK_SIZE && currentChunk) {
+                  chunks.push(currentChunk);
+                  currentChunk = p;
+                } else {
+                  currentChunk = currentChunk ? currentChunk + '\n\n' + p : p;
+                }
+              }
+              if (currentChunk) chunks.push(currentChunk);
+              
+              const totalChunks = chunks.length;
+              const learnedChunks: string[] = [];
+              
+              // 逐块学习
+              const { cozeClient } = getCozeClient();
+              for (let i = 0; i < totalChunks; i++) {
+                const chunk = chunks[i];
+                const progress = Math.round(((i + 1) / totalChunks) * 100);
+                
+                try {
+                  const completion = await cozeClient.chat.create({
+                    bot_id: process.env.COZE_BOT_ID!,
+                    user_id: 'learn-' + bookName,
+                    additional_messages: [{
+                      role: 'user',
+                      content: `深度学习以下古籍原文，按4层结构输出学习笔记：\n一、专业术语与概念\n二、分析逻辑与推断方法\n三、知识点关联关系\n四、实际应用方法\n\n原文：\n${chunk}`,
+                      content_type: 'text',
+                    }],
+                    stream: false,
+                  });
+                  
+                  let learnedContent = '';
+                  if (completion?.choices?.[0]?.message?.content) {
+                    learnedContent = completion.choices[0].message.content;
+                  }
+                  
+                  learnedChunks.push(`========== 原文 ==========\n${chunk}\n========== AI学习笔记 ==========\n${learnedContent || '（学习笔记生成失败，保留原文）'}`);
+                } catch {
+                  learnedChunks.push(chunk); // 失败则保留原文
+                }
+                
+                // 更新进度
+                const layersDone: number[] = [];
+                if (progress >= 25) layersDone.push(1);
+                if (progress >= 50) layersDone.push(2);
+                if (progress >= 75) layersDone.push(3);
+                if (progress >= 100) layersDone.push(4);
+                
+                learningStatus[bookName] = {
+                  learningStatus: progress >= 100 ? 'done' : 'learning',
+                  learningProgress: progress,
+                  learningTotalChunks: totalChunks,
+                  learningCurrentChunk: i + 1,
+                  learningLayersDone: layersDone,
+                  learningMessage: progress >= 100 ? '✅ 已学完，可用于回答问题' : `正在学习第 ${i+1}/${totalChunks} 块...`,
+                };
+                fs.writeFileSync(statusFile, JSON.stringify(learningStatus, null, 2));
+              }
+              
+              // 标记知识库学习完成
+              if (learnedChunks.length > 0) {
+                try { markBookLearned(bookName, learnedChunks.join('\n\n')); } catch {}
+              }
+              
+              console.log(`[learnLocalBook] ✅ ${bookName} 学习完成，${totalChunks} 块`);
+            } catch (err: any) {
+              console.error(`[learnLocalBook] ❌ ${bookName} 学习失败:`, err.message);
+              learningStatus[bookName] = { ...learningStatus[bookName], learningStatus: 'failed', learningMessage: `学习失败: ${err.message}` };
+              fs.writeFileSync(statusFile, JSON.stringify(learningStatus, null, 2));
+            }
+          });
+        }
+        
+        // 保存初始状态
+        fs.writeFileSync(statusFile, JSON.stringify(learningStatus, null, 2));
+        
+        return NextResponse.json({ success: true, data: { total: files.length, started, message: `开始学习 ${started} 本本地书籍` } });
+      } catch (err: any) {
+        console.error('[start-learning] 内部错误:', err.message);
+        return NextResponse.json({ success: true, data: result }); // fallback
+      }
     }
 
     if (action === 'refresh-cache') {

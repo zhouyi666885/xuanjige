@@ -155,6 +155,7 @@ function getCurrentChapterAtPosition(chapters: BookChapter[], position: number):
 // ==================== 全局状态 ====================
 
 const TASKS_FILE = path.join(process.cwd(), 'public', 'book-tasks.json');
+const TASKS_DIR = path.join(process.cwd(), 'public');
 // 独立的墓碑文件（旧 HMR 闭包不会触碰它，确保已删除任务不会被旧逻辑复活）
 const TOMBSTONE_FILE = path.join(process.cwd(), 'public', 'book-tasks-tombstones.json');
 let tasks: Map<string, BookTask> = new Map();
@@ -378,6 +379,30 @@ async function processTask(taskId: string): Promise<void> {
   processingQueue.add(taskId);
 
   try {
+    // 🔴 状态同步铁律（快速通道）：本地物理文件已存在 → 直接标 done 退出
+    // 防止旧 HMR 闭包反复触发搜索循环，造成"知识库说完成 / 添加书籍页说搜索中"的矛盾
+    try {
+      const localFile = path.join(process.cwd(), 'public/book-content', `${task.bookName}.txt`);
+      if (fs.existsSync(localFile)) {
+        const chars = fs.statSync(localFile).size;
+        updateTask(taskId, {
+          status: 'done',
+          progress: 100,
+          message: `《${task.bookName}》已录入完成（检测到本地全文文件）`,
+          chars: chars > 0 ? chars : task.chars,
+          source: task.source || '本地',
+          completedAt: task.completedAt || Date.now(),
+          learningStatus: task.learningStatus === 'done' ? 'done' : 'pending',
+          learningMessage: task.learningStatus === 'done' 
+            ? task.learningMessage 
+            : '⏳ 待学习（在知识库点击"开始学习"启动）',
+        });
+        addLog(taskId, '检测到本地全文文件，跳过搜索/录入流程，直接标记为已完成');
+        processingQueue.delete(taskId);
+        return;
+      }
+    } catch { /* 忽略文件检测异常 */ }
+    
     // 用户主动添加书籍 = 强制重新录入（即使知识库已存在也覆盖）
     // 不再因 isBookExists 拦截，确保用户能看到完整录入流程
     if (isBookExists(task.bookName)) {
@@ -1522,6 +1547,20 @@ ${chunk}
         learningLayersDone: layersDone,
         learningMessage: `AI学习中: ${processedChunks}/${totalChunks}块 (${progress}%) - 正在理解术语/逻辑/关联/应用`,
       });
+      
+      // 🔴 学习铁律：进度持久化到 local-learn-tasks.json
+      // 即使刷新/退出/锁屏，下次启动后也能从中断点继续显示进度
+      const taskNow = tasks.get(taskId);
+      if (taskNow) {
+        syncLocalLearnStatus(taskNow.bookName, {
+          learningStatus: 'learning',
+          learningProgress: progress,
+          learningCurrentChunk: processedChunks,
+          learningTotalChunks: totalChunks,
+          learningLayersDone: layersDone,
+          learningMessage: `AI学习中: ${processedChunks}/${totalChunks}块 (${progress}%)`,
+        });
+      }
 
       // 块间短暂延迟
       if (i + 1 < totalChunks) {
@@ -1649,8 +1688,63 @@ export function initTaskManager(): void {
   
   loadTasks();
   
+  // 🔴 状态同步铁律：本地物理文件已存在 → task.status 必须是 done
+  // 防止"知识库说已录入完成"但"添加书籍页还显示搜索中"的状态矛盾
+  let synced = 0;
+  
+  // 先加载 local-learn-tasks.json，用于恢复已完成的学习状态
+  let localLearnStatus: Record<string, Record<string, unknown>> = {};
+  try {
+    const learnTaskFile = path.join(TASKS_DIR, 'local-learn-tasks.json');
+    if (fs.existsSync(learnTaskFile)) {
+      localLearnStatus = JSON.parse(fs.readFileSync(learnTaskFile, 'utf-8'));
+    }
+  } catch { /* 忽略 */ }
+  
+  try {
+    const localBooks = getLocalBookInfo();
+    const localBookSet = new Set(localBooks.bookNames);
+    for (const [id, task] of tasks) {
+      if (localBookSet.has(task.bookName) && task.status !== 'done') {
+        // 物理文件存在但 task 不是 done → 强制同步为 done
+        const filePath = path.join(process.cwd(), 'public/book-content', `${task.bookName}.txt`);
+        let chars = task.chars;
+        try {
+          if (fs.existsSync(filePath)) {
+            chars = fs.statSync(filePath).size; // 用文件大小作为字符数近似值
+          }
+        } catch {}
+        
+        // 从 local-learn-tasks.json 恢复学习状态（如果之前学完了，保持 done）
+        const learnInfo = localLearnStatus[task.bookName];
+        const isLearningDone = learnInfo?.learningStatus === 'done';
+        
+        updateTask(id, {
+          status: 'done',
+          progress: 100,
+          message: `《${task.bookName}》已录入完成（状态自动同步：检测到本地全文文件）`,
+          chars: chars > 0 ? chars : task.chars,
+          completedAt: task.completedAt || Date.now(),
+          learningStatus: isLearningDone ? 'done' : (task.learningStatus === 'done' ? 'done' : 'pending'),
+          learningProgress: isLearningDone ? 100 : task.learningProgress,
+          learningMessage: isLearningDone 
+            ? `✅ 已学完《${task.bookName}》全部内容` 
+            : (task.learningStatus === 'done' ? task.learningMessage : '⏳ 待学习（在知识库点击"开始学习"启动）'),
+          learningLayersDone: isLearningDone ? [1, 2, 3, 4] : task.learningLayersDone,
+        });
+        synced++;
+      }
+    }
+    if (synced > 0) {
+      console.log(`[TaskManager] 状态同步：${synced} 个任务从"录入中"修正为"已完成"（检测到本地全文文件）`);
+    }
+  } catch (e) {
+    console.error('[TaskManager] 状态同步失败:', e);
+  }
+  
   // 自动恢复未完成的任务
   let resumed = 0;
+  let learningResumed = 0;
   for (const [id, task] of tasks) {
     if (task.status === 'paused') {
       // 暂停的任务不自动恢复，等待用户手动点击"继续"
@@ -1674,16 +1768,29 @@ export function initTaskManager(): void {
       // 异步处理，不阻塞初始化
       setTimeout(() => processTask(id), Math.random() * 5000);
     } else if (task.status === 'done' && task.learningStatus === 'pending') {
-      // 已录入但未学习——【不自动恢复】，保留"待学习"状态，等待用户在知识库手动点击"开始学习"
-      // （原行为：自动恢复学习；新行为：手动触发）
+      // 已录入但未学习——保留"待学习"状态，等待用户在知识库手动点击"开始学习"
     } else if (task.status === 'done' && task.learningStatus === 'learning') {
-      // 学习中断——回退到"待学习"状态，等待用户在知识库手动点击"开始学习"重新启动
-      updateTask(id, { learningStatus: 'pending', learningProgress: 0, learningMessage: '⏳ 待学习（之前学习中断，请在知识库重新点击"开始学习"）' });
+      // 🔴 学习铁律：学习一旦开始，必须持续到完成——刷新/退出/锁屏都不能中断
+      // 之前的策略是回退到 pending，违反铁律
+      // 新策略：检测到 learningStatus='learning' → 自动恢复学习（继续从中断点学）
+      updateTask(id, {
+        learningMessage: `🔄 自动恢复学习《${task.bookName}》（之前中断，继续学习中...）`,
+      });
+      learningResumed++;
+      // 异步恢复，避免阻塞 init
+      setTimeout(() => {
+        learnLocalBook(id).catch(e => {
+          console.error(`[TaskManager] 自动恢复学习失败 ${task.bookName}:`, e);
+        });
+      }, 3000 + Math.random() * 5000);
     }
   }
   
   if (resumed > 0) {
-    console.log(`[TaskManager] 自动恢复 ${resumed} 个未完成任务`);
+    console.log(`[TaskManager] 自动恢复 ${resumed} 个未完成录入任务`);
+  }
+  if (learningResumed > 0) {
+    console.log(`[TaskManager] 🔄 自动恢复 ${learningResumed} 个学习中任务（后台持续运行，不受刷新/退出影响）`);
   }
 }
 
@@ -1720,33 +1827,49 @@ export function createTask(bookName: string): { task: BookTask; isNew: boolean }
   // 用户主动重新添加 = 强制重新录入（覆盖知识库现有版本）
   // 不再因 isBookExists 拦截，让用户能看到完整录入流程
   
+  // 🔴 状态同步铁律：本地物理文件已存在 → 直接标 done，不进入搜索
+  // 避免出现"知识库有该书"但"添加书籍页还显示搜索中"的矛盾
+  let localFileExists = false;
+  let localFileChars = 0;
+  try {
+    const filePath = path.join(process.cwd(), 'public/book-content', `${bookName}.txt`);
+    if (fs.existsSync(filePath)) {
+      localFileExists = true;
+      localFileChars = fs.statSync(filePath).size;
+    }
+  } catch { /* 忽略 */ }
+  
   const id = generateId();
   const task: BookTask = {
     id,
     bookName,
-    status: 'pending',
-    message: '等待开始...',
-    progress: 0,
+    status: localFileExists ? 'done' : 'pending',
+    message: localFileExists 
+      ? `《${bookName}》已存在于知识库（检测到本地全文文件）` 
+      : '等待开始...',
+    progress: localFileExists ? 100 : 0,
     currentChapter: 0,
     totalChapters: 0,
     currentChapterName: '',
     remainingChapters: 0,
-    source: '',
+    source: localFileExists ? '本地' : '',
     size: '',
-    chars: 0,
+    chars: localFileChars,
     learningStatus: 'pending',
     learningProgress: 0,
     learningCurrentChunk: 0,
     learningTotalChunks: 0,
-    learningMessage: '等待录入完成...',
+    learningMessage: localFileExists 
+      ? '⏳ 待学习（在知识库点击"开始学习"启动）' 
+      : '等待录入完成...',
     learningLayersDone: [],
     hasMissingChapters: false,
     createdAt: Date.now(),
     updatedAt: Date.now(),
-    startedAt: null,
-    completedAt: null,
+    startedAt: localFileExists ? Date.now() : null,
+    completedAt: localFileExists ? Date.now() : null,
     error: '',
-    logs: [],
+    logs: localFileExists ? [`[${new Date().toLocaleTimeString()}] 检测到本地全文文件，直接标记为已录入`] : [],
     chapterStructure: '',
     chapters: [],
   };
@@ -1754,8 +1877,10 @@ export function createTask(bookName: string): { task: BookTask; isNew: boolean }
   tasks.set(id, task);
   saveTasks();
   
-  // 异步开始处理（不阻塞返回）
-  setTimeout(() => processTask(id), 500);
+  // 异步开始处理（不阻塞返回）；如果本地已存在则跳过录入流程
+  if (!localFileExists) {
+    setTimeout(() => processTask(id), 500);
+  }
   
   return { task, isNew: true };
 }
@@ -1995,6 +2120,60 @@ export function getActiveTaskStatusList(): string[] {
  * 处理对象：所有 status='done' && learningStatus='pending' 的任务 + 本地内置书的待学习任务
  */
 export async function startLearningPendingBooks(): Promise<{ started: number; alreadyLearning: number; bookNames: string[] }> {
+  if (!isInitialized) initTaskManager();
+
+  // 🔧 自动补建任务：扫描 public/book-content/ 目录，为没有 task 的物理书创建待学习任务
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const contentDir = path.join(process.cwd(), 'public', 'book-content');
+    if (fs.existsSync(contentDir)) {
+      const files = fs.readdirSync(contentDir).filter((f: string) => f.endsWith('.txt'));
+      const existingNames = new Set(getAllTasks().map((t: BookTask) => t.bookName));
+      for (const file of files) {
+        const bookName = file.replace(/\.txt$/, '');
+        if (!existingNames.has(bookName)) {
+          const taskId = `local_${Date.now()}_${bookName.replace(/[^a-zA-Z0-9\u4e00-\u9fff]/g, '_')}`;
+          const newTask: BookTask = {
+            id: taskId,
+            bookName,
+            status: 'done',
+            progress: 100,
+            currentChapter: 0,
+            totalChapters: 0,
+            currentChapterName: '',
+            remainingChapters: 0,
+            message: `✅ 本地已有完整书籍，待学习`,
+            source: 'local',
+            size: '',
+            chars: 0,
+            chapters: [],
+            chapterStructure: '',
+            learningStatus: 'pending',
+            learningProgress: 0,
+            learningCurrentChunk: 0,
+            learningTotalChunks: 0,
+            learningMessage: '',
+            learningLayersDone: [],
+            hasMissingChapters: false,
+            isLocalBook: true,
+            logs: [`自动发现本地书籍: ${bookName}`],
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            startedAt: null,
+            completedAt: null,
+            error: '',
+          };
+          tasks.set(taskId, newTask);
+          saveTasks();
+          console.log(`[startLearningPendingBooks] 自动补建本地书任务: ${bookName} (${taskId})`);
+        }
+      }
+    }
+  } catch (e) {
+    console.error('[startLearningPendingBooks] 扫描本地书籍失败:', e);
+  }
+
   const allTasks = getAllTasks();
   const pendingBooks = allTasks.filter(
     (t) => (t.status === 'done' || t.isLocalBook) && t.learningStatus === 'pending',
@@ -2003,12 +2182,12 @@ export async function startLearningPendingBooks(): Promise<{ started: number; al
   const started: string[] = [];
 
   // 动态 require 避免循环依赖
-  const { getBookFullTextAsync } = require('./fulltext-search');
+  const { getBookFullText } = await import('./fulltext-search');
 
   for (const task of pendingBooks) {
     setTimeout(async () => {
       try {
-        const fullText = await getBookFullTextAsync(task.bookName);
+        const fullText = getBookFullText(task.bookName);
         if (fullText) {
           processLearning(task.id, fullText);
         }
@@ -2178,12 +2357,37 @@ export async function startLearningAllLocalBooks(): Promise<{ total: number; sta
       error: '',
     };
     
+    // 写入独立学习任务文件（绕过 saveTasks HMR 闭包问题）
+    // 用 bookName 作为 key，保持与 syncLocalLearnStatus 一致
+    const learnTaskFile = path.join(TASKS_DIR, 'local-learn-tasks.json');
+    let learnTasks: Record<string, Record<string, unknown>> = {};
+    if (fs.existsSync(learnTaskFile)) {
+      try { learnTasks = JSON.parse(fs.readFileSync(learnTaskFile, 'utf-8')); } catch {}
+    }
+    learnTasks[bookName] = {
+      learningStatus: 'pending',
+      learningProgress: 0,
+      learningMessage: '等待开始学习',
+      taskId: id,
+      startedAt: now,
+    };
+    fs.writeFileSync(learnTaskFile, JSON.stringify(learnTasks, null, 2), 'utf-8');
+    
     tasks.set(id, task);
     localLearningQueue.push(id);
     started++;
   }
   
-  saveTasks();
+  // 同时写主任务文件（直接写磁盘，不依赖 saveTasks）
+  try {
+    const taskDir = path.dirname(TASKS_FILE);
+    if (!fs.existsSync(taskDir)) fs.mkdirSync(taskDir, { recursive: true });
+    const allTasks = Array.from(tasks.values());
+    const data = { tasks: allTasks, deletedIds: [] };
+    fs.writeFileSync(TASKS_FILE, JSON.stringify(data, null, 2), 'utf-8');
+  } catch (e) {
+    console.error('[startLearningAllLocalBooks] 直接写磁盘失败:', e);
+  }
   
   // 启动队列处理
   processLocalLearningQueue();
@@ -2215,19 +2419,67 @@ function processLocalLearningQueue(): void {
 }
 
 /**
+ * 同步本地学习状态到 local-learn-tasks.json
+ * 用于跨 HMR / 重启时恢复学习进度
+ */
+function syncLocalLearnStatus(bookName: string, partial: {
+  learningStatus?: 'pending' | 'learning' | 'done' | 'failed';
+  learningProgress?: number;
+  learningMessage?: string;
+  learningLayersDone?: number[];
+  learningCurrentChunk?: number;
+  learningTotalChunks?: number;
+  completedAt?: number | null;
+}): void {
+  try {
+    const learnTaskFile = path.join(TASKS_DIR, 'local-learn-tasks.json');
+    let learnTasks: Record<string, Record<string, unknown>> = {};
+    if (fs.existsSync(learnTaskFile)) {
+      try { learnTasks = JSON.parse(fs.readFileSync(learnTaskFile, 'utf-8')); } catch {}
+    }
+    const existing = learnTasks[bookName] || {};
+    learnTasks[bookName] = {
+      ...existing,
+      ...partial,
+      updatedAt: Date.now(),
+    };
+    fs.writeFileSync(learnTaskFile, JSON.stringify(learnTasks, null, 2), 'utf-8');
+  } catch (e) {
+    console.error('[syncLocalLearnStatus] 写入失败:', e);
+  }
+}
+
+/**
  * 学习单本本地书籍
  */
 async function learnLocalBook(taskId: string): Promise<void> {
   const task = tasks.get(taskId);
-  if (!task) return;
+  if (!task) {
+    return;
+  }
   
   try {
+    // 标记为 learning 状态（持久化到磁盘）
+    updateTask(taskId, {
+      learningStatus: 'learning',
+      startedAt: task.startedAt || Date.now(),
+      learningMessage: `开始读取《${task.bookName}》全文...`,
+    });
+    syncLocalLearnStatus(task.bookName, {
+      learningStatus: 'learning',
+      learningMessage: `开始读取《${task.bookName}》全文...`,
+    });
+    
     // 从fulltext-search读取本地书籍内容
-    const { getBookFullTextAsync } = await import('./fulltext-search');
-    const bookContent = await getBookFullTextAsync(task.bookName);
+    const { getBookFullText } = await import('./fulltext-search');
+    const bookContent = getBookFullText(task.bookName);
     
     if (!bookContent || bookContent.trim().length === 0) {
       updateTask(taskId, {
+        learningStatus: 'failed',
+        learningMessage: `无法读取《${task.bookName}》的内容`,
+      });
+      syncLocalLearnStatus(task.bookName, {
         learningStatus: 'failed',
         learningMessage: `无法读取《${task.bookName}》的内容`,
       });
@@ -2243,19 +2495,42 @@ async function learnLocalBook(taskId: string): Promise<void> {
       });
     }
     
-    // 调用已有的processLearning
+    // 调用已有的processLearning（学习过程中会通过 updateTask 持续更新进度）
     await processLearning(taskId, bookContent);
     
     // 学习完成后更新learn-status
-    const { markBookLearned } = await import('./fulltext-search');
-    markBookLearned(task.bookName, task.learningStatus === 'done');
+    const fulltextMod = await import('./fulltext-search');
+    if (typeof fulltextMod.markBookLearned === 'function') {
+      fulltextMod.markBookLearned(task.bookName, true);
+    }
+    
+    // 最终状态同步到 local-learn-tasks.json
+    const finalTask = tasks.get(taskId);
+    syncLocalLearnStatus(task.bookName, {
+      learningStatus: finalTask?.learningStatus === 'done' ? 'done' : 'failed',
+      learningProgress: finalTask?.learningProgress ?? 100,
+      learningMessage: finalTask?.learningMessage || '学习完成',
+      learningLayersDone: finalTask?.learningLayersDone || [1, 2, 3, 4],
+      learningCurrentChunk: finalTask?.learningCurrentChunk,
+      learningTotalChunks: finalTask?.learningTotalChunks,
+      completedAt: Date.now(),
+    });
     
   } catch (e) {
     const errMsg = e instanceof Error ? e.message : String(e);
+    const stack = e instanceof Error ? (e.stack || '').split('\n').slice(0, 5).join('\n') : '';
+    console.error(`[learnLocalBook] ❌ ${tasks.get(taskId)?.bookName} 学习失败: ${errMsg}\n${stack}`);
     updateTask(taskId, {
       learningStatus: 'failed',
       learningMessage: `学习失败: ${errMsg}`,
     });
+    const bookName = tasks.get(taskId)?.bookName;
+    if (bookName) {
+      syncLocalLearnStatus(bookName, {
+        learningStatus: 'failed',
+        learningMessage: `学习失败: ${errMsg}`,
+      });
+    }
   }
 }
 
