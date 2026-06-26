@@ -33,14 +33,13 @@
   },
   "滴天髓": {
     "learningStatus": "learning",
-    "learningMessage": "📖 学习中：第38/64章「第38章 滴天髓阐微·下篇·父母-滴天髓阐微-国学梦」（块 32/56，57%）",
-    "updatedAt": 1782496042384,
-    "learningProgress": 57,
+    "learningMessage": "📖 学习中：第18/64章「第18章 滴天髓阐微·上篇·衰旺-滴天髓阐微-国学梦」（块 18/56，32%）",
+    "updatedAt": 1782496189514,
+    "learningProgress": 32,
     "learningLayersDone": [
-      1,
-      2
+      1
     ],
-    "learningCurrentChunk": 32,
+    "learningCurrentChunk": 18,
     "learningTotalChunks": 56,
     "completedAt": 1782496021051
   }
