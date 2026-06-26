@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 
 interface BookInfo {
@@ -42,8 +42,9 @@ export default function KnowledgeBasePage() {
   const [learningStarted, setLearningStarted] = useState(false);
   const pageSize = 50;
 
-  const fetchBooks = useCallback(async (search = '', p = 1) => {
-    setLoading(true);
+  const fetchBooks = useCallback(async (search = '', p = 1, silent = false) => {
+    // silent 模式：后台轮询，不触发 loading 闪烁
+    if (!silent) setLoading(true);
     try {
       const params = new URLSearchParams({
         search,
@@ -52,64 +53,103 @@ export default function KnowledgeBasePage() {
       });
       const res = await fetch(`/api/knowledge-base?${params}`);
       const data = await res.json();
-      setBooks(data.books || []);
-      setStats({
-        total: data.total,
-        totalChars: data.totalChars,
-        bookCount: data.bookCount,
-        learnedCount: data.learnedCount || 0,
+      // 数据变化才 setState，避免不必要的 re-render
+      setBooks(prev => {
+        const next = data.books || [];
+        // 浅比较：数量、book.name + learningProgress + learningCurrentChunk 全等则跳过
+        if (prev.length === next.length) {
+          let allEqual = true;
+          for (let i = 0; i < next.length; i++) {
+            const a = prev[i];
+            const b = next[i];
+            if (!a || a.name !== b.name
+              || a.learningStatus !== b.learningStatus
+              || a.learningProgress !== b.learningProgress
+              || a.learningCurrentChunk !== b.learningCurrentChunk
+              || a.learningTotalChunks !== b.learningTotalChunks
+              || a.learningMessage !== b.learningMessage
+              || a.charCount !== b.charCount
+              || a.learned !== b.learned) {
+              allEqual = false;
+              break;
+            }
+          }
+          if (allEqual) return prev;
+        }
+        return next;
       });
-      setTotalPages(data.totalPages || 1);
+      setStats(prev => {
+        const next = {
+          total: data.total,
+          totalChars: data.totalChars,
+          bookCount: data.bookCount,
+          learnedCount: data.learnedCount || 0,
+        };
+        if (prev.total === next.total && prev.totalChars === next.totalChars
+          && prev.bookCount === next.bookCount && prev.learnedCount === next.learnedCount) {
+          return prev;
+        }
+        return next;
+      });
+      setTotalPages(prev => prev === (data.totalPages || 1) ? prev : (data.totalPages || 1));
 
       // 🛡️ 部署后自愈：检测到数据异常（书数>0 但单本字数 < 50000）→ 自动触发种子同步
-      const hasShortBook = (data.books || []).some((b: { charCount: number; name: string }) => b.charCount > 0 && b.charCount < 50000);
-      if (hasShortBook && !sessionStorage.getItem('seed-synced')) {
-        sessionStorage.setItem('seed-synced', '1');
-        try {
-          const syncRes = await fetch('/api/knowledge-base', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'force-sync-seed' }),
-          });
-          const syncData = await syncRes.json();
-          if (syncData?.success && syncData?.data?.totalChars > data.totalChars) {
-            console.log('[knowledge-base] 部署后自愈：种子数据已同步', syncData.data);
-            // 拉新数据
-            const res2 = await fetch(`/api/knowledge-base?${params}`);
-            const data2 = await res2.json();
-            setBooks(data2.books || []);
-            setStats({
-              total: data2.total,
-              totalChars: data2.totalChars,
-              bookCount: data2.bookCount,
-              learnedCount: data2.learnedCount || 0,
+      // 只在初次加载（非 silent）时检查，避免轮询时反复触发
+      if (!silent) {
+        const hasShortBook = (data.books || []).some((b: { charCount: number; name: string }) => b.charCount > 0 && b.charCount < 50000);
+        if (hasShortBook && !sessionStorage.getItem('seed-synced')) {
+          sessionStorage.setItem('seed-synced', '1');
+          try {
+            const syncRes = await fetch('/api/knowledge-base', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'force-sync-seed' }),
             });
-            setTotalPages(data2.totalPages || 1);
+            const syncData = await syncRes.json();
+            if (syncData?.success && syncData?.data?.totalChars > data.totalChars) {
+              console.log('[knowledge-base] 部署后自愈：种子数据已同步', syncData.data);
+              // 拉新数据
+              const res2 = await fetch(`/api/knowledge-base?${params}`);
+              const data2 = await res2.json();
+              setBooks(data2.books || []);
+              setStats({
+                total: data2.total,
+                totalChars: data2.totalChars,
+                bookCount: data2.bookCount,
+                learnedCount: data2.learnedCount || 0,
+              });
+              setTotalPages(data2.totalPages || 1);
+            }
+          } catch (e) {
+            console.warn('[knowledge-base] force-sync-seed 失败', e);
           }
-        } catch (e) {
-          console.warn('[knowledge-base] force-sync-seed 失败', e);
         }
       }
     } catch {
       // 静默
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchBooks(searchQuery, page);
+    fetchBooks(searchQuery, page, false);
   }, [fetchBooks, searchQuery, page]);
 
-  // 自动轮询学习进度：有 learning 状态的书时每 3 秒刷新一次
+  // 自动轮询学习进度：有 learning 状态的书时每 3 秒后台刷新（silent=true 不闪烁）
+  // 用 ref 持有最新参数，避免依赖 books 导致 timer 频繁重建
+  const pollParamsRef = useRef({ searchQuery, page });
+  pollParamsRef.current = { searchQuery, page };
+  const hasLearningRef = useRef(false);
+  hasLearningRef.current = books.some(b => b.learningStatus === 'learning');
   useEffect(() => {
-    const hasLearning = books.some(b => b.learningStatus === 'learning');
-    if (!hasLearning) return;
     const timer = setInterval(() => {
-      fetchBooks(searchQuery, page);
+      if (!hasLearningRef.current) return;
+      const { searchQuery: sq, page: pg } = pollParamsRef.current;
+      fetchBooks(sq, pg, true); // silent=true: 后台刷新不触发 loading
     }, 3000);
     return () => clearInterval(timer);
-  }, [books, fetchBooks, searchQuery, page]);
+  }, [fetchBooks]);
 
   // 搜索防抖
   const [searchInput, setSearchInput] = useState('');
@@ -339,7 +379,8 @@ export default function KnowledgeBasePage() {
                         </span>
                       )}
                       {book.learningStatus === 'learning' && (
-                        <span className="text-[10px] bg-[#d4a853]/10 text-[#d4a853] px-1.5 py-0.5 rounded-full flex-shrink-0 border border-[#d4a853]/20 animate-pulse">
+                        <span className="text-[10px] bg-[#d4a853]/10 text-[#d4a853] px-1.5 py-0.5 rounded-full flex-shrink-0 border border-[#d4a853]/20 inline-flex items-center gap-1">
+                          <span className="inline-block w-1.5 h-1.5 bg-[#d4a853] rounded-full" />
                           深度学习中
                         </span>
                       )}
