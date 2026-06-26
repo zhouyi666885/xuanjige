@@ -552,6 +552,8 @@ export async function loadBookCacheAsync(): Promise<void> {
         }
       }
     } catch { /* 本地补充失败可以忽略 */ }
+    // 防御性去重：避免 HMR 闭包污染或重复加载
+    bookNameList = Array.from(new Set(bookNameList));
     return;
   } catch (err) {
     console.error('[全文检索] 从 Supabase 加载书目失败，回退到本地/S3:', err);
@@ -1050,10 +1052,16 @@ export function getBookStats(): { bookCount: number; totalChars: number; bookNam
     totalChars += content.length;
   }
   
+  // 防御性去重：避免 HMR 闭包污染或并发加载导致 bookNameList 出现重复
+  const uniqueNames = Array.from(new Set(bookNameList));
+  if (uniqueNames.length !== bookNameList.length) {
+    bookNameList = uniqueNames;
+  }
+
   return {
-    bookCount: bookNameList.length,
+    bookCount: uniqueNames.length,
     totalChars,
-    bookNames: bookNameList,
+    bookNames: uniqueNames,
   };
 }
 

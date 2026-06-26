@@ -19,7 +19,8 @@ export async function GET(request: NextRequest) {
     const pageSize = Math.min(100, Math.max(1, parseInt(searchParams.get('pageSize') || '50', 10)));
 
     const stats = getBookStats();
-    let books = stats.bookNames;
+    // 防御性去重：避免任何上游脏数据导致同名书重复显示
+    let books = Array.from(new Set(stats.bookNames));
 
     // 搜索过滤
     if (searchQuery) {
