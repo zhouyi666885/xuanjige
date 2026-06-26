@@ -2083,6 +2083,7 @@ export function initTaskManager(): void {
 
   // 🌩️ 云端兜底：从 Supabase 拉所有 task，本地没有的合并进来
   // 关键：本地丢失（部署后）时云端就是唯一真相源
+  // 必须串行 await 完成后再做 resume 判断，否则 tasks Map 还没装满
   void (async () => {
     try {
       await loadTasksFromDb();
@@ -2103,6 +2104,24 @@ export function initTaskManager(): void {
         const deletedIds = Array.from(deletedTaskIds);
         fs.writeFileSync(TASKS_FILE, JSON.stringify({ tasks: arr, deletedIds }, null, 2));
       } catch { /* ignore */ }
+
+      // 🔴 学习铁律：db 中所有 learningStatus='learning' 的任务，进程重启后自动 resume
+      // 不依赖本地内存，云端就是真相
+      let dbLearningResumed = 0;
+      for (const [id, task] of tasks) {
+        if (task.status === 'done' && task.learningStatus === 'learning') {
+          // 跳过 paused
+          if (cancelledTasks.has(id) || deletedTaskIds.has(id)) continue;
+          // 已经在队列里或已在跑就不重复加
+          if (localLearningQueue.includes(id)) continue;
+          localLearningQueue.push(id);
+          dbLearningResumed++;
+        }
+      }
+      if (dbLearningResumed > 0) {
+        console.log(`[TaskManager] 🔄 从 Supabase 自动恢复 ${dbLearningResumed} 个学习中任务`);
+        processLocalLearningQueue();
+      }
     } catch (e) {
       console.warn('[TaskManager] 从 Supabase 拉 task 失败，使用本地数据:', e);
     }
@@ -2901,7 +2920,15 @@ export async function startLearningAllLocalBooks(): Promise<{ total: number; sta
   } catch (e) {
     console.error('[startLearningAllLocalBooks] saveTasks 异常:', e);
   }
-  
+
+  // 关键：await 所有 task 同步到 Supabase 完成，保证返回前 db 已有完整状态
+  try {
+    const newTasks = Array.from(tasks.values()).filter(t => t.isLocalBook && t.learningStatus === 'learning');
+    await Promise.all(newTasks.map(t => syncTaskToDb(t).catch(() => {})));
+  } catch (e) {
+    console.error('[startLearningAllLocalBooks] await syncTaskToDb 异常:', e);
+  }
+
   // 启动队列处理
   processLocalLearningQueue();
   
@@ -3020,8 +3047,9 @@ export async function startLearningSingleBook(bookName: string): Promise<{ succe
     console.warn('[startLearningSingleBook] 写 local-learn-tasks.json 失败', e);
   }
 
-  // 写主任务文件 + Supabase
+  // 写主任务文件 + Supabase（关键：await 等 Supabase 持久化完成再返回，保证退出页面后状态不丢）
   try { saveTasks(); } catch (e) { console.warn('[startLearningSingleBook] saveTasks 异常', e); }
+  try { await syncTaskToDb(existingTask); } catch (e) { console.warn('[startLearningSingleBook] syncTaskToDb 异常', e); }
 
   // 启动队列处理
   processLocalLearningQueue();
