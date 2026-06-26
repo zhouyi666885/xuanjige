@@ -33,13 +33,14 @@
   },
   "滴天髓": {
     "learningStatus": "learning",
-    "learningMessage": "📖 学习中：第13/64章「第13章 滴天髓阐微·上篇·八格-滴天髓阐微-国学梦」（块 14/56，25%）",
-    "updatedAt": 1782499787277,
-    "learningProgress": 25,
+    "learningMessage": "📖 学习中：第34/64章「第34章 滴天髓阐微·上篇·震兑-滴天髓阐微-国学梦」（块 29/56，51%）",
+    "updatedAt": 1782500401422,
+    "learningProgress": 51,
     "learningLayersDone": [
-      1
+      1,
+      2
     ],
-    "learningCurrentChunk": 14,
+    "learningCurrentChunk": 29,
     "learningTotalChunks": 56,
     "completedAt": 1782499571559
   }

@@ -421,7 +421,17 @@ ${bookContent.content}`;
     const learnedNames = learnStats.learnedBookNames || [];
     const pendingNames = learnStats.pendingBookNames || [];
 
-    const activeBookNames = activeTasksForStatus.map(t => `《${t.book_name}》(${t.status})`).join('、');
+    // 按录入阶段分组（中文）——让 AI 一眼看清"翻译中""下载中""搜索中"等具体阶段
+    const searchingTasks = activeTasksForStatus.filter(t => t.status === 'searching');
+    const downloadingTasks = activeTasksForStatus.filter(t => t.status === 'downloading');
+    const translatingTasks = activeTasksForStatus.filter(t => t.status === 'translating');
+    const savingTasks = activeTasksForStatus.filter(t => t.status === 'saving');
+    const pausedTasks = activeTasksForStatus.filter(t => t.status === 'paused');
+    const pendingTasks = activeTasksForStatus.filter(t => t.status === 'pending');
+
+    const fmtBookList = (tasks: typeof dbTasksForStatus): string =>
+      tasks.length === 0 ? '（无）' : tasks.map(t => `《${t.book_name}》`).join('、');
+
     const learningBookNames = learningTasksForStatus
       .map(t => `《${t.book_name}》${t.learning_progress ?? 0}%`)
       .join('、');
@@ -433,12 +443,21 @@ ${bookContent.content}`;
 ✅ 已学完（learningStatus=done）：${learnStats.learned} 本${learnedNames.length > 0 ? '\n   学完清单：' + learnedNames.map(n => '《' + n + '》').join('、') : ''}
 🔄 学习进行中（learningStatus=learning）：${learningTasksForStatus.length} 本${learningBookNames ? '\n   进行中：' + learningBookNames : ''}
 ⏳ 待学习（已录入但未点"开始学习"）：${Math.max(0, learnStats.pending - learningTasksForStatus.length)} 本
-⚠️ 还在录入/搜索（尚未进知识库）：${activeTasksForStatus.length} 本${activeBookNames ? '\n   录入中：' + activeBookNames : ''}
+⚠️ 还在录入/搜索（尚未进知识库）：${activeTasksForStatus.length} 本
+
+   📥 录入阶段分组明细（精确到当前进行的具体动作）：
+   ① 搜索中（在网上搜资料）：${searchingTasks.length} 本 → ${fmtBookList(searchingTasks)}
+   ② 下载中（在下载文件）：${downloadingTasks.length} 本 → ${fmtBookList(downloadingTasks)}
+   ③ 翻译中（在翻译为中文）：${translatingTasks.length} 本 → ${fmtBookList(translatingTasks)}
+   ④ 保存中（在写入知识库）：${savingTasks.length} 本 → ${fmtBookList(savingTasks)}
+   ⑤ 待开始（排队中）：${pendingTasks.length} 本 → ${fmtBookList(pendingTasks)}
+   ⑥ 已暂停：${pausedTasks.length} 本 → ${fmtBookList(pausedTasks)}
 
 【系统状态查询铁律——任何关于"当前状态"的问题，必须严格基于上方真实数据回答，绝不允许编造、推测、想象】
 适用问题包括但不限于：
 - 知识库里有哪些书 / 学了多少本 / 总共多少字
 - 正在录入哪本书 / 录到哪一步了 / 录入进度多少
+- 正在搜索哪本书 / 正在下载哪本书 / 正在翻译哪本书 / 正在保存哪本书 → 必须从上方"录入阶段分组明细"的对应分组直接取数
 - 正在学习哪本书 / 学到第几章 / 学习进度多少
 - 某本书有没有 / 有没有学 / 学完没有
 - 正在翻译哪本书 / 翻译到哪了
