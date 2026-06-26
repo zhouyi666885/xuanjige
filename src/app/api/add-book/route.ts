@@ -10,7 +10,7 @@ import {
   resumeTask,
   cancelTask,
 } from '@/lib/book-task-manager';
-import { getLearningProgress, getLocalBookInfo } from '@/lib/fulltext-search';
+import { getLearningProgress, getLocalBookInfo, loadBookCacheAsync } from '@/lib/fulltext-search';
 
 // 确保任务管理器初始化
 initTaskManager();
@@ -21,6 +21,9 @@ initTaskManager();
  */
 export async function GET() {
   try {
+    // 首先从云端拉取最新书目（开发/生产共享 Supabase 数据）
+    await loadBookCacheAsync();
+
     const taskList = getAllTasks();
     const stats = getTaskStats();
 

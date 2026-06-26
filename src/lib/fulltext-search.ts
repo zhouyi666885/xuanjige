@@ -9,6 +9,15 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { saveBook as saveBookToS3, getBookContent as getBookContentFromS3, deleteBookFromS3, getAllBookNames } from './book-storage';
+import {
+  upsertBook as upsertBookToDb,
+  getAllBookNames as getAllBookNamesFromDb,
+  getBookContent as getBookContentFromDb,
+  deleteBook as deleteBookFromDb,
+} from './book-repo';
+
+// 数据库优先策略：所有书籍以 Supabase 为唯一真相源；本地 fs / S3 只是缓存层
+let dbCachePrimed = false;
 
 // 书籍内容缓存
 let bookCache: Map<string, string> | null = null;
@@ -514,19 +523,47 @@ export function markBookLearned(bookName: string, learned: boolean): void {
  * 在生产环境中，启动时从S3拉取书名列表，按需获取内容
  */
 export async function loadBookCacheAsync(): Promise<void> {
-  if (bookCache && bookCache.size > 0) return; // 已有缓存
-  
+  if (bookCache && bookCache.size > 0 && dbCachePrimed) return; // 已有缓存
+
   bookCache = new Map();
   bookNameList = [];
-  
+
+  // 优先策略：从 Supabase（云端持久化）拉取所有书籍
+  // 这是开发/生产共享的唯一真相源，确保扣子录入后部署到微信也能看到
+  try {
+    const names = await getAllBookNamesFromDb();
+    for (const name of names) {
+      bookNameList.push(name);
+      bookCache.set(name, ''); // 占位，全文按需懒加载
+    }
+    dbCachePrimed = true;
+    console.log(`[全文检索] 已从 Supabase 加载 ${names.length} 本书的目录`);
+    // 同步合并本地 fs 中的书目（防止本地有但 db 没的情况）
+    try {
+      const dir = getBookContentDir();
+      if (fs.existsSync(dir)) {
+        const files = fs.readdirSync(dir).filter(f => f.endsWith('.txt'));
+        for (const file of files) {
+          const localName = file.replace('.txt', '');
+          if (!bookCache.has(localName)) {
+            bookCache.set(localName, '');
+            bookNameList.push(localName);
+          }
+        }
+      }
+    } catch { /* 本地补充失败可以忽略 */ }
+    return;
+  } catch (err) {
+    console.error('[全文检索] 从 Supabase 加载书目失败，回退到本地/S3:', err);
+  }
+
   if (isProduction()) {
     // 生产环境：从S3获取书名列表
     try {
       const allBooks = await getAllBookNames();
       for (const bookName of allBooks) {
         bookNameList.push(bookName);
-        // 不预加载内容，按需从S3获取（懒加载）
-        bookCache.set(bookName, ''); // 占位，内容在搜索时按需加载
+        bookCache.set(bookName, ''); // 占位
       }
       console.log(`[全文检索] 生产环境：从S3获取到 ${allBooks.length} 本书名`);
     } catch (err) {
@@ -545,7 +582,28 @@ async function getBookContentLazy(bookName: string): Promise<string | null> {
   // 先检查缓存中是否有实际内容
   const cached = bookCache?.get(bookName);
   if (cached && cached.length > 0) return cached;
-  
+
+  // 优先策略：从 Supabase 取（统一真相源，跨环境共享）
+  try {
+    const content = await getBookContentFromDb(bookName);
+    if (content) {
+      bookCache?.set(bookName, content);
+      // 同步落本地 fs 作为加速缓存（开发环境 public/、生产环境 /tmp）
+      try {
+        const dir = getBookContentDir();
+        const safeName = bookName.replace(/[<>:"/\\|?*]/g, '_').trim();
+        const filePath = path.join(dir, `${safeName}.txt`);
+        if (!fs.existsSync(filePath)) {
+          fs.mkdirSync(dir, { recursive: true });
+          fs.writeFileSync(filePath, content, 'utf-8');
+        }
+      } catch { /* ignore cache write errors */ }
+      return content;
+    }
+  } catch (err) {
+    console.error(`[全文检索] 从 Supabase 取《${bookName}》失败，回退本地/S3:`, err);
+  }
+
   if (isProduction()) {
     // 生产环境：从S3获取
     try {
@@ -563,7 +621,7 @@ async function getBookContentLazy(bookName: string): Promise<string | null> {
       console.error(`[全文检索] 从S3获取《${bookName}》失败:`, err);
     }
   }
-  
+
   return cached || null;
 }
 
@@ -1306,13 +1364,27 @@ export function addBookToKnowledgeBase(bookName: string, content: string): strin
   // 刷新缓存，让新书可被检索到
   bookCache = null;
   bookNameList = null;
+  dbCachePrimed = false;
   loadBookCache();
   
   // 🔴 录入即学习：开始学习，解析章节信息
   const chapterInfo = parseChapterInfoFromContent(bookName);
   markBookAsLearned(bookName, content.length, chapterInfo.totalChapters, chapterInfo.chapterStructure);
   
-  // 异步上传到S3（不阻塞主流程）
+  // 同步到 Supabase（统一真相源，开发/生产共享）
+  upsertBookToDb({
+    name: bookName,
+    content,
+    char_count: content.length,
+    total_chapters: chapterInfo.totalChapters,
+    chapter_structure: chapterInfo.chapterStructure || '章',
+  }).then(() => {
+    console.log(`[Supabase] 《${bookName}》已持久化到云端数据库`);
+  }).catch((err: unknown) => {
+    console.error(`[Supabase] 《${bookName}》持久化失败:`, err);
+  });
+  
+  // 异步上传到S3（兜底加速缓存）
   saveBookToS3(bookName, content).then(() => {
     console.log(`[S3] 书籍《${bookName}》已同步到云存储`);
   }).catch((err: unknown) => {
@@ -1396,6 +1468,14 @@ export function removeBookFromKnowledgeBase(bookName: string): boolean {
   }).catch((err: unknown) => {
     console.error(`[S3] 书籍《${matchedName}》从云存储删除失败:`, err);
   });
+
+  // 同步从 Supabase 删除（统一真相源）
+  deleteBookFromDb(matchedName).then(() => {
+    console.log(`[Supabase] 《${matchedName}》已从云端数据库删除`);
+  }).catch((err: unknown) => {
+    console.error(`[Supabase] 《${matchedName}》从云端数据库删除失败:`, err);
+  });
+  dbCachePrimed = false; // 下次访问重新拉取最新书目
   
   return true;
 }

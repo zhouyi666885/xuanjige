@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getBookStats, removeBookFromKnowledgeBase, getBookLearnStatus, getLearnedBookCount, invalidateCache } from '@/lib/fulltext-search';
+import { getBookStats, removeBookFromKnowledgeBase, getBookLearnStatus, getLearnedBookCount, invalidateCache, loadBookCacheAsync } from '@/lib/fulltext-search';
 import { getAllTasks, startLearningAllLocalBooks, getLocalLearningProgress, deleteTask } from '@/lib/book-task-manager';
 
 /**
@@ -10,6 +10,9 @@ import { getAllTasks, startLearningAllLocalBooks, getLocalLearningProgress, dele
  */
 export async function GET(request: NextRequest) {
   try {
+    // 首先从云端拉取最新书目（开发/生产共享 Supabase 数据）
+    await loadBookCacheAsync();
+
     const { searchParams } = new URL(request.url);
     const searchQuery = searchParams.get('search') || '';
     const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10));

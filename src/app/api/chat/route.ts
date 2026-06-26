@@ -9,7 +9,7 @@ import { searchKnowledge, formatKnowledgeResults } from '@/lib/knowledge-search'
 import { generateSanHeCanDuanPrompt, getSanHeCanDuanByTopic, SAN_HE_CAN_DUAN_GUIDE } from '@/lib/sanhe-canduan';
 import { generateMianXiangFramework, getMianXiangPredictionGuide } from '@/lib/xiangxue';
 import { generateShouXiangFramework, getShouXiangPredictionGuide } from '@/lib/shouxiang';
-import { searchFullText, searchFullTextAsync, formatFullTextResults, getBookFullText, getBookFullTextAsync, findBooksByName, getDetailedBookStats, getBookChapterContent, parseChapterRange, getLearnedBookCount, getBookLearnStatus, getLearningTimeEstimate } from '@/lib/fulltext-search';
+import { searchFullText, searchFullTextAsync, formatFullTextResults, getBookFullText, getBookFullTextAsync, findBooksByName, getDetailedBookStats, getBookChapterContent, parseChapterRange, getLearnedBookCount, getBookLearnStatus, getLearningTimeEstimate, loadBookCacheAsync } from '@/lib/fulltext-search';
 import { getLearningProgressSummary, getBookLearningDetail, findTaskByBookName, getActiveTaskStatusList, getAllTasks } from '@/lib/book-task-manager';
 import { tongQianQiGua, shiJianQiGua as liuyaoShiJian, formatLiuYaoPaiPan as liuyaoFormat } from '@/lib/liuyao';
 import { shiJianQiGua as meihuaShiJian, shuZiQiGua, wenZiQiGua, formatMeiHuaPaiPan as meihuaFormat } from '@/lib/meihua';
@@ -177,6 +177,9 @@ function autoQiGua(message: string, birthInfo: BirthInfo | null): string {
 
 export async function POST(request: NextRequest) {
   try {
+    // 首先从云端拉取最新书目（开发/生产共享 Supabase 数据）
+    await loadBookCacheAsync();
+
     const { message, mode = 'casual', history = [], birthInfo, context } = await request.json();
 
     if (!message || typeof message !== 'string') {
