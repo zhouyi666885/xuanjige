@@ -242,25 +242,19 @@ export function getLearnedBookCount(): {
   pending: number;
   learnedBookNames: string[];
   pendingBookNames: string[];
+  totalChars: number;
 } {
-  const statusMap = loadLearnStatus();
-  // total 必须以实际本地物理文件为准（避免 status.json 残留导致虚高/虚低）
-  const bookDir = getBookContentDir();
-  let physicalBookNames: string[] = [];
-  try {
-    physicalBookNames = fs
-      .readdirSync(bookDir)
-      .filter((f) => f.endsWith('.txt'))
-      .map((f) => f.replace(/\.txt$/, ''));
-  } catch {
-    physicalBookNames = [];
-  }
-  const total = physicalBookNames.length;
+  // 优先从缓存拿最新书目（已包含 Supabase + 本地合并结果）
+  const stats = getBookStats();
+  const allNames = stats.bookNames;
+  const total = allNames.length;
+  const totalChars = stats.totalChars;
 
+  const statusMap = loadLearnStatus();
   const learnedBookNames: string[] = [];
   const pendingBookNames: string[] = [];
 
-  for (const name of physicalBookNames) {
+  for (const name of allNames) {
     const s = statusMap.get(name);
     if (s && s.learned) {
       learnedBookNames.push(name);
@@ -276,6 +270,7 @@ export function getLearnedBookCount(): {
     pending: pendingBookNames.length,
     learnedBookNames,
     pendingBookNames,
+    totalChars,
   };
 }
 
@@ -527,6 +522,57 @@ export function markBookLearned(bookName: string, learned: boolean): void {
  * 异步加载书籍缓存（生产环境从S3拉取）
  * 在生产环境中，启动时从S3拉取书名列表，按需获取内容
  */
+/**
+ * 检测本地 public/book-content/*.txt 是否比 Supabase 更完整，自动同步到云端
+ * 解决：开发环境录入的完整版在部署后变成残次版的问题
+ */
+async function syncSeedDataToDb(): Promise<void> {
+  try {
+    const bookDir = path.join(process.cwd(), 'public/book-content');
+    if (!fs.existsSync(bookDir)) return;
+    const files = fs.readdirSync(bookDir).filter(f => f.endsWith('.txt'));
+    if (files.length === 0) return;
+
+    const { books: dbBooksArr } = await listBooksFromDb({ page: 1, pageSize: 200 });
+    const dbMap = new Map<string, { name: string; char_count: number; category: string; source: string }>(dbBooksArr.map((b: any) => [b.name, b as { name: string; char_count: number; category: string; source: string }]));
+
+    let synced = 0;
+    for (const f of files) {
+      const bookName = f.replace(/\.txt$/, '');
+      const filePath = path.join(bookDir, f);
+      const content = fs.readFileSync(filePath, 'utf-8');
+      const localChars = content.length;
+      const dbBook = dbMap.get(bookName);
+
+      // 本地文件比云端更完整（字数差 > 10%），或云端不存在
+      if (!dbBook || (localChars > dbBook.char_count * 1.1)) {
+        const chapterMatches = content.match(/^第[一二三四五六七八九十百千零0-9]+(章|回|篇|卷)/gm);
+        const chapters = chapterMatches?.length ?? 0;
+        await upsertBookToDb({
+          name: bookName,
+          category: dbBook?.category || '未分类',
+          content,
+          char_count: localChars,
+          total_chapters: chapters,
+          chapter_structure: '章',
+          source: dbBook?.source || '本地录入',
+        });
+        synced++;
+        console.log(`[全文检索] 同步 seed → Supabase: ${bookName} (${localChars} 字, ${chapters} 章)`);
+      }
+    }
+    if (synced > 0) {
+      // 清空缓存，下次查询会从云端重新加载
+      bookNameList = [];
+      if (bookCache) bookCache.clear();
+      if (bookCharCountCache) bookCharCountCache.clear();
+      dbCachePrimed = false;
+    }
+  } catch (err) {
+    console.error('[全文检索] syncSeedDataToDb 失败:', err);
+  }
+}
+
 export async function loadBookCacheAsync(): Promise<void> {
   if (bookCache && bookCache.size > 0 && dbCachePrimed) return; // 已有缓存
 
@@ -546,6 +592,8 @@ export async function loadBookCacheAsync(): Promise<void> {
     }
     dbCachePrimed = true;
     console.log(`[全文检索] 已从 Supabase 加载 ${dbBooks.books.length} 本书的目录（含字数）`);
+    // 自动检测本地 seed 文件比 Supabase 更完整的情况，自动同步到云端
+    await syncSeedDataToDb();
     // 同步合并本地 fs 中的书目（防止本地有但 db 没的情况）
     try {
       const dir = getBookContentDir();
@@ -1130,8 +1178,7 @@ export function getDetailedBookStats(): {
   
   for (let i = 0; i < bookNameList.length; i++) {
     const name = bookNameList[i];
-    const content = bookCache.get(name) || '';
-    const chars = content.length;
+    const chars = bookCharCountCache?.get(name) ?? bookCache?.get(name)?.length ?? 0;
     totalChars += chars;
     
     if (chars < minChars) minChars = chars;
@@ -1143,10 +1190,15 @@ export function getDetailedBookStats(): {
     
     if (isEnglishName) {
       englishBookCount++;
-      // 检查内容是否包含中文（已翻译）
-      const hasChinese = /[\u4e00-\u9fff]/.test(content.substring(0, 2000));
-      if (hasChinese) {
-        englishTranslatedCount++;
+      // 用缓存字数判断（懒加载模式不再拉全文）
+      const cachedContent = bookCache?.get(name);
+      if (cachedContent && cachedContent.length > 10) {
+        const hasChinese = /[\u4e00-\u9fff]/.test(cachedContent.substring(0, 2000));
+        if (hasChinese) {
+          englishTranslatedCount++;
+        } else {
+          englishUntranslatedCount++;
+        }
       } else {
         englishUntranslatedCount++;
       }
@@ -1156,10 +1208,14 @@ export function getDetailedBookStats(): {
     
     // 抽样
     if (i % step === 0 && sampleBooks.length < 15) {
+      const cachedContent = bookCache?.get(name);
+      const languageLabel = isEnglishName
+        ? (cachedContent && cachedContent.length > 10 && /[\u4e00-\u9fff]/.test(cachedContent.substring(0, 2000)) ? '英文→已翻译为中文' : '英文原文')
+        : '中文原文';
       sampleBooks.push({
         name,
         chars,
-        language: isEnglishName ? (content.substring(0, 2000).match(/[\u4e00-\u9fff]/) ? '英文→已翻译为中文' : '英文原文') : '中文原文',
+        language: languageLabel,
       });
     }
   }

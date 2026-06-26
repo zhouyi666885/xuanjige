@@ -13,6 +13,7 @@ import path from 'path';
 import { Config, LLMClient, SearchClient, FetchClient, FetchContentItem, KnowledgeClient } from 'coze-coding-dev-sdk';
 import { isBookExists, addBookToKnowledgeBase, findBooksByName, getLocalBookInfo } from './fulltext-search';
 import { saveBook } from './book-storage';
+import { upsertTask as repoUpsertTask, listTasks as repoListTasks, deleteTask as repoDeleteTask, listTombstones as repoListTombstones, addTombstone as repoAddTombstone, type BookTaskRow } from './book-repo';
 
 // ==================== 类型定义 ====================
 
@@ -249,6 +250,143 @@ function loadTasks(): void {
   }
 }
 
+function toIso(ts: unknown): string | null {
+  if (ts == null) return null;
+  if (typeof ts === 'number' && Number.isFinite(ts)) return new Date(ts).toISOString();
+  if (typeof ts === 'string') {
+    const n = Number(ts);
+    if (Number.isFinite(n) && n > 0) return new Date(n).toISOString();
+    return ts;
+  }
+  return null;
+}
+
+function toMs(ts: unknown, fallback: number = Date.now()): number {
+  if (ts == null) return fallback;
+  if (typeof ts === 'number' && Number.isFinite(ts)) return ts;
+  if (typeof ts === 'string') {
+    const direct = Number(ts);
+    if (Number.isFinite(direct) && direct > 0) return direct;
+    const parsed = Date.parse(ts);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallback;
+}
+
+function bookTaskToRow(t: BookTask): BookTaskRow {
+  const now = Date.now();
+  return {
+    id: t.id,
+    book_name: t.bookName,
+    status: t.status,
+    progress: t.progress ?? 0,
+    message: t.message ?? null,
+    chars: t.chars ?? 0,
+    current_chapter: t.currentChapter ?? 0,
+    total_chapters: t.totalChapters ?? 0,
+    chapter_structure: t.chapterStructure ?? null,
+    source: t.source ?? null,
+    is_local_book: t.isLocalBook ?? false,
+    learning_status: t.learningStatus ?? 'pending',
+    learning_progress: t.learningProgress ?? 0,
+    learning_current_chunk: t.learningCurrentChunk ?? 0,
+    learning_total_chunks: t.learningTotalChunks ?? 0,
+    learning_message: t.learningMessage ?? null,
+    learning_layers_done: Array.isArray(t.learningLayersDone)
+      ? t.learningLayersDone.map((n) => String(n))
+      : null,
+    learning_started_at: toIso(t.startedAt),
+    learning_completed_at: t.learningStatus === 'done' ? toIso(t.completedAt ?? now) : toIso(t.completedAt),
+    completed_at: toIso(t.completedAt),
+    created_at: toIso(t.createdAt) ?? new Date(now).toISOString(),
+    updated_at: toIso(t.updatedAt) ?? new Date(now).toISOString(),
+    logs: Array.isArray(t.logs) && t.logs.length > 0
+      ? t.logs.map((m) => ({
+          time: new Date(t.updatedAt ?? now).toISOString(),
+          level: 'info',
+          message: typeof m === 'string' ? m : String(m),
+        }))
+      : null,
+  };
+}
+
+function rowToBookTask(row: BookTaskRow): BookTask {
+  const createdMs = toMs(row.created_at);
+  const updatedMs = toMs(row.updated_at, createdMs);
+  return {
+    id: row.id,
+    bookName: row.book_name,
+    status: (row.status ?? 'pending') as BookTask['status'],
+    progress: row.progress ?? 0,
+    message: row.message ?? '',
+    chars: row.chars ?? 0,
+    currentChapter: row.current_chapter ?? 0,
+    totalChapters: row.total_chapters ?? 0,
+    chapterStructure: row.chapter_structure ?? '',
+    source: row.source ?? '',
+    isLocalBook: row.is_local_book ?? false,
+    learningStatus: (row.learning_status ?? 'pending') as BookTask['learningStatus'],
+    learningProgress: row.learning_progress ?? 0,
+    learningCurrentChunk: row.learning_current_chunk ?? 0,
+    learningTotalChunks: row.learning_total_chunks ?? 0,
+    learningMessage: row.learning_message ?? '',
+    learningLayersDone: Array.isArray(row.learning_layers_done)
+      ? row.learning_layers_done.map((s) => Number(s)).filter((n) => !Number.isNaN(n))
+      : [],
+    startedAt: row.learning_started_at ? toMs(row.learning_started_at) : null,
+    completedAt: row.learning_completed_at
+      ? toMs(row.learning_completed_at)
+      : row.completed_at
+        ? toMs(row.completed_at)
+        : null,
+    createdAt: createdMs,
+    updatedAt: updatedMs,
+    logs: Array.isArray(row.logs)
+      ? row.logs.map((l) => (typeof l === 'string' ? l : (l as { message?: string })?.message ?? ''))
+      : [],
+    currentChapterName: '',
+    remainingChapters: 0,
+    size: '',
+    chapters: [],
+    hasMissingChapters: false,
+    error: '',
+  };
+}
+
+async function syncTaskToDb(task: BookTask): Promise<void> {
+  try {
+    await repoUpsertTask(bookTaskToRow(task));
+  } catch (e) {
+    console.error('[TaskManager] 同步任务到 Supabase 失败:', (e as Error)?.message);
+  }
+}
+
+export async function loadTasksFromDb(): Promise<void> {
+  try {
+    const rows = await repoListTasks();
+    if (!rows || rows.length === 0) return;
+    let merged = 0;
+    for (const row of rows) {
+      // 跳过墓碑
+      if (deletedTaskIds.has(row.id)) continue;
+      const g = globalThis as unknown as { __deletedBookNames?: Set<string> };
+      if (g.__deletedBookNames?.has(row.book_name)) continue;
+      const cloud = rowToBookTask(row);
+      const local = tasks.get(row.id);
+      // 云端更新时间 > 本地 → 使用云端版本
+      if (!local || (cloud.updatedAt ?? 0) > (local.updatedAt ?? 0)) {
+        tasks.set(row.id, cloud);
+        merged++;
+      }
+    }
+    if (merged > 0) {
+      console.log(`[TaskManager] 从 Supabase 同步了 ${merged} 个任务到本地`);
+    }
+  } catch (e) {
+    console.error('[TaskManager] 从 Supabase 加载任务失败:', (e as Error)?.message);
+  }
+}
+
 function saveTasks(): void {
   try {
     const dir = path.dirname(TASKS_FILE);
@@ -283,6 +421,20 @@ function saveTasks(): void {
     );
     const deletedIds = Array.from(deletedTaskIds);
     fs.writeFileSync(TASKS_FILE, JSON.stringify({ tasks: arr, deletedIds }, null, 2));
+
+    // fire-and-forget 异步双写到 Supabase（保证开发/生产共享状态）
+    for (const task of arr) {
+      void syncTaskToDb(task);
+    }
+    for (const id of deletedIds) {
+      void repoAddTombstone('id', id).catch(() => {});
+    }
+    const _g = globalThis as unknown as { __deletedBookNames?: Set<string> };
+    if (_g.__deletedBookNames) {
+      for (const name of _g.__deletedBookNames) {
+        void repoAddTombstone('name', name).catch(() => {});
+      }
+    }
   } catch (e) {
     console.error('[TaskManager] 保存任务失败:', e);
   }
@@ -1716,8 +1868,35 @@ function selectDatasetForBook(bookName: string): string {
 export function initTaskManager(): void {
   if (isInitialized) return;
   isInitialized = true;
-  
+
   loadTasks();
+
+  // 🌩️ 云端兜底：从 Supabase 拉所有 task，本地没有的合并进来
+  // 关键：本地丢失（部署后）时云端就是唯一真相源
+  void (async () => {
+    try {
+      await loadTasksFromDb();
+      // 拉墓碑
+      try {
+        const tombs = await repoListTombstones();
+        for (const id of tombs.deletedIds) {
+          deletedTaskIds.add(id);
+        }
+        const g = globalThis as { __deletedBookNames?: Set<string> };
+        if (!g.__deletedBookNames) g.__deletedBookNames = new Set();
+        for (const name of tombs.deletedNames) {
+          g.__deletedBookNames.add(name);
+        }
+      } catch { /* ignore */ }
+      try {
+        const arr = Array.from(tasks.values());
+        const deletedIds = Array.from(deletedTaskIds);
+        fs.writeFileSync(TASKS_FILE, JSON.stringify({ tasks: arr, deletedIds }, null, 2));
+      } catch { /* ignore */ }
+    } catch (e) {
+      console.warn('[TaskManager] 从 Supabase 拉 task 失败，使用本地数据:', e);
+    }
+  })();
   
   // 🔴 状态同步铁律：本地物理文件已存在 → task.status 必须是 done
   // 防止"知识库说已录入完成"但"添加书籍页还显示搜索中"的状态矛盾
