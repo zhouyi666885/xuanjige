@@ -54,7 +54,7 @@ function loadLearnStatus(): Map<string, BookLearnStatus> {
     // 文件损坏或不存在，从当前书籍列表重建
   }
   
-  // 同步：已存在于知识库的书如果没有学习记录，自动标记为已学习
+  // 同步：已存在于知识库的书如果没有学习记录，标记为未学习（不能自动标记为已学习！）
   loadBookCache();
   if (bookNameList) {
     for (const name of bookNameList) {
@@ -62,11 +62,11 @@ function loadLearnStatus(): Map<string, BookLearnStatus> {
         const charCount = bookCache?.get(name)?.length || 0;
         const chapterInfo = parseChapterInfoFromContent(name);
         learnStatusCache.set(name, {
-          learned: true,
-          learnedAt: null, // 历史书籍，具体时间未知
+          learned: false, // 未经过4层AI深度学习，标记为未学习
+          learnedAt: null,
           charCount,
           totalChapters: chapterInfo.totalChapters,
-          learnedChapters: chapterInfo.totalChapters, // 历史书籍默认已全部学完
+          learnedChapters: 0, // 还没学，已学章节数为0
           chapterStructure: chapterInfo.chapterStructure,
           learnStartedAt: null,
         });
