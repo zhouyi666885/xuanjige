@@ -267,8 +267,8 @@ export async function GET(request: NextRequest) {
     }));
     const resolvedBookList = bookList;
 
-    // 获取学习统计
-    const learnStats = await getLearnedBookCount();
+    // learnedCount 直接从已解析的书目列表统计（与 UI 显示的 learned 字段完全一致）
+    const learnedCount = resolvedBookList.filter(b => b.learned).length;
 
     return NextResponse.json({
       books: resolvedBookList,
@@ -278,7 +278,7 @@ export async function GET(request: NextRequest) {
       pageSize,
       totalChars: stats.totalChars,
       bookCount: stats.bookCount,
-      learnedCount: learnStats.learned,
+      learnedCount,
     });
   } catch (e) {
     return NextResponse.json(
