@@ -179,11 +179,24 @@ function cnNumToInt(cn: string): number {
   return result || lastUnit;
 }
 
+// 阿拉伯数字→中文数字（仅支持 1~9999，>=100 直接保留阿拉伯避免读法歧义）
+function chineseNumeral(n: number): string {
+  if (n <= 0) return '零';
+  if (n <= 10) return ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十'][n];
+  if (n < 20) return '十' + ['', '一', '二', '三', '四', '五', '六', '七', '八', '九'][n - 10];
+  if (n < 100) {
+    const tens = Math.floor(n / 10);
+    const ones = n % 10;
+    return ['', '一', '二', '三', '四', '五', '六', '七', '八', '九'][tens] + '十' + (ones ? ['', '一', '二', '三', '四', '五', '六', '七', '八', '九'][ones] : '');
+  }
+  return String(n);
+}
+
 /**
  * 检测原书"应有"的章节范围 + 缺失章节列表
  * 原理：扫描内容里出现的所有"第X章/卦/卷..."，取最大序号 N，对比 1~N 看哪些没出现
  */
-function detectMissingChapters(content: string, structureType: string): {
+function detectMissingChapters(content: string, structureType: string, expectedTotal?: number): {
   maxIndex: number;
   presentIndices: number[];
   missingIndices: number[];
@@ -207,10 +220,13 @@ function detectMissingChapters(content: string, structureType: string): {
     const idx = cnNumToInt(match[1]);
     if (idx >= 1 && idx <= 9999) seen.add(idx);
   }
-  if (seen.size === 0) {
+  // 🔴 优先使用权威目录探测到的 expectedTotal（即使文本内一个章号都没出现）
+  // 这样"尾部整段缺失"也能被识别
+  const observedMax = seen.size > 0 ? Math.max(...seen) : 0;
+  const maxIndex = (expectedTotal && expectedTotal >= 3) ? expectedTotal : observedMax;
+  if (maxIndex === 0) {
     return { maxIndex: 0, presentIndices: [], missingIndices: [], missingNames: [] };
   }
-  const maxIndex = Math.max(...seen);
   // 仅当 maxIndex >= 3 才认为这是按序号编排的书（防止"第一章 总论"类单章误报）
   if (maxIndex < 3) {
     return { maxIndex, presentIndices: Array.from(seen).sort((a, b) => a - b), missingIndices: [], missingNames: [] };
@@ -233,6 +249,47 @@ function detectMissingChapters(content: string, structureType: string): {
   };
   const missingNames = missing.map(i => `第${toCN(i)}${primaryUnit}`);
   return { maxIndex, presentIndices: present, missingIndices: missing, missingNames };
+}
+
+/**
+ * 从权威站点描述文本中提取"全书共XX章/卦/卷"的总数声明
+ * 例：百度百科描述"全书共六十四卦"、"共二十章"
+ * 返回 { total, unit } 或 null（未找到声明）
+ */
+function extractDeclaredChapterTotal(text: string): { total: number; unit: string } | null {
+  if (!text || text.length < 10) return null;
+  // 支持单位
+  const units = ['章', '卦', '卷', '篇', '回', '部', '辑', '节'];
+  // 多种声明模式
+  const patterns: Array<{ re: RegExp; unit?: string }> = [];
+  for (const u of units) {
+    // "全书共XX章"、"共XX章"、"分为XX章"、"全书XX章"
+    patterns.push({ re: new RegExp(`(?:全书|本书|该书|此书)?[共分]?(?:为|有)?\\s*([一二三四五六七八九十百千万零\\d]+)\\s*${u}(?![节字])`, 'g'), unit: u });
+    // "XX章组成"、"由XX章构成"
+    patterns.push({ re: new RegExp(`由\\s*([一二三四五六七八九十百千万零\\d]+)\\s*${u}(?:组成|构成)`, 'g'), unit: u });
+  }
+  // 收集所有候选 (total, unit)，最后取出现次数最多的（增强抗噪）
+  const counter = new Map<string, { total: number; unit: string; hits: number }>();
+  for (const p of patterns) {
+    let m;
+    while ((m = p.re.exec(text)) !== null) {
+      const total = cnNumToInt(m[1]);
+      if (total < 3 || total > 9999) continue;
+      const key = `${total}|${p.unit}`;
+      const prev = counter.get(key);
+      if (prev) prev.hits++;
+      else counter.set(key, { total, unit: p.unit || '章', hits: 1 });
+    }
+  }
+  if (counter.size === 0) return null;
+  // 取命中次数最多的；并列时取 total 最大的（避免被"共三章"这种小数字干扰）
+  let best: { total: number; unit: string; hits: number } | null = null;
+  for (const v of counter.values()) {
+    if (!best || v.hits > best.hits || (v.hits === best.hits && v.total > best.total)) {
+      best = v;
+    }
+  }
+  return best ? { total: best.total, unit: best.unit } : null;
 }
 
 /**
@@ -1049,21 +1106,17 @@ async function processTask(taskId: string): Promise<void> {
     let noNewResultCount = 0;
     let roundIndex = 0;
     const searchStartTime = Date.now();
-    // 🔴🔴🔴 自动衔接：搜到够多来源就立刻进入下载阶段，不等"穷尽搜索"
-    // 用户明确要求：搜到了就立刻录入，没搜到才继续搜
-    // 双重退出条件（任一满足即跳出搜索进下载）：
-    //   1. 已收集 ≥ 8 个来源 → 进入下载尝试
-    //   2. 跑完一整轮（16个渠道）且本轮无新结果 → 也进入下载（去看看现有来源能不能取到）
+    // 🔴🔴🔴 用户铁规则：搜遍全网，搜无数遍，直到真的找不到才停
+    // 不存在"凑够 N 个来源就停"——这种早退只能凑出半本书
+    // 唯一退出条件：连续 1 个完整 16 轮 cycle 跑完都没有任何新结果（= 真的 nowhere new to find）
     const TOTAL_ROUNDS = searchRounds.length; // 16轮
-    const EARLY_ENTER_DOWNLOAD = 30; // 至少凑齐 30 个来源才考虑进下载，用户要求完整内容
 
     let completedFullCycles = 0;
     let resultsInCurrentCycle = 0;
     let consecutiveEmptyCycles = 0;
 
-    // 🔴🔴🔴 自动衔接：搜到够多就立刻下载，没搜到再继续
-    // 退出条件：来源≥8 OR 完整轮跑完无新结果
-    while (allResults.length < EARLY_ENTER_DOWNLOAD && consecutiveEmptyCycles < 1) {
+    // 🔴🔴🔴 退出条件：跑完一个完整 cycle 且本轮无新结果（真正穷尽全网）
+    while (consecutiveEmptyCycles < 1) {
       // 🔴 检查暂停/取消
       const checkResult = checkTaskControl(taskId);
       if (checkResult === 'cancelled') return;
@@ -1073,7 +1126,7 @@ async function processTask(taskId: string): Promise<void> {
       const beforeCount = allResults.length;
 
       // 每开始一轮就更新 message，让用户看到正在动
-      updateTask(taskId, { message: `🔎 第${roundIndex + 1}轮「${round.name}」搜索中（已收集 ${allResults.length} 个来源）...` });
+      updateTask(taskId, { message: `🔎 第${roundIndex + 1}轮「${round.name}」搜索中（已收集 ${allResults.length} 个来源，穷尽全网中）...` });
 
       for (let qi = 0; qi < round.queries.length; qi++) {
         const query = round.queries[qi];
@@ -1096,20 +1149,12 @@ async function processTask(taskId: string): Promise<void> {
         }
         // 每个查询完成都刷一下 message，让用户看到累计来源数在动
         updateTask(taskId, {
-          message: `🔎 第${roundIndex + 1}轮「${round.name}」${qi + 1}/${round.queries.length}（累计 ${allResults.length} 个来源）`,
+          message: `🔎 第${roundIndex + 1}轮「${round.name}」${qi + 1}/${round.queries.length}（累计 ${allResults.length} 个来源，继续穷尽全网）`,
         });
 
-        // 🚀 自动衔接：已经收集到足够来源，立刻跳出搜索去尝试下载
-        if (allResults.length >= EARLY_ENTER_DOWNLOAD) {
-          addLog(taskId, `✅ 已收集 ${allResults.length} 个来源（≥${EARLY_ENTER_DOWNLOAD}），立刻进入下载阶段`);
-          break;
-        }
         // 每个查询之间间隔1.5秒，避免触发搜索API限流
         await new Promise(r => setTimeout(r, 1500));
       }
-
-      // 内层 break 后也要让外层 while 退出
-      if (allResults.length >= EARLY_ENTER_DOWNLOAD) break;
 
       const newResults = allResults.length - beforeCount;
       resultsInCurrentCycle += newResults;
@@ -1167,46 +1212,108 @@ async function processTask(taskId: string): Promise<void> {
     let confirmedChapterInfo: ConfirmedChapters | null = null;
 
     try {
-      // ⚡ 用户规则：搜索只用书名
-      const tocResponse = await searchClient.webSearch(`${task.bookName}`, 10);
-      if (tocResponse?.web_items && tocResponse.web_items.length > 0) {
-        // 从搜索结果摘要中提取原书章节信息
-        const tocSnippets = tocResponse.web_items
-          .map((item: { snippet?: string; title?: string }) => `${item.title || ''} ${item.snippet || ''}`)
-          .join('\n');
-        
-        // 尝试获取前2个目录页面的完整内容
-        let fullTocContent = tocSnippets;
-        for (const item of tocResponse.web_items.slice(0, 2)) {
-          try {
-            const itemUrl = (item as { url?: string }).url;
-            if (!itemUrl) continue;
-            const tocFetch = await fetchClient.fetch(itemUrl);
-            if (tocFetch && Array.isArray(tocFetch.content)) {
-              const tocText = tocFetch.content
-                .filter((c: FetchContentItem): c is FetchContentItem & { text: string } => c.type === 'text' && typeof c.text === 'string')
-                .map((c: FetchContentItem & { text: string }) => c.text)
-                .join('\n');
-              fullTocContent += '\n' + tocText;
-            }
-          } catch { /* continue */ }
-        }
+      // 🔴🔴🔴 权威目录探测：先去权威站点拿"原书应有总章数"
+      // 站点池：百度百科 / 中文维基 / 豆瓣读书 / 中华典藏目录 / 国学大师
+      // 目的：让"尾部整段缺失"（原书60章但只搜到50章）也能被识别
+      const authoritativeQueries = [
+        `${task.bookName} site:baike.baidu.com`,
+        `${task.bookName} site:zh.wikipedia.org`,
+        `${task.bookName} site:book.douban.com`,
+        `${task.bookName} 目录 site:zhonghuadiancang.com`,
+        `${task.bookName} 目录 site:guoxuedashi.net`,
+        `${task.bookName}`, // 通用兜底
+      ];
 
-        // 从目录内容中解析章节
-        const detected = detectBookChapters(fullTocContent);
-        if (detected.chapterNames.length > 0) {
-          confirmedChapterInfo = detected;
-          // 立即更新结构信息，让前端可以显示原书叫法
-          updateTask(taskId, {
-            chapterStructure: detected.structureType || '章',
-            totalChapters: detected.totalChapters,
-          });
-          addLog(taskId, `确认原书章节: ${detected.structureType || '章'}, 共 ${detected.totalChapters} ${detected.structureType || '章'}`);
+      let fullTocContent = '';
+      const authoritativeTexts: string[] = [];
+      // 并行跑权威查询
+      const authResponses = await Promise.all(
+        authoritativeQueries.map(q => withTimeout(searchClient.webSearch(q, 10), 12000))
+      );
+      const seenAuthUrls = new Set<string>();
+      const authItems: Array<{ url: string; title: string; snippet: string }> = [];
+      for (const resp of authResponses) {
+        if (!resp?.web_items) continue;
+        for (const item of resp.web_items) {
+          const title = item.title || '';
+          const snippet = item.snippet || '';
+          authoritativeTexts.push(`${title} ${snippet}`);
+          if (item.url && !seenAuthUrls.has(item.url)) {
+            seenAuthUrls.add(item.url);
+            authItems.push({ url: item.url, title, snippet });
+          }
         }
+      }
+      fullTocContent = authoritativeTexts.join('\n');
+
+      // 优先抓权威站点页面正文（百科/维基/豆瓣最先）
+      const priorityHosts = ['baike.baidu.com', 'wikipedia.org', 'douban.com', 'zhonghuadiancang.com', 'guoxuedashi.net'];
+      const priorityItems = authItems
+        .filter(it => priorityHosts.some(h => it.url.includes(h)))
+        .slice(0, 4);
+      for (const item of priorityItems) {
+        try {
+          const tocFetch = await withTimeout(fetchClient.fetch(item.url), 12000);
+          if (tocFetch && Array.isArray(tocFetch.content)) {
+            const tocText = tocFetch.content
+              .filter((c: FetchContentItem): c is FetchContentItem & { text: string } => c.type === 'text' && typeof c.text === 'string')
+              .map((c: FetchContentItem & { text: string }) => c.text)
+              .join('\n');
+            fullTocContent += '\n' + tocText;
+          }
+        } catch { /* continue */ }
+      }
+      // 兜底再抓 2 个通用结果
+      for (const item of authItems.filter(it => !priorityHosts.some(h => it.url.includes(h))).slice(0, 2)) {
+        try {
+          const tocFetch = await withTimeout(fetchClient.fetch(item.url), 12000);
+          if (tocFetch && Array.isArray(tocFetch.content)) {
+            const tocText = tocFetch.content
+              .filter((c: FetchContentItem): c is FetchContentItem & { text: string } => c.type === 'text' && typeof c.text === 'string')
+              .map((c: FetchContentItem & { text: string }) => c.text)
+              .join('\n');
+            fullTocContent += '\n' + tocText;
+          }
+        } catch { /* continue */ }
+      }
+
+      // 第一步：从描述文本里提取"全书共XX章/卦/卷"这种总数说法
+      const declaredTotal = extractDeclaredChapterTotal(fullTocContent);
+      // 第二步：解析目录中实际出现的章节
+      const detected = detectBookChapters(fullTocContent);
+
+      // 合成最终的"权威应有章数"
+      // 优先级：明确声明的总数 > 目录扫描出的最大章号
+      let finalTotal = 0;
+      let finalStructure = detected.structureType || '章';
+      if (declaredTotal && declaredTotal.total >= 3) {
+        finalTotal = declaredTotal.total;
+        finalStructure = declaredTotal.unit || finalStructure;
+        addLog(taskId, `📚 权威站点声明：原书共 ${declaredTotal.total} ${declaredTotal.unit}`);
+      } else if (detected.totalChapters >= 3) {
+        finalTotal = detected.totalChapters;
+        finalStructure = detected.structureType || '章';
+        addLog(taskId, `📚 目录扫描结果：识别到 ${detected.totalChapters} ${detected.structureType || '章'}`);
+      }
+
+      if (finalTotal >= 3) {
+        confirmedChapterInfo = {
+          totalChapters: finalTotal,
+          structureType: finalStructure,
+          chapterNames: detected.chapterNames.length > 0 ? detected.chapterNames : [],
+        };
+        // 立即更新结构信息，让前端可以显示原书叫法
+        updateTask(taskId, {
+          chapterStructure: finalStructure,
+          totalChapters: finalTotal,
+        });
+        addLog(taskId, `确认原书章节: 共 ${finalTotal} ${finalStructure}（权威目录探测）`);
+      } else {
+        addLog(taskId, '权威目录探测未能确认总章数，后续将从下载内容推断');
       }
     } catch {
       // 确认失败不影响后续流程
-      addLog(taskId, '无法确认原书章节数，将从内容中推断');
+      addLog(taskId, '权威目录探测异常，后续将从内容中推断');
     }
 
     // 4. 逐个来源获取内容，支持跨网站拼接（不要求一个网站必须包含全部内容）
@@ -1477,6 +1584,116 @@ async function processTask(taskId: string): Promise<void> {
       bookContent = await translateContent(taskId, bookContent);
     }
 
+    // 🔴🔴🔴 缺章定向补搜：基于权威目录探测的"应有总章数"找出当前缺失的章，
+    // 对每个缺章生成定向 query 去全网找，找到就拼接回正文。
+    // 用户铁规则：必须真的"全网都搜，搜无数遍，搜不到才判缺章节"
+    const expectedStructure = confirmedChapterInfo?.structureType || detectBookChapters(bookContent).structureType || '';
+    const expectedTotalChapters = confirmedChapterInfo?.totalChapters || 0;
+    if (expectedTotalChapters >= 3 && expectedStructure) {
+      const primaryUnit = expectedStructure.split(/[\/+·]/)[0] || expectedStructure;
+      const supportedUnits = ['章', '卦', '卷', '篇', '回', '部', '辑', '节'];
+      if (supportedUnits.includes(primaryUnit)) {
+        let missingNow = detectMissingChapters(bookContent, expectedStructure, expectedTotalChapters);
+        if (missingNow.missingIndices.length > 0) {
+          updateTask(taskId, {
+            status: 'searching',
+            message: `🎯 已发现 ${missingNow.missingIndices.length} 个缺章，对每章逐一全网定向补搜...`,
+            progress: 30,
+          });
+          addLog(taskId, `🎯 进入缺章定向补搜阶段：缺 ${missingNow.missingIndices.length} 个 ${primaryUnit}（${missingNow.missingNames.slice(0, 10).join('、')}${missingNow.missingNames.length > 10 ? '...' : ''}）`);
+
+          const chapterSiteDomains = ALL_SITE_DOMAINS.slice(0, 12); // 取前 12 个站点跑定向
+          // 限制单次补搜的章节数量上限，避免一本巨大书目卡死（≤200 章）
+          const targets = missingNow.missingIndices.slice(0, 200);
+          const seenAllUrls = new Set(allResults.map(r => r.url));
+          let supplementedChapters = 0;
+
+          for (let mi = 0; mi < targets.length; mi++) {
+            const ctrl = checkTaskControl(taskId);
+            if (ctrl === 'cancelled') return;
+            if (ctrl === 'paused') break;
+
+            const chapterIdx = targets[mi];
+            const chapterName = missingNow.missingNames[mi];
+            updateTask(taskId, {
+              message: `🎯 定向补搜 ${mi + 1}/${targets.length}：${chapterName}（已补回 ${supplementedChapters}）`,
+            });
+
+            // 为这一缺章构造多种 query
+            const chapterQueries = [
+              `${task.bookName} ${chapterName}`,
+              `${task.bookName} ${chapterName} 全文`,
+              `${task.bookName} 第${chapterIdx}${primaryUnit}`,
+              `《${task.bookName}》${chapterName}`,
+              ...chapterSiteDomains.map(domain => `${task.bookName} ${chapterName} site:${domain}`),
+            ];
+
+            const newUrlsForChapter: string[] = [];
+            // 并行跑该章节的所有 query
+            const responses = await Promise.all(
+              chapterQueries.map(q => withTimeout(searchClient.webSearch(q, 5), 10000))
+            );
+            for (const resp of responses) {
+              if (!resp?.web_items) continue;
+              for (const item of resp.web_items) {
+                if (item.url && !seenAllUrls.has(item.url)) {
+                  seenAllUrls.add(item.url);
+                  newUrlsForChapter.push(item.url);
+                  allResults.push({ url: item.url, title: item.title || '', snippet: item.snippet || '' });
+                }
+              }
+            }
+
+            // 抓取前 8 个新 URL 看看包不包含这一章节文本
+            let chapterFound = false;
+            for (const url of newUrlsForChapter.slice(0, 8)) {
+              const ctrl2 = checkTaskControl(taskId);
+              if (ctrl2 === 'cancelled') return;
+              if (ctrl2 === 'paused') break;
+              try {
+                const fetchResp = await withTimeout(fetchClient.fetch(url), 12000);
+                if (!fetchResp?.content) continue;
+                const texts = (fetchResp.content as Array<{ text?: string }>)
+                  .map(c => c.text || '')
+                  .filter(t => t.trim().length > 100);
+                if (texts.length === 0) continue;
+                const content = texts.join('\n\n');
+                // 严格判断：内容里必须真的出现"第X章/卦/..."这一标记
+                const chapterMarker = new RegExp(`第\\s*${chapterIdx}\\s*${primaryUnit}|第${chineseNumeral(chapterIdx)}${primaryUnit}`);
+                if (chapterMarker.test(content)) {
+                  contentFragments.push({ source: url, content });
+                  chapterFound = true;
+                  supplementedChapters++;
+                  addLog(taskId, `✅ 补回 ${chapterName}：来自 ${url}`);
+                  break;
+                }
+              } catch { /* continue */ }
+            }
+            if (!chapterFound) {
+              addLog(taskId, `⏳ ${chapterName}：本轮未找到，将累积到最终缺章列表`);
+            }
+          }
+
+          // 全部缺章跑完后，重新跨源合并
+          if (supplementedChapters > 0) {
+            const remerged = mergeContentFragments(contentFragments, taskId);
+            if (remerged.length > bookContent.length) {
+              bookContent = remerged;
+              usedSource = contentFragments.map(f => f.source).join(' + ');
+              addLog(taskId, `🎯 定向补搜后跨源合并：bookContent 增长到 ${bookContent.length} 字符`);
+            }
+            // 重新检测缺章
+            missingNow = detectMissingChapters(bookContent, expectedStructure, expectedTotalChapters);
+            addLog(taskId, `🎯 定向补搜完成：成功补回 ${supplementedChapters} 章，仍缺 ${missingNow.missingIndices.length} 章`);
+          } else {
+            addLog(taskId, `🎯 定向补搜完成：全网穷尽，没有任何缺章被补回`);
+          }
+        } else {
+          addLog(taskId, `✅ 与权威目录比对：无缺章`);
+        }
+      }
+    }
+
     // 5. 分章摘录入库
     updateTask(taskId, {
       status: 'saving',
@@ -1497,8 +1714,14 @@ async function processTask(taskId: string): Promise<void> {
       index: i + 1,
     }));
 
-    // 🔴 缺失章节检测：扫描内容里"应有"的最大章号 vs 实际识别到的章
-    const missingInfo = detectMissingChapters(bookContent, finalChapterInfo.structureType);
+    // 🔴 缺失章节检测：优先用权威目录探测到的"应有总章数"作为基准
+    // 这样尾部整段缺失（如原书 60 章但只搜到 50 章）也能被识别
+    const authoritativeTotal = confirmedChapterInfo?.totalChapters || 0;
+    const missingInfo = detectMissingChapters(
+      bookContent,
+      finalChapterInfo.structureType,
+      authoritativeTotal >= 3 ? authoritativeTotal : undefined,
+    );
     const hasMissing = missingInfo.missingNames.length > 0;
     if (hasMissing) {
       addLog(
