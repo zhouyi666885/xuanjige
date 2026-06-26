@@ -174,8 +174,8 @@ export async function POST(request: NextRequest) {
     }
 
     // 批量创建任务
-    const results = names.map(name => {
-      const { task, isNew } = createTask(name);
+    const results = await Promise.all(names.map(async name => {
+      const { task, isNew } = await createTask(name);
       return {
         id: task.id,
         bookName: task.bookName,
@@ -185,7 +185,7 @@ export async function POST(request: NextRequest) {
         isNew,
         alreadyExists: task.status === 'exists',
       };
-    });
+    }));
 
     if (results.length === 1) {
       return NextResponse.json(results[0]);

@@ -2559,7 +2559,7 @@ export function initTaskManager(): void {
 /**
  * 创建新任务
  */
-export function createTask(bookName: string): { task: BookTask; isNew: boolean } {
+export async function createTask(bookName: string): Promise<{ task: BookTask; isNew: boolean }> {
   if (!isInitialized) initTaskManager();
   
   // 用户主动重新添加同名书 = 取消墓碑（书名级）
@@ -2589,34 +2589,60 @@ export function createTask(bookName: string): { task: BookTask; isNew: boolean }
   // 用户主动重新添加 = 强制重新录入（覆盖知识库现有版本）
   // 不再因 isBookExists 拦截，让用户能看到完整录入流程
   
+  // 🔴 关键修复：检查旧 task 是否有缺章 → 有缺章必须重新走完整流程补搜
+  // 否则"本地文件已存在 → 直接 done"会导致缺章永远补不回来
+  let hadMissingBefore = false;
+  // 内存优先
+  for (const t of tasks.values()) {
+    if (t.bookName === bookName && t.hasMissingChapters && (t.missingChapterNames?.length ?? 0) > 0) {
+      hadMissingBefore = true;
+      break;
+    }
+  }
+  // 内存查不到 → 异步查 Supabase（生产环境内存可能丢失）
+  if (!hadMissingBefore) {
+    try {
+      const dbTask = await repoGetTaskByName(bookName);
+      if (dbTask?.has_missing_chapters && Array.isArray(dbTask.missing_chapter_names) && dbTask.missing_chapter_names.length > 0) {
+        hadMissingBefore = true;
+      }
+    } catch { /* 忽略数据库查询失败 */ }
+  }
+  
   // 🔴 状态同步铁律：本地物理文件已存在 → 直接标 done，不进入搜索
   // 避免出现"知识库有该书"但"添加书籍页还显示搜索中"的矛盾
+  // 例外：有缺章 → 强制走完整流程去补搜（用户重新添加 = 想补缺章）
   const localMeta = getLocalBookMeta(bookName);
   const localFileExists = localMeta.exists;
   const localFileChars = localMeta.charCount;
+  const skipFullPipeline = localFileExists && !hadMissingBefore;
+  
+  if (hadMissingBefore && localFileExists) {
+    console.log(`[TaskManager] 《${bookName}》本地虽已存在但记录有缺章，强制进入完整 processTask 流程补搜`);
+  }
   
   const id = generateId();
   const task: BookTask = {
     id,
     bookName,
-    status: localFileExists ? 'done' : 'pending',
-    message: localFileExists 
+    status: skipFullPipeline ? 'done' : 'pending',
+    message: skipFullPipeline 
       ? `《${bookName}》已存在于知识库（检测到本地全文文件）` 
-      : '等待开始...',
-    progress: localFileExists ? 100 : 0,
+      : (hadMissingBefore ? `🎯 检测到《${bookName}》记录有缺章，重新进入全网穷尽搜索 + 缺章定向补搜...` : '等待开始...'),
+    progress: skipFullPipeline ? 100 : 0,
     // 关键修复：本地书的 currentChapter 直接等于 totalChapters，避免假"缺章节"
-    currentChapter: localFileExists ? localMeta.totalChapters : 0,
-    totalChapters: localFileExists ? localMeta.totalChapters : 0,
+    currentChapter: skipFullPipeline ? localMeta.totalChapters : 0,
+    totalChapters: skipFullPipeline ? localMeta.totalChapters : 0,
     currentChapterName: '',
     remainingChapters: 0,
-    source: localFileExists ? '本地' : '',
+    source: skipFullPipeline ? '本地' : '',
     size: '',
     chars: localFileChars,
     learningStatus: 'pending',
     learningProgress: 0,
     learningCurrentChunk: 0,
     learningTotalChunks: 0,
-    learningMessage: localFileExists 
+    learningMessage: skipFullPipeline 
       ? '⏳ 待学习（在知识库点击"开始学习"启动）' 
       : '等待录入完成...',
     learningLayersDone: [],
@@ -2626,20 +2652,22 @@ export function createTask(bookName: string): { task: BookTask; isNew: boolean }
     learningCurrentChapterName: '',
     createdAt: Date.now(),
     updatedAt: Date.now(),
-    startedAt: localFileExists ? Date.now() : null,
-    completedAt: localFileExists ? Date.now() : null,
+    startedAt: skipFullPipeline ? Date.now() : null,
+    completedAt: skipFullPipeline ? Date.now() : null,
     error: '',
-    logs: localFileExists ? [`[${new Date().toLocaleTimeString()}] 检测到本地全文文件 ${localFileChars} 字 / ${localMeta.totalChapters} ${localMeta.chapterStructure}`] : [],
-    chapterStructure: localFileExists ? localMeta.chapterStructure : '',
+    logs: skipFullPipeline 
+      ? [`[${new Date().toLocaleTimeString()}] 检测到本地全文文件 ${localFileChars} 字 / ${localMeta.totalChapters} ${localMeta.chapterStructure}`] 
+      : (hadMissingBefore ? [`[${new Date().toLocaleTimeString()}] 检测到此书有缺章历史，进入完整重新录入流程`] : []),
+    chapterStructure: skipFullPipeline ? localMeta.chapterStructure : '',
     chapters: [],
   };
 
   tasks.set(id, task);
   saveTasks();
   
-  // 异步开始处理（不阻塞返回）；如果本地已存在则跳过录入流程
+  // 异步开始处理（不阻塞返回）；如果本地已存在且无缺章则跳过录入流程
   // 用 setImmediate + Promise 立即触发，避免 setTimeout 在某些场景下不被调度
-  if (!localFileExists) {
+  if (!skipFullPipeline) {
     setImmediate(() => {
       Promise.resolve().then(() => processTask(id)).catch(err => {
         console.error(`[createTask] processTask 启动失败 ${id}:`, err);
