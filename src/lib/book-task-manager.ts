@@ -2743,9 +2743,22 @@ async function learnLocalBook(taskId: string): Promise<void> {
       learningMessage: `开始读取《${task.bookName}》全文...`,
     });
     
-    // 从fulltext-search读取本地书籍内容
-    const { getBookFullText, markBookAsLearned } = await import('./fulltext-search');
-    const bookContent = getBookFullText(task.bookName);
+    // 从fulltext-search读取本地书籍内容（先确保 Supabase 缓存已加载，再读 cache）
+    const fulltextSearchMod = await import('./fulltext-search');
+    const { getBookFullText, getBookFullTextAsync, markBookAsLearned, loadBookCacheAsync } = fulltextSearchMod as unknown as {
+      getBookFullText: (n: string) => string;
+      getBookFullTextAsync?: (n: string) => Promise<string | null>;
+      markBookAsLearned: (n: string, c: number, t: number, s?: string) => void;
+      loadBookCacheAsync: () => Promise<void>;
+    };
+    try { await loadBookCacheAsync(); } catch {}
+    let bookContent = '';
+    if (typeof getBookFullTextAsync === 'function') {
+      try { bookContent = (await getBookFullTextAsync(task.bookName)) || ''; } catch {}
+    }
+    if (!bookContent || bookContent.length < 100) {
+      bookContent = getBookFullText(task.bookName) || '';
+    }
     
     if (!bookContent || bookContent.trim().length === 0) {
       updateTask(taskId, {

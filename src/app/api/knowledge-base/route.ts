@@ -322,227 +322,40 @@ export async function POST(request: NextRequest) {
     const { action } = body;
 
     if (action === 'start-learning') {
+      // 1) 让 task manager 创建任务 + 写 Supabase + 入队 + 自动 learnLocalBook
+      //    learnLocalBook 内部会 updateTask 持续持久化进度，进程重启后会从 Supabase 自动恢复
       const result = await startLearningAllLocalBooks();
-      // 直接在 API 层触发学习（绕过 HMR 闭包问题）
+
+      // 2) 立即把所有 learning 状态的 task 写到本地 statusFile，确保下次 GET 接口能立刻拿到 learning
       try {
-        const fullTextMod = await import('@/lib/fulltext-search');
-        const { getBookFullText, getBookFullTextAsync, markBookLearned, getLocalBookInfo, loadBookCacheAsync } = fullTextMod;
-        const sdkMod = await import('coze-coding-dev-sdk');
-        const { LLMClient, Config } = sdkMod;
         const fs = await import('fs');
         const path = await import('path');
-        const TASKS_DIR = path.join(process.env.COZE_WORKSPACE_PATH || '/workspace/projects', 'public', 'book-content');
-        // 学习状态目录（生产用 /tmp，开发用 public，统一管理）
         const STATUS_DIR = getStatusFileDir();
-        
-        // 获取所有可学习的书：本地 fs + Supabase（生产环境本地 fs 是空的）
-        let bookNames: string[] = [];
-        try {
-          const info = getLocalBookInfo();
-          bookNames = info.bookNames || [];
-        } catch {}
-        // 兜底：直接读 fs
-        if (bookNames.length === 0) {
-          try {
-            const files = fs.readdirSync(TASKS_DIR).filter((f: string) => f.endsWith('.txt'));
-            bookNames = files.map((f: string) => f.replace('.txt', ''));
-          } catch {}
-        }
         const statusFile = path.join(STATUS_DIR, 'local-learn-tasks.json');
         let learningStatus: Record<string, any> = {};
         try { learningStatus = JSON.parse(fs.readFileSync(statusFile, 'utf-8')); } catch {}
-        
-        let started = 0;
-        let skipped = 0;
-        for (const bookName of bookNames) {
-          const existing = learningStatus[bookName];
-          // 文件状态优先；同时检查 Supabase 是否已 done，避免被本地残留状态误重启
-          let dbStatus: string | undefined;
-          try {
-            const { getTaskByBookName } = await import('@/lib/book-repo');
-            const dbRow = await getTaskByBookName(bookName);
-            dbStatus = dbRow?.learning_status;
-          } catch { /* 忽略 */ }
-          if ((existing && existing.learningStatus === 'done') || dbStatus === 'done') {
-            skipped++;
-            // 把本地文件状态同步为 done，避免下次又被误判为 learning
-            learningStatus[bookName] = {
-              learningStatus: 'done',
-              learningProgress: 100,
-              learningMessage: '✅ 已学完，可用于回答问题',
-              learningLayersDone: [1, 2, 3, 4],
+
+        const { listTasks } = await import('@/lib/book-repo');
+        const tasksFromDb = await listTasks();
+        for (const t of tasksFromDb) {
+          if (t.learning_status === 'learning' || t.learning_status === 'done') {
+            learningStatus[t.book_name] = {
+              learningStatus: t.learning_status,
+              learningProgress: t.learning_progress ?? 0,
+              learningCurrentChunk: t.learning_current_chunk ?? 0,
+              learningTotalChunks: t.learning_total_chunks ?? 0,
+              learningMessage: t.learning_message || (t.learning_status === 'done' ? '✅ 已学完，可用于回答问题' : '准备学习...'),
+              learningLayersDone: t.learning_status === 'done' ? [1, 2, 3, 4] : [],
+              startedAt: t.learning_started_at ? new Date(t.learning_started_at).getTime() : Date.now(),
             };
-            try { fs.writeFileSync(statusFile, JSON.stringify(learningStatus, null, 2)); } catch { /* 静默 */ }
-            continue;
-          }
-          // pending / learning(已残留) / failed → 强制重启
-          // 标记为学习中
-          learningStatus[bookName] = {
-            learningStatus: 'learning',
-            learningProgress: 0,
-            learningMessage: '准备学习...',
-            learningLayersDone: [],
-            startedAt: Date.now(),
-          };
-          started++;
-
-          // ⚠️ 关键：立即同步写文件 + db，确保下次 GET 能立刻拿到 learning 状态
-          // 不能等 setImmediate 内的 chunk 循环——那要好几秒才会触发第一次写入
-          try { fs.writeFileSync(statusFile, JSON.stringify(learningStatus, null, 2)); } catch (writeErr) { console.warn('[start-learning] 立即写 statusFile 失败:', writeErr); }
-          // 同步 await 写 Supabase，确保跨页面切换后能恢复状态
-          try {
-            await syncLearningStatusToDb(bookName, {
-              learningStatus: 'learning',
-              learningProgress: 0,
-              learningCurrentChunk: 0,
-              learningTotalChunks: 0,
-              learningMessage: '准备学习...',
-            });
-          } catch (dbErr) {
-            console.warn('[start-learning] 立即写 Supabase 失败:', dbErr);
-          }
-
-          // 异步执行学习（不阻塞 API 响应）
-          setImmediate(async () => {
-            try {
-              // 先确保 Supabase 缓存已加载
-              try { await loadBookCacheAsync(); } catch {}
-              // 优先用 async（能从 Supabase 实时取），同步版作为兜底
-              let fullText: string | null = null;
-              try { fullText = await getBookFullTextAsync(bookName); } catch {}
-              if (!fullText || fullText.length < 100) {
-                fullText = getBookFullText(bookName);
-              }
-              if (!fullText || fullText.length < 100) {
-                learningStatus[bookName] = { ...learningStatus[bookName], learningStatus: 'failed', learningMessage: '无法读取书籍内容' };
-                try { fs.writeFileSync(statusFile, JSON.stringify(learningStatus, null, 2)); } catch (writeErr) { console.warn('[learn] 写 statusFile 失败:', writeErr); }
-                // 双写 Supabase 让生产环境也能拿到状态
-                void syncLearningStatusToDb(bookName, {
-                  learningStatus: 'failed',
-                  learningProgress: 0,
-                  learningCurrentChunk: 0,
-                  learningTotalChunks: 0,
-                  learningMessage: '无法读取书籍内容',
-                });
-                return;
-              }
-              
-              // 分块
-              const CHUNK_SIZE = 3000;
-              const paragraphs = fullText.split(/\n{2,}/);
-              const chunks: string[] = [];
-              let currentChunk = '';
-              for (const p of paragraphs) {
-                if ((currentChunk + '\n\n' + p).length > CHUNK_SIZE && currentChunk) {
-                  chunks.push(currentChunk);
-                  currentChunk = p;
-                } else {
-                  currentChunk = currentChunk ? currentChunk + '\n\n' + p : p;
-                }
-              }
-              if (currentChunk) chunks.push(currentChunk);
-              
-              const totalChunks = chunks.length;
-              const learnedChunks: string[] = [];
-              
-              // 逐块学习
-              const config = new Config();
-              const llmClient = new LLMClient(config);
-              for (let i = 0; i < totalChunks; i++) {
-                const chunk = chunks[i];
-                const progress = Math.round(((i + 1) / totalChunks) * 100);
-                
-                try {
-                  const messages = [{
-                    role: 'user' as const,
-                    content: `深度学习以下古籍原文，按4层结构输出学习笔记：\n一、专业术语与概念\n二、分析逻辑与推断方法\n三、知识点关联关系\n四、实际应用方法\n\n原文：\n${chunk}`,
-                  }];
-                  const stream = llmClient.stream(messages, {
-                    model: 'doubao-seed-2-0-pro-260215',
-                    temperature: 0.3,
-                  });
-                  let learnedContent = '';
-                  for await (const part of stream) {
-                    if (part?.content) {
-                      learnedContent += part.content.toString();
-                    }
-                  }
-                  
-                  learnedChunks.push(`========== 原文 ==========\n${chunk}\n========== AI学习笔记 ==========\n${learnedContent || '（学习笔记生成失败，保留原文）'}`);
-                } catch {
-                  learnedChunks.push(chunk); // 失败则保留原文
-                }
-                
-                // 更新进度
-                const layersDone: number[] = [];
-                if (progress >= 25) layersDone.push(1);
-                if (progress >= 50) layersDone.push(2);
-                if (progress >= 75) layersDone.push(3);
-                if (progress >= 100) layersDone.push(4);
-                
-                learningStatus[bookName] = {
-                  learningStatus: progress >= 100 ? 'done' : 'learning',
-                  learningProgress: progress,
-                  learningTotalChunks: totalChunks,
-                  learningCurrentChunk: i + 1,
-                  learningLayersDone: layersDone,
-                  learningMessage: progress >= 100 ? '✅ 已学完，可用于回答问题' : `正在学习第 ${i+1}/${totalChunks} 块...`,
-                };
-                try { fs.writeFileSync(statusFile, JSON.stringify(learningStatus, null, 2)); } catch (writeErr) { console.warn('[learn] 写 statusFile 失败:', writeErr); }
-                // 双写 Supabase（每 5 块或学完时写一次，避免过频）
-                if ((i + 1) % 5 === 0 || progress >= 100) {
-                  void syncLearningStatusToDb(bookName, {
-                    learningStatus: progress >= 100 ? 'done' : 'learning',
-                    learningProgress: progress,
-                    learningCurrentChunk: i + 1,
-                    learningTotalChunks: totalChunks,
-                    learningMessage: progress >= 100 ? '✅ 已学完，可用于回答问题' : `正在学习第 ${i+1}/${totalChunks} 块...`,
-                  });
-                }
-              }
-              
-              // 标记知识库学习完成
-              if (learnedChunks.length > 0) {
-                try { markBookLearned(bookName, true); } catch {}
-              }
-              
-              console.log(`[learnLocalBook] ✅ ${bookName} 学习完成，${totalChunks} 块`);
-            } catch (err: any) {
-              console.error(`[learnLocalBook] ❌ ${bookName} 学习失败:`, err.message);
-              learningStatus[bookName] = { ...learningStatus[bookName], learningStatus: 'failed', learningMessage: `学习失败: ${err.message}` };
-              try { fs.writeFileSync(statusFile, JSON.stringify(learningStatus, null, 2)); } catch (writeErr) { console.warn('[learn] 写 statusFile 失败:', writeErr); }
-              void syncLearningStatusToDb(bookName, {
-                learningStatus: 'failed',
-                learningProgress: 0,
-                learningCurrentChunk: 0,
-                learningTotalChunks: 0,
-                learningMessage: `学习失败: ${err.message}`,
-              });
-            }
-          });
-        }
-        
-        // 保存初始状态（生产环境会写 /tmp，开发写 public）
-        try { fs.writeFileSync(statusFile, JSON.stringify(learningStatus, null, 2)); } catch (writeErr) { console.warn('[learn] 写 statusFile 失败:', writeErr); }
-        // 初始状态同步到 Supabase
-        for (const bookName of Object.keys(learningStatus)) {
-          const s = learningStatus[bookName];
-          if (s.learningStatus === 'learning') {
-            void syncLearningStatusToDb(bookName, {
-              learningStatus: 'learning',
-              learningProgress: 0,
-              learningCurrentChunk: 0,
-              learningTotalChunks: 0,
-              learningMessage: '学习已加入队列',
-            });
           }
         }
-        
-        return NextResponse.json({ success: true, data: { total: bookNames.length, started, message: started > 0 ? `已启动 ${started} 本书的学习${skipped > 0 ? `，${skipped} 本已学完跳过` : ''}` : `共 ${bookNames.length} 本书，全部已学完，无需再学习` } });
-      } catch (err: any) {
-        console.error('[start-learning] 内部错误:', err.message);
-        return NextResponse.json({ success: true, data: result }); // fallback
+        try { fs.writeFileSync(statusFile, JSON.stringify(learningStatus, null, 2)); } catch (writeErr) { console.warn('[start-learning] 写 statusFile 失败:', writeErr); }
+      } catch (e) {
+        console.warn('[start-learning] 同步 statusFile 失败:', e);
       }
+
+      return NextResponse.json({ success: true, data: result });
     }
 
     if (action === 'refresh-cache') {
