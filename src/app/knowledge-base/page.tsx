@@ -39,7 +39,6 @@ export default function KnowledgeBasePage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState<string>('全部');
   const [isStartingLearning, setIsStartingLearning] = useState(false);
-  const [learningStarted, setLearningStarted] = useState(false);
   const pageSize = 50;
 
   const fetchBooks = useCallback(async (search = '', p = 1, silent = false) => {
@@ -198,12 +197,9 @@ export default function KnowledgeBasePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'start-learning' }),
       });
-      const data = await res.json();
-      if (data.success) {
-        setLearningStarted(true);
-        // 立刻刷新书籍列表以显示"学习中"状态
-        await fetchBooks(searchQuery, page);
-      }
+      await res.json();
+      // 立刻刷新书籍列表以显示"学习中"状态（按钮状态由 books 推导）
+      await fetchBooks(searchQuery, page);
     } catch {
       // 静默
     } finally {
@@ -283,28 +279,42 @@ export default function KnowledgeBasePage() {
               />
             </div>
           </div>
-          {/* 开始学习按钮 */}
-          {stats.learnedCount < stats.bookCount && (
-            <div className="mt-3">
-              <button
-                onClick={handleStartLearning}
-                disabled={isStartingLearning || learningStarted}
-                className={`w-full py-2.5 rounded-lg text-sm font-bold transition-all ${
-                  learningStarted
-                    ? 'bg-[#2a2a3e] text-[#8a8070] cursor-not-allowed'
-                    : isStartingLearning
-                    ? 'bg-[#2a2a3e] text-[#8a8070] animate-pulse'
-                    : 'bg-gradient-to-r from-[#d4a853] to-[#c0392b] text-[#0a0a0f] hover:shadow-lg hover:shadow-[#d4a853]/20'
-                }`}
-              >
-                {learningStarted
-                  ? '学习中…后台自动进行'
-                  : isStartingLearning
-                  ? '正在启动学习…'
-                  : `开始学习（${stats.bookCount - stats.learnedCount} 本待学习）`}
-              </button>
-            </div>
-          )}
+          {/* 开始学习按钮：状态完全由 books 真实数据推导，避免刷新丢失 */}
+          {(() => {
+            // 计算 books 中各种状态的数量
+            const learningCount = books.filter(b => b.learningStatus === 'learning').length;
+            const pendingCount = books.filter(b => b.learningStatus === 'pending').length;
+            const doneCount = books.filter(b => b.learningStatus === 'done').length;
+            // 全部学完 → 不显示按钮
+            if (doneCount > 0 && learningCount === 0 && pendingCount === 0) return null;
+            // 没书 → 不显示
+            if (books.length === 0) return null;
+            // 按钮显示状态：学习中 > 正在启动 > 待学习
+            const isLearning = learningCount > 0;
+            const disabled = isStartingLearning || isLearning;
+            const label = isLearning
+              ? `深度学习中…正在学习 ${learningCount} 本，已学完 ${doneCount} 本`
+              : isStartingLearning
+                ? '正在启动学习…'
+                : `开始学习（${pendingCount} 本待学习）`;
+            const cls = isLearning
+              ? 'bg-[#2a2a3e] text-[#d4a853] cursor-not-allowed border border-[#d4a853]/30'
+              : isStartingLearning
+                ? 'bg-[#2a2a3e] text-[#8a8070] cursor-wait'
+                : 'bg-gradient-to-r from-[#d4a853] to-[#c0392b] text-[#0a0a0f] hover:shadow-lg hover:shadow-[#d4a853]/20';
+            return (
+              <div className="mt-3">
+                <button
+                  onClick={handleStartLearning}
+                  disabled={disabled}
+                  className={`w-full py-2.5 rounded-lg text-sm font-bold transition-all inline-flex items-center justify-center gap-2 ${cls}`}
+                >
+                  {isLearning && <span className="inline-block w-2 h-2 bg-[#d4a853] rounded-full" />}
+                  {label}
+                </button>
+              </div>
+            );
+          })()}
         </div>
 
         {/* 搜索栏 */}
