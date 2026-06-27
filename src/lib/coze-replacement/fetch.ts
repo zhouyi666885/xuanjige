@@ -7,29 +7,20 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 
-const PDF_PARSE = async (buf: Buffer): Promise<string> => {
-  try {
-    // pdf-parse 2.x 是 ESM，default 可能不存在，做兼容
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const mod = await import('pdf-parse') as any;
-    const fn = mod.default || mod.PDFParse || mod;
-    const out = typeof fn === 'function' ? await fn(buf) : await fn.parse(buf);
-    return out?.text || '';
-  } catch (err) {
-    console.warn('[FetchClient] PDF 解析失败:', (err as Error).message);
-    return '';
-  }
+// 注：PDF / DOCX 解析依赖 pdf-parse / pdfjs-dist / mammoth 等大体积包，
+// 会让 Netlify Function zip 超 50MB 上限，故在 serverless 部署时一律降级跳过；
+// 本来这部分逻辑就有 try/catch 兜底返回 ''，不会影响主流程。
+// 如未来需要 PDF/DOCX 真解析，请改用对象存储 + 离线 worker 完成。
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const PDF_PARSE = async (_buf: Buffer): Promise<string> => {
+  console.warn('[FetchClient] PDF 解析在当前部署环境已禁用（serverless 体积限制）');
+  return '';
 };
 
-const DOCX_PARSE = async (buf: Buffer): Promise<string> => {
-  try {
-    const mammoth = await import('mammoth');
-    const result = await mammoth.extractRawText({ buffer: buf });
-    return result.value || '';
-  } catch (err) {
-    console.warn('[FetchClient] DOCX 解析失败:', (err as Error).message);
-    return '';
-  }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const DOCX_PARSE = async (_buf: Buffer): Promise<string> => {
+  console.warn('[FetchClient] DOCX 解析在当前部署环境已禁用（serverless 体积限制）');
+  return '';
 };
 
 /**
