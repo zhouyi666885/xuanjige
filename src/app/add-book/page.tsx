@@ -186,7 +186,12 @@ export default function AddBookPage() {
       // 解析书名：支持换行、逗号、顿号分隔
       const names = bookName
         .split(/[\n,，、;；\t]+/)
-        .map(n => n.trim())
+        .map(n => n
+          // 1. 去掉所有控制字符（含 \r \t 零宽空格 BOM）
+          .replace(/[\u0000-\u001F\u007F\u200B-\u200F\uFEFF]/g, '')
+          // 2. 标准 trim
+          .trim()
+        )
         .filter(Boolean);
 
       // 去重
@@ -197,13 +202,25 @@ export default function AddBookPage() {
         return;
       }
 
-      const res = await fetch('/api/add-book', {
+      const requestUrl = '/api/add-book';
+      const requestBody = JSON.stringify({
+        bookName: uniqueNames.length === 1 ? uniqueNames[0] : undefined,
+        bookNames: uniqueNames.length > 1 ? uniqueNames : undefined,
+      });
+
+      // 调试：把请求详情打到控制台，方便排查 "The string did not match the expected pattern"
+      // eslint-disable-next-line no-console
+      console.log('[add-book] POST', {
+        url: requestUrl,
+        absoluteUrl: typeof window !== 'undefined' ? new URL(requestUrl, window.location.origin).href : requestUrl,
+        body: requestBody,
+        bookNames: uniqueNames,
+      });
+
+      const res = await fetch(requestUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          bookName: uniqueNames.length === 1 ? uniqueNames[0] : undefined,
-          bookNames: uniqueNames.length > 1 ? uniqueNames : undefined,
-        }),
+        body: requestBody,
       });
       const data = await res.json();
 
@@ -226,7 +243,16 @@ export default function AddBookPage() {
       // 立即刷新任务列表
       await fetchTasks();
     } catch (err) {
-      setAddError(`网络错误：${(err as Error).message || '请求失败'}`);
+      const e = err as Error;
+      // 调试：把完整错误栈打到控制台
+      // eslint-disable-next-line no-console
+      console.error('[add-book] fetch error', {
+        name: e?.name,
+        message: e?.message,
+        stack: e?.stack,
+        rawBookName: bookName,
+      });
+      setAddError(`网络错误：${e?.message || '请求失败'}（错误类型：${e?.name || 'Unknown'}）。请按 F12 打开浏览器控制台，把 [add-book] 开头的红字截图给开发者。`);
     } finally {
       setIsSubmitting(false);
     }
