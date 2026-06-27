@@ -12,14 +12,29 @@ import {
 } from '@/lib/book-task-manager';
 import { getLearningProgress, getLocalBookInfo, loadBookCacheAsync } from '@/lib/fulltext-search';
 
-// 确保任务管理器初始化
-initTaskManager();
+// 强制动态渲染（每次请求都执行，避免构建时静态优化导致 500）
+export const dynamic = 'force-dynamic';
+
+// 延迟初始化任务管理器（不在模块顶层执行，避免加载失败导致整个路由 500）
+let _taskManagerInitialized = false;
+async function ensureTaskManager() {
+  if (!_taskManagerInitialized) {
+    try {
+      initTaskManager();
+    } catch (e) {
+      console.error('[add-book] initTaskManager failed:', e);
+      // 即使初始化失败也不阻塞路由，后续操作会降级到内存模式
+    }
+    _taskManagerInitialized = true;
+  }
+}
 
 /**
  * GET /api/add-book
  * 获取所有任务列表 + 统计信息
  */
 export async function GET() {
+  await ensureTaskManager();
   try {
     // 首先从云端拉取最新书目（开发/生产共享 Supabase 数据）
     await loadBookCacheAsync();
@@ -143,6 +158,7 @@ export async function GET() {
  * 任务在后台自动运行，不依赖HTTP连接
  */
 export async function POST(request: NextRequest) {
+  await ensureTaskManager();
   try {
     const body = await request.json();
     const { bookName, bookNames } = body;
