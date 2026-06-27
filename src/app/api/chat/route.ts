@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { LLMClient, Config, HeaderUtils } from 'coze-coding-dev-sdk';
+import { LLMClient, Config, HeaderUtils } from '@/lib/coze-replacement';
 import { buildSystemPromptProfessional, buildSystemPromptCasual, THREE_IRON_RULES, KNOWLEDGE_IRON_LAW_FOUND, KNOWLEDGE_IRON_LAW_NOT_FOUND } from '@/lib/knowledge';
 import { paiPan, formatPaiPanFull, formatShiZhanPrediction } from '@/lib/bazi';
 import { paiPan as ziweiPaiPan, formatPaiPan as ziweiFormatPaiPan, getMingGongLunDuan } from '@/lib/ziwei';

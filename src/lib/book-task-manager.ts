@@ -10,7 +10,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { Config, LLMClient, SearchClient, FetchClient, FetchContentItem, KnowledgeClient } from 'coze-coding-dev-sdk';
+import { Config, LLMClient, SearchClient, FetchClient, FetchContentItem, KnowledgeClient } from '@/lib/coze-replacement';
 // eslint-disable-next-line import/no-cycle
 import { isBookExists, addBookToKnowledgeBase, findBooksByName, getLocalBookInfo } from './fulltext-search';
 import { saveBook } from './book-storage';

@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { LLMClient, Config, HeaderUtils } from 'coze-coding-dev-sdk';
+import { LLMClient, Config, HeaderUtils } from '@/lib/coze-replacement';
 import { palmReadingPrompt, THREE_IRON_RULES, KNOWLEDGE_IRON_LAW_FOUND, KNOWLEDGE_IRON_LAW_NOT_FOUND } from '@/lib/knowledge';
 import { searchKnowledge, formatKnowledgeResults } from '@/lib/knowledge-search';
 import { matchExtendedKnowledge } from '@/lib/extended-classic-knowledge';

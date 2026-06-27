@@ -1,6 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { execSync } from 'child_process';
-import { getReportBuffer, createWrappedFetch } from 'coze-coding-dev-sdk';
+import { getReportBuffer, createWrappedFetch } from '@/lib/coze-replacement';
 
 let envLoaded = false;
 

@@ -4,7 +4,7 @@
  * 在 API 路由中调用，为 AI 回答提供精准的经典知识支撑
  */
 
-import { KnowledgeClient, Config } from 'coze-coding-dev-sdk';
+import { KnowledgeClient, Config } from '@/lib/coze-replacement';
 
 let clientInstance: KnowledgeClient | null = null;
 

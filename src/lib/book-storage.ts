@@ -7,7 +7,7 @@
  * - 索引管理 → 本地book-index.json记录所有书籍的S3 Key
  */
 
-import { S3Storage } from 'coze-coding-dev-sdk';
+import { S3Storage } from '@/lib/coze-replacement';
 import * as fs from 'fs';
 import * as path from 'path';
 
