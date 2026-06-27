@@ -646,14 +646,88 @@ export function resumeTask(taskId: string): boolean {
   return true;
 }
 
-export function cancelTask(taskId: string): boolean {
+/**
+ * 取消任务（书名级联动取消）
+ *
+ * 🔴 取消语义：用户的"取消添加"=该书从未添加过。
+ * 必须连带把这本书的所有相关任务（录入/翻译/学习等）一并清掉，包括：
+ * 1. 内存中所有同书名的 task（无论状态）
+ * 2. processingQueue 中正在跑的同书名 task
+ * 3. processingLearningSet 中的同书名学习并发锁
+ * 4. Supabase 的 book_tasks 表中同书名的行
+ * 5. Supabase 的 books 表中的内容行（chunks）
+ * 6. 本地物理文件（如果存在）
+ * 7. 立 ID 级 + 书名级墓碑，阻止任何旧闭包/异步循环把这本书写回来
+ */
+export async function cancelTask(taskId: string): Promise<boolean> {
   const task = tasks.get(taskId);
   if (!task) {
+    // 即使内存里没有，也尝试按 ID 立墓碑，让搜索阶段已发起的异步循环知道这个 task 被取消了
+    cancelledTasks.add(taskId);
+    deletedTaskIds.add(taskId);
     return false;
   }
-  cancelledTasks.add(taskId);
-  pausedTasks.delete(taskId);
-  tasks.delete(taskId);
+
+  const bookName = task.bookName;
+
+  // 1. 找出所有同书名的 task ID
+  const sameNameTaskIds: string[] = [];
+  for (const [id, t] of tasks) {
+    if (t.bookName === bookName) {
+      sameNameTaskIds.push(id);
+    }
+  }
+  if (!sameNameTaskIds.includes(taskId)) sameNameTaskIds.push(taskId);
+
+  // 2. 内存批量清理：标墓碑 + 解暂停 + 出处理队列 + 出学习并发集合 + 从 tasks Map 删除
+  for (const id of sameNameTaskIds) {
+    cancelledTasks.add(id);
+    deletedTaskIds.add(id);
+    pausedTasks.delete(id);
+    processingQueue.delete(id);
+    if (processingLearningSet) {
+      try { processingLearningSet.delete(id); } catch { /* ignore */ }
+    }
+    tasks.delete(id);
+  }
+
+  // 3. 立书名级墓碑（防止种子自愈、_异步循环_等再次写回同名 task）
+  const g = globalThis as unknown as { __deletedBookNames?: Set<string> };
+  g.__deletedBookNames ??= new Set<string>();
+  g.__deletedBookNames.add(bookName);
+
+  // 4. Supabase 兜底（异步操作集中后置，全部错误吞掉避免影响内存清理结果）
+  try {
+    const allDbTasks = await repoListTasks();
+    const dbIdsToDelete = allDbTasks
+      .filter(t => t.book_name === bookName)
+      .map(t => t.id)
+      .filter((id): id is string => !!id);
+    for (const id of dbIdsToDelete) {
+      cancelledTasks.add(id);
+      deletedTaskIds.add(id);
+      try { await repoDeleteTask(id); } catch { /* ignore */ }
+      try { await repoAddTombstone('id', id); } catch { /* ignore */ }
+    }
+    // 即使一条 db task 都没找到也立一次书名级墓碑
+    try { await repoAddTombstone('name', bookName); } catch { /* ignore */ }
+  } catch { /* ignore */ }
+
+  // 5. 从 Supabase books 表删除内容行（防取消后内容残留）
+  try {
+    const { getSupabaseClient } = await import('@/storage/database/supabase-client');
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      await supabase.from('books').delete().eq('name', bookName);
+    }
+  } catch { /* ignore */ }
+
+  // 6. 删除本地物理文件
+  try {
+    const { removeBookFromKnowledgeBase } = await import('./fulltext-search');
+    removeBookFromKnowledgeBase(bookName);
+  } catch { /* ignore */ }
+
   saveTasks();
   return true;
 }
