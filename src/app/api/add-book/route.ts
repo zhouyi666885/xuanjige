@@ -173,6 +173,24 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 🔴 搜索 Key 健康检查 —— 没填则直接返回明确错误，避免任务卡死在"搜索中"
+    const hasSearchKey = !!(
+      process.env.SERPER_API_KEY ||
+      process.env.BING_API_KEY ||
+      process.env.TAVILY_API_KEY ||
+      process.env.SEARCH_API_KEY
+    );
+    if (!hasSearchKey) {
+      return NextResponse.json(
+        {
+          error: '未配置搜索 API Key，无法在线搜索新书',
+          hint: '请在 .env 中配置 SERPER_API_KEY（推荐，serper.dev 每月 2500 次免费）或 BING_API_KEY，配置后重启服务。已录入的 1291 本书不受影响。',
+          missingEnv: 'SERPER_API_KEY',
+        },
+        { status: 503 }
+      );
+    }
+
     // 批量创建任务
     const results = await Promise.all(names.map(async name => {
       const { task, isNew } = await createTask(name);

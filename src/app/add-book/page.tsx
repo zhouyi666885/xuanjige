@@ -133,6 +133,7 @@ export default function AddBookPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [stats, setStats] = useState({ total: 0, active: 0, done: 0, failed: 0 });
   const [bookCount, setBookCount] = useState(0);
+  const [addError, setAddError] = useState<string>('');
   const [learningBooks, setLearningBooks] = useState<LearningBook[]>([]);
   const [missingChapterBooks, setMissingChapterBooks] = useState<{bookName: string; currentChapter: number; totalChapters: number; chapterStructure: string}[]>([]);
 
@@ -180,6 +181,7 @@ export default function AddBookPage() {
   const handleAdd = async () => {
     if (!bookName.trim()) return;
     setIsSubmitting(true);
+    setAddError('');
     try {
       // 解析书名：支持换行、逗号、顿号分隔
       const names = bookName
@@ -205,6 +207,13 @@ export default function AddBookPage() {
       });
       const data = await res.json();
 
+      // 后端返回 error / 非 2xx → 直接展示给用户，不静默
+      if (!res.ok || data.error) {
+        const hint = data.hint ? `\n${data.hint}` : '';
+        setAddError(`${data.error || '添加失败'}${hint}`);
+        return;
+      }
+
       // 批量添加时显示结果提示
       if (data.total && data.total > 1) {
         const msgs: string[] = [];
@@ -216,8 +225,8 @@ export default function AddBookPage() {
       setBookName('');
       // 立即刷新任务列表
       await fetchTasks();
-    } catch {
-      // 错误处理
+    } catch (err) {
+      setAddError(`网络错误：${(err as Error).message || '请求失败'}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -409,6 +418,14 @@ export default function AddBookPage() {
               )}
             </div>
           </div>
+
+          {/* 错误提示：搜索 Key 缺失 / 网络错误等 */}
+          {addError && (
+            <div className="mt-3 px-4 py-3 rounded-lg bg-[#3a1a1a] border border-[#c0392b] text-[#e8c0b0] text-sm whitespace-pre-line">
+              <div className="font-bold text-[#e74c3c] mb-1">⚠ 添加失败</div>
+              {addError}
+            </div>
+          )}
         </div>
 
         {/* 活跃任务统计 */}
