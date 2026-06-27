@@ -8,7 +8,7 @@ export class Config {
   llmBaseUrl: string;
   llmModel: string;
   searchApiKey: string;
-  searchProvider: 'serper' | 'bing' | 'tavily' | 'none';
+  searchProvider: 'serper' | 'bing' | 'tavily' | 'local' | 'none';
   s3Endpoint: string;
   s3Region: string;
   s3Bucket: string;
@@ -23,14 +23,18 @@ export class Config {
     this.llmModel = process.env.LLM_MODEL || 'qwen-plus';
 
     // 搜索 Key 兼容三套命名：SEARCH_API_KEY / SERPER_API_KEY / BING_API_KEY
-    // 谁有用谁（按 Serper → Bing → Tavily 优先级），都没填则禁用搜索
+    // 谁有用谁（按 Serper → Bing → Tavily → local 优先级），都没填则降级到 local 公版书源（零成本零依赖）
     const serperKey = process.env.SERPER_API_KEY || '';
     const bingKey = process.env.BING_API_KEY || '';
     const tavilyKey = process.env.TAVILY_API_KEY || '';
     const explicitKey = process.env.SEARCH_API_KEY || '';
-    const explicitProvider = process.env.SEARCH_PROVIDER as 'serper' | 'bing' | 'tavily' | 'none' | undefined;
+    const explicitProvider = process.env.SEARCH_PROVIDER as
+      | 'serper' | 'bing' | 'tavily' | 'local' | 'none' | undefined;
 
-    if (explicitKey && explicitProvider && explicitProvider !== 'none') {
+    if (explicitProvider === 'local' || explicitProvider === 'none') {
+      this.searchApiKey = '';
+      this.searchProvider = explicitProvider;
+    } else if (explicitKey && explicitProvider) {
       this.searchApiKey = explicitKey;
       this.searchProvider = explicitProvider;
     } else if (serperKey) {
@@ -43,8 +47,9 @@ export class Config {
       this.searchApiKey = tavilyKey;
       this.searchProvider = 'tavily';
     } else {
+      // 🔑 所有 Key 都为空 → 自动降级到 local，零成本零依赖
       this.searchApiKey = '';
-      this.searchProvider = 'none';
+      this.searchProvider = 'local';
     }
 
     // S3 兼容两套命名（S3_ENDPOINT_URL / S3_ENDPOINT，S3_BUCKET_NAME / S3_BUCKET）

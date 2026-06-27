@@ -10,6 +10,7 @@
  */
 import axios from 'axios';
 import type { Config } from './config';
+import { localPublicDomainSearch } from './local-search';
 
 export interface WebSearchItem {
   url: string;
@@ -31,7 +32,7 @@ export interface SearchOptions {
 
 export class SearchClient {
   private apiKey: string;
-  private provider: 'serper' | 'bing' | 'tavily' | 'none';
+  private provider: 'serper' | 'bing' | 'tavily' | 'local' | 'none';
 
   constructor(config: Config) {
     this.apiKey = config.searchApiKey;
@@ -40,13 +41,16 @@ export class SearchClient {
 
   /** 原 SDK 兼容入口：webSearch(query, count) -> { web_items } */
   async webSearch(query: string, count = 20): Promise<WebSearchResponse> {
-    if (this.provider === 'none' || !this.apiKey) return { web_items: [] };
+    if (this.provider === 'none') return { web_items: [] };
+    // local provider 不需要 API Key，其他 provider 必须有 Key
+    if (this.provider !== 'local' && !this.apiKey) return { web_items: [] };
     try {
       let items: WebSearchItem[] = [];
       switch (this.provider) {
         case 'serper': items = await this.searchSerper(query, count); break;
         case 'bing':   items = await this.searchBing(query, count); break;
         case 'tavily': items = await this.searchTavily(query, count); break;
+        case 'local':  items = await localPublicDomainSearch(query, count); break;
       }
       return { web_items: items };
     } catch (err) {
