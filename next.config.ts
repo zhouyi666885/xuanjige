@@ -1,7 +1,6 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  // outputFileTracingRoot: path.resolve(__dirname, '../../'),  // Uncomment and add 'import path from "path"' if needed
   /* config options here */
   allowedDevOrigins: ['*.dev.coze.site'],
   images: {
@@ -13,6 +12,8 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  // 让 AWS SDK 等大型 Node 包不被打进 RSC bundle（减小 cold-start 体积）
+  serverExternalPackages: ['@aws-sdk/client-s3', '@aws-sdk/lib-storage'],
 };
 
 export default nextConfig;

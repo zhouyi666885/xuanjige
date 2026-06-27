@@ -1,0 +1,36 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "buildCommand": "pnpm run build:vercel",
+  "installCommand": "pnpm install --frozen-lockfile=false",
+  "outputDirectory": ".next",
+  "regions": ["hkg1", "sin1", "iad1"],
+  "functions": {
+    "src/app/api/chat/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/face-reading/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/palm-reading/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/divination/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/add-book/route.ts": {
+      "maxDuration": 60
+    }
+  },
+  "env": {
+    "DEPLOY_TARGET": "vercel"
+  },
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store, max-age=0" }
+      ]
+    }
+  ]
+}

@@ -4,11 +4,13 @@
   "private": true,
   "scripts": {
     "build": "bash ./scripts/build.sh",
+    "build:vercel": "rm -rf public/book-content-en-backup public/book-tasks.json public/book-learn-status.json public/book-s3-index.json 2>/dev/null || true; next build",
     "dev": "bash ./scripts/dev.sh",
     "preinstall": "npx only-allow pnpm",
     "lint": "eslint",
     "lint:build": "eslint . --quiet",
     "start": "bash ./scripts/start.sh",
+    "start:vercel": "next start",
     "ts-check": "tsc -p tsconfig.json",
     "validate": "pnpm run --parallel '/^(ts-check|lint:build)$/'"
   },

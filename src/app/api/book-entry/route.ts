@@ -23,9 +23,34 @@ import path from 'path';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
+// 检测运行环境：Vercel / Netlify / Cloudflare Pages 等 Serverless 平台不支持 Python
+// 也不支持持久化文件系统（只有 /tmp 临时可写，冷启动会丢）
+const IS_SERVERLESS =
+  !!process.env.VERCEL ||
+  !!process.env.NETLIFY ||
+  !!process.env.CF_PAGES ||
+  process.env.DEPLOY_TARGET === 'vercel';
+
 const SCRIPT_PATH = path.join(process.cwd(), 'scripts', 'book-entry', 'db_manager.py');
-const DEFAULT_DB = process.env.BOOK_ENTRY_DB || path.join(process.cwd(), 'xuanjige.db');
+// Serverless 环境下文件系统只读，只有 /tmp 可写（但冷启动会丢）
+const DEFAULT_DB =
+  process.env.BOOK_ENTRY_DB ||
+  (IS_SERVERLESS ? '/tmp/xuanjige.db' : path.join(process.cwd(), 'xuanjige.db'));
 const PYTHON_BIN = process.env.PYTHON_BIN || 'python3';
+
+function serverlessUnavailableResponse() {
+  return NextResponse.json(
+    {
+      status: 'unavailable',
+      message:
+        '当前部署在 Serverless 平台（Vercel/Netlify/CF Pages），不支持 Python 子进程与本地 SQLite 持久化。',
+      hint:
+        'book-entry 兜底链路仅在「自有服务器」(Docker/Linux VM) 上可用。Serverless 环境请走 Supabase 数据库 + LLM 直连方案。',
+      docs: '/VERCEL-DEPLOY.md',
+    },
+    { status: 503 }
+  );
+}
 
 const ALLOWED_ACTIONS = new Set([
   'init',
@@ -50,6 +75,7 @@ function runPython(action: string, args: string[]): Promise<PyResult> {
   return new Promise((resolve, reject) => {
     const fullArgs = [SCRIPT_PATH, action, '--db', DEFAULT_DB, ...args];
     const proc = spawn(PYTHON_BIN, fullArgs, {
+      cwd: process.cwd(),
       env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
     });
 
@@ -124,6 +150,10 @@ function paramsToArgs(action: string, body: Record<string, unknown>): string[] {
 }
 
 export async function POST(req: NextRequest) {
+  // Serverless 平台直接返回 503 + 明确提示，避免 spawn python3 报底层错
+  if (IS_SERVERLESS) {
+    return serverlessUnavailableResponse();
+  }
   try {
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
     const action = String(body.action ?? '').trim();
@@ -154,6 +184,20 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET() {
+  // Serverless 平台：直接返回降级提示，不尝试 spawn python3
+  if (IS_SERVERLESS) {
+    return NextResponse.json(
+      {
+        status: 'unavailable',
+        platform: process.env.VERCEL ? 'vercel' : (process.env.NETLIFY ? 'netlify' : 'serverless'),
+        message: 'book-entry 仅在自有服务器环境可用，Serverless 平台请走 Supabase。',
+        dbPath: DEFAULT_DB,
+        pythonBin: PYTHON_BIN,
+        scriptPath: SCRIPT_PATH,
+      },
+      { status: 503 }
+    );
+  }
   // 健康检查：返回数据库路径和已录入书籍数量
   try {
     const result = await runPython('list-books', []);

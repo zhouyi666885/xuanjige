@@ -1,0 +1,44 @@
+# Vercel 部署忽略清单 —— 避免把大文件和无关产物推到 Vercel
+
+# 本地依赖与构建产物
+node_modules
+.next
+dist
+out
+
+# 本地 SQLite 数据库（运行时数据，不上传）
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+xuanjige.db
+
+# 大体积内容备份（部署时不需要，会拉爆冷启动体积）
+public/book-content-en-backup
+public/book-tasks.json
+public/book-learn-status.json
+public/book-s3-index.json
+
+# 本地工具/脚本目录（Vercel Serverless 上 Python 跑不起来，且不必要）
+scripts/book-entry/*.db
+.venv
+
+# 临时与系统文件
+.DS_Store
+*.log
+*.tsbuildinfo
+coverage
+.cache
+
+# 本地敏感配置（在 Vercel Dashboard 里配 env，绝不上传 .env）
+.env
+.env.local
+.env.production
+.env.*.local
+
+# Git
+.git
+.gitignore
+
+# 文档（不影响运行，但能减小推送体积；按需保留）
+# *.md
