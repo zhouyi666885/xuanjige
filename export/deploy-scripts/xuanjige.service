@@ -1,0 +1,19 @@
+[Unit]
+Description=xuanjige Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/xuanjige
+ExecStart=/usr/bin/pm2 start /opt/xuanjige/package.json --name xuanjige --no-daemon
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=xuanjige
+Environment=NODE_ENV=production
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
