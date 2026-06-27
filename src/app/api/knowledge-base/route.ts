@@ -270,11 +270,26 @@ export async function GET(request: NextRequest) {
       const prio = (s?: string) => s === 'done' ? 4 : s === 'learning' ? 3 : s === 'pending' ? 2 : 1;
       candidates.sort((a, b) => prio(b.s) - prio(a.s));
       const best = doneCandidate || candidates[0] || {};
-      const finalLearningStatus = best.s ?? (learnStatus?.learned ? 'done' : 'pending');
-      const finalLearningProgress = doneCandidate ? 100 : (best.p ?? (learnStatus?.learned ? 100 : 0));
-      const finalLearningMessage = best.m ?? '';
-      const finalLearningCurrentChunk = doneCandidate ? (best.t ?? 0) : (best.c ?? 0);
+      let finalLearningStatus = best.s ?? (learnStatus?.learned ? 'done' : 'pending');
+      let finalLearningProgress = doneCandidate ? 100 : (best.p ?? (learnStatus?.learned ? 100 : 0));
+      let finalLearningMessage = best.m ?? '';
+      let finalLearningCurrentChunk = doneCandidate ? (best.t ?? 0) : (best.c ?? 0);
       const finalLearningTotalChunks = best.t ?? 0;
+      // 🔴 进度→状态自动翻转兜底（永久规则）：
+      // 任何任务，只要进度到 100%，状态必须立刻翻为"已完成"，不允许卡在"进行中"。
+      // 这一层是 API 层兜底，即便 task 层兜底失效（HMR/persist 时序异常），也能保证 UI 与 AI 拿到的状态正确。
+      if (finalLearningProgress >= 100 && finalLearningStatus !== 'done' && finalLearningStatus !== 'failed') {
+        finalLearningStatus = 'done';
+        finalLearningProgress = 100;
+        if (!finalLearningMessage || /学习中|进行中/.test(finalLearningMessage)) {
+          finalLearningMessage = `✅ 已学完《${name}》全部内容`;
+        }
+        if (finalLearningTotalChunks > 0 && finalLearningCurrentChunk < finalLearningTotalChunks) {
+          finalLearningCurrentChunk = finalLearningTotalChunks;
+        }
+      }
+      // 同理：录入进度 100% → 状态翻 done（如本卡有录入字段）
+      // （此处不直接改 task.status，因为 task.status 在前置 dbTaskMap 已处理）
       // 从 task/dbTask 中提取缺失章节信息 + 学习当前章节
       // 🔴 缺章/录入字段必须从【最新 task】取，不能用 sticky OR fallback
       // bug 复现：旧 task 标过 hasMissing=true 后，新 task 即使补全了，UI 仍显示缺失

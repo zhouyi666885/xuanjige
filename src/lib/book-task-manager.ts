@@ -679,6 +679,29 @@ function updateTask(id: string, updates: Partial<BookTask>): BookTask | null {
   if (!task) return null;
   
   Object.assign(task, updates, { updatedAt: Date.now() });
+
+  // 🔴 进度→状态自动翻转兜底（永久规则）
+  // 任何任务，只要进度到 100%，状态必须立刻翻为"已完成"，绝不允许卡在"进行中"
+  // 1) 学习进度 100% → learningStatus='done'（含强制 learningProgress=100、learningLayersDone 全亮）
+  if (task.learningProgress >= 100 && task.learningStatus !== 'done' && task.learningStatus !== 'failed') {
+    task.learningStatus = 'done';
+    task.learningProgress = 100;
+    task.learningLayersDone = (task.learningLayersDone && task.learningLayersDone.length > 0)
+      ? task.learningLayersDone
+      : [1, 2, 3, 4];
+    if (!task.learningMessage || /学习中|进行中|学习\.\.\./i.test(task.learningMessage)) {
+      task.learningMessage = `✅ 已学完《${task.bookName}》全部内容`;
+    }
+    if (!task.completedAt) task.completedAt = Date.now();
+  }
+  // 2) 录入进度 100% → status='done'
+  if ((task.progress ?? 0) >= 100 && task.status !== 'done' && task.status !== 'failed' && task.status !== 'paused') {
+    task.status = 'done';
+    task.progress = 100;
+    if (!task.completedAt) task.completedAt = Date.now();
+  }
+  // 3) 录入完成后 status='done' 即代表"已录入+已翻译"（项目内翻译是录入流程的内部阶段，没有独立翻译状态字段）
+
   tasks.set(id, task);
   saveTasks(); // 每次更新都持久化到本地
   // 🔴 关键：每次状态变更都实时同步到 Supabase，确保 AI truthBlock 能读到最新状态
