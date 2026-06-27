@@ -20,9 +20,15 @@ const storage = new S3Storage({
   region: process.env.S3_REGION || 'cn-beijing',
 });
 
-// 本地缓存目录
-const LOCAL_CACHE_DIR = path.join(process.env.COZE_WORKSPACE_PATH || '/workspace/projects', 'public', 'book-content');
-const INDEX_FILE = path.join(process.env.COZE_WORKSPACE_PATH || '/workspace/projects', 'book-s3-index.json');
+// 本地缓存目录（Netlify/Lambda 只读，必须用 /tmp）
+const IS_SERVERLESS = !!(process.env.NETLIFY || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.LAMBDA_TASK_ROOT);
+const LOCAL_BASE = IS_SERVERLESS
+  ? '/tmp'
+  : (process.env.COZE_WORKSPACE_PATH || '/workspace/projects');
+const LOCAL_CACHE_DIR = IS_SERVERLESS
+  ? '/tmp/book-content'
+  : path.join(LOCAL_BASE, 'public', 'book-content');
+const INDEX_FILE = path.join(LOCAL_BASE, 'book-s3-index.json');
 
 // S3前缀
 const S3_PREFIX = 'books/';
@@ -51,7 +57,13 @@ function loadIndex(): BookIndex {
 
 // 保存索引
 function saveIndex(index: BookIndex): void {
-  fs.writeFileSync(INDEX_FILE, JSON.stringify(index, null, 2), 'utf-8');
+  try {
+    const dir = path.dirname(INDEX_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(INDEX_FILE, JSON.stringify(index, null, 2), 'utf-8');
+  } catch {
+    // 只读文件系统忽略
+  }
 }
 
 // 生成S3安全文件名（去除特殊字符）
@@ -110,7 +122,12 @@ export async function downloadBookFromS3(bookName: string): Promise<string | nul
 
     // 保存到本地缓存
     const localPath = path.join(LOCAL_CACHE_DIR, `${bookName}.txt`);
-    fs.writeFileSync(localPath, content, 'utf-8');
+    try {
+      if (!fs.existsSync(LOCAL_CACHE_DIR)) fs.mkdirSync(LOCAL_CACHE_DIR, { recursive: true });
+      fs.writeFileSync(localPath, content, 'utf-8');
+    } catch {
+      // 只读文件系统忽略
+    }
 
     // 更新索引标记
     entry.localCached = true;
@@ -292,7 +309,12 @@ export async function saveBook(
 ): Promise<{ s3Key: string; size: number; localPath: string }> {
   // 1. 保存到本地缓存
   const localPath = path.join(LOCAL_CACHE_DIR, `${bookName}.txt`);
-  fs.writeFileSync(localPath, content, 'utf-8');
+  try {
+    if (!fs.existsSync(LOCAL_CACHE_DIR)) fs.mkdirSync(LOCAL_CACHE_DIR, { recursive: true });
+    fs.writeFileSync(localPath, content, 'utf-8');
+  } catch {
+    // 只读文件系统忽略本地缓存写入
+  }
 
   // 2. 上传到S3
   const { s3Key, size } = await uploadBookToS3(bookName, content);

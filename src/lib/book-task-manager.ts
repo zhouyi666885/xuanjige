@@ -336,10 +336,12 @@ function getCurrentChapterAtPosition(chapters: BookChapter[], position: number):
 
 // ==================== 全局状态 ====================
 
-const TASKS_FILE = path.join(process.cwd(), 'public', 'book-tasks.json');
-const TASKS_DIR = path.join(process.cwd(), 'public');
+const IS_SERVERLESS = !!(process.env.NETLIFY || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.LAMBDA_TASK_ROOT);
+const TASK_BASE_DIR = IS_SERVERLESS ? '/tmp' : path.join(process.cwd(), 'public');
+const TASKS_FILE = path.join(TASK_BASE_DIR, 'book-tasks.json');
+const TASKS_DIR = TASK_BASE_DIR;
 // 独立的墓碑文件（旧 HMR 闭包不会触碰它，确保已删除任务不会被旧逻辑复活）
-const TOMBSTONE_FILE = path.join(process.cwd(), 'public', 'book-tasks-tombstones.json');
+const TOMBSTONE_FILE = path.join(TASK_BASE_DIR, 'book-tasks-tombstones.json');
 let tasks: Map<string, BookTask> = new Map();
 let processingQueue: Set<string> = new Set();
 let isInitialized = false;

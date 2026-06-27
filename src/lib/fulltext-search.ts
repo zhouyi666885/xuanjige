@@ -98,8 +98,13 @@ function saveLearnStatus(): void {
   
   const filePath = getLearnStatusFilePath();
   const dir = path.dirname(filePath);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+  try {
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+  } catch {
+    // 只读文件系统，忽略
+    return;
   }
   
   const data: Record<string, BookLearnStatus> = {};
@@ -291,18 +296,20 @@ export async function getLearnedBookCount(): Promise<{
   };
 }
 
-// 书籍文件目录（生产环境使用/tmp，开发环境使用public）
+// 书籍文件目录（生产/Serverless 环境使用/tmp，开发环境使用public）
 function getBookContentDir(): string {
   const devDir = path.join(process.cwd(), 'public', 'book-content');
   const prodDir = '/tmp/book-content';
-  
-  if (process.env.COZE_PROJECT_ENV === 'PROD') {
+
+  // Netlify Functions / AWS Lambda 文件系统只读（/var/task），必须用 /tmp
+  const isServerless = !!(process.env.NETLIFY || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.LAMBDA_TASK_ROOT);
+
+  if (process.env.COZE_PROJECT_ENV === 'PROD' || isServerless) {
     if (fs.existsSync(prodDir)) return prodDir;
-    // 生产环境如果没有/tmp/book-content，创建它
     try { fs.mkdirSync(prodDir, { recursive: true }); } catch { /* ignore */ }
     return prodDir;
   }
-  
+
   if (fs.existsSync(devDir)) return devDir;
   return devDir;
 }
@@ -1614,8 +1621,12 @@ export function addBookToKnowledgeBase(bookName: string, content: string): strin
   const dir = getBookContentDir();
   
   // 确保目录存在
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+  try {
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+  } catch {
+    // 只读文件系统忽略
   }
   
   // 清理文件名中的非法字符

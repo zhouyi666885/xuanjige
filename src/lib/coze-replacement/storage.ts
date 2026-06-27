@@ -40,7 +40,10 @@ export class S3Storage {
 
   constructor(options: S3StorageOptions = {}) {
     this.bucket = options.bucketName || process.env.S3_BUCKET_NAME || '';
-    this.localFallbackDir = path.join(process.cwd(), '.local-storage');
+    // Lambda/Netlify Functions 只能写 /tmp；其他环境用 cwd
+    const isServerless = !!(process.env.NETLIFY || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.LAMBDA_TASK_ROOT);
+    const baseDir = isServerless ? '/tmp' : process.cwd();
+    this.localFallbackDir = path.join(baseDir, '.local-storage');
 
     const endpoint = options.endpointUrl || process.env.S3_ENDPOINT_URL || '';
     const accessKeyId = options.accessKeyId || options.accessKey || process.env.S3_ACCESS_KEY_ID || '';
@@ -55,10 +58,15 @@ export class S3Storage {
         forcePathStyle: !!endpoint,
       });
     } else {
-      if (!fs.existsSync(this.localFallbackDir)) {
-        fs.mkdirSync(this.localFallbackDir, { recursive: true });
+      try {
+        if (!fs.existsSync(this.localFallbackDir)) {
+          fs.mkdirSync(this.localFallbackDir, { recursive: true });
+        }
+        console.warn('[S3Storage] 未配置 S3 凭证，降级为本地文件存储:', this.localFallbackDir);
+      } catch (e) {
+        // 只读环境（如 Lambda 的 /var/task）无法创建目录，忽略让模块继续加载
+        console.warn('[S3Storage] 本地降级目录创建失败（可能是只读文件系统），将在写入时再尝试:', (e as Error).message);
       }
-      console.warn('[S3Storage] 未配置 S3 凭证，降级为本地文件存储:', this.localFallbackDir);
     }
   }
 
