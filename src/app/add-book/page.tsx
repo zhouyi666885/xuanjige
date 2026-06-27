@@ -217,25 +217,66 @@ export default function AddBookPage() {
         bookNames: uniqueNames,
       });
 
-      const res = await fetch(requestUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: requestBody,
-      });
-      const data = await res.json();
+      let res: Response;
+      let rawText = '';
+      try {
+        res = await fetch(requestUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: requestBody,
+        });
+      } catch (fetchErr) {
+        const fe = fetchErr as Error;
+        setAddError(
+          `请求发送失败：${fe?.message || '未知错误'}\n` +
+          `请求 URL: ${requestUrl}\n` +
+          `当前页面 URL: ${window.location.href}\n` +
+          `错误类型: ${fe?.name || 'Unknown'}\n` +
+          `提示：如果你在扣子预览域名访问（带 coze.site），代理层可能拦截了请求；建议导出到自己的云服务器测试。`
+        );
+        return;
+      }
+
+      try {
+        rawText = await res.text();
+      } catch (readErr) {
+        const re = readErr as Error;
+        setAddError(
+          `读取响应失败：${re?.message || '未知错误'}\n` +
+          `响应状态: ${res.status} ${res.statusText}\n` +
+          `Content-Type: ${res.headers.get('content-type') || '(空)'}\n` +
+          `提示：响应体可能被代理层重写或截断。`
+        );
+        return;
+      }
+
+      let data: { error?: string; hint?: string; total?: number; added?: number; alreadyExists?: number } = {};
+      try {
+        data = rawText ? JSON.parse(rawText) : {};
+      } catch (parseErr) {
+        const pe = parseErr as Error;
+        setAddError(
+          `响应不是合法 JSON：${pe?.message || '解析失败'}\n` +
+          `响应状态: ${res.status} ${res.statusText}\n` +
+          `Content-Type: ${res.headers.get('content-type') || '(空)'}\n` +
+          `响应内容前 300 字: ${rawText.slice(0, 300) || '(空响应)'}\n` +
+          `提示：如果响应是 HTML（<html>...），说明被代理层拦截了，不是 APP 后端的问题。`
+        );
+        return;
+      }
 
       // 后端返回 error / 非 2xx → 直接展示给用户，不静默
       if (!res.ok || data.error) {
         const hint = data.hint ? `\n${data.hint}` : '';
-        setAddError(`${data.error || '添加失败'}${hint}`);
+        setAddError(`${data.error || `添加失败（HTTP ${res.status}）`}${hint}`);
         return;
       }
 
       // 批量添加时显示结果提示
       if (data.total && data.total > 1) {
         const msgs: string[] = [];
-        if (data.added > 0) msgs.push(`${data.added} 本开始录入`);
-        if (data.alreadyExists > 0) msgs.push(`${data.alreadyExists} 本已有`);
+        if ((data.added ?? 0) > 0) msgs.push(`${data.added} 本开始录入`);
+        if ((data.alreadyExists ?? 0) > 0) msgs.push(`${data.alreadyExists} 本已有`);
         // 可以用 alert 或 toast，这里简单通过刷新展示
       }
 
@@ -447,8 +488,8 @@ export default function AddBookPage() {
 
           {/* 错误提示：搜索 Key 缺失 / 网络错误等 */}
           {addError && (
-            <div className="mt-3 px-4 py-3 rounded-lg bg-[#3a1a1a] border border-[#c0392b] text-[#e8c0b0] text-sm whitespace-pre-line">
-              <div className="font-bold text-[#e74c3c] mb-1">⚠ 添加失败</div>
+            <div className="mt-3 px-4 py-3 rounded-lg bg-[#3a1a1a] border border-[#c0392b] text-[#e8c0b0] text-xs whitespace-pre-wrap break-words font-mono leading-relaxed">
+              <div className="font-bold text-[#e74c3c] mb-1 text-sm not-italic">⚠ 添加失败</div>
               {addError}
             </div>
           )}
