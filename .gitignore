@@ -13,6 +13,10 @@ xuanjige.db-wal
 xuanjige.db-shm
 /scripts/book-entry/*.db
 /scripts/book-entry/*.db-*
+
+# 项目源码打包产物（按需生成给用户下载，不入仓库）
+public/xuanjige-source.tar.gz
+public/xuanjige-source.zip
 .venv/*
 *.o
 *.a
