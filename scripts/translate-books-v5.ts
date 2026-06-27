@@ -227,7 +227,7 @@ async function translateBook(client: any, filename: string): Promise<boolean> {
 }
 
 async function main() {
-  const { LLMClient, Config } = await import('coze-coding-dev-sdk');
+  const { LLMClient, Config } = await import('../src/lib/coze-replacement');
   const config = new Config();
   const client = new LLMClient(config);
 

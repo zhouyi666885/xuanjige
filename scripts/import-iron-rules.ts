@@ -10,7 +10,7 @@ import {
   KnowledgeDocument,
   DataSourceType,
   ChunkConfig,
-} from 'coze-coding-dev-sdk';
+} from '../src/lib/coze-replacement';
 
 const config = new Config();
 const client = new KnowledgeClient(config);

@@ -11,7 +11,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { LLMClient, Config } from 'coze-coding-dev-sdk';
+import { LLMClient, Config } from '../src/lib/coze-replacement';
 
 const BOOK_DIR = '/workspace/projects/public/book-content';
 const PROGRESS_FILE = '/workspace/projects/translate-progress-v3.json';

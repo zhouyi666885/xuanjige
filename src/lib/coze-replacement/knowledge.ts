@@ -13,6 +13,25 @@ import type { Config } from './config';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type KnowledgeDocument = any;
 
+/** 兼容原 SDK 的 DataSourceType 枚举（独立部署用不到，仅占位） */
+export const DataSourceType = {
+  TEXT: 'text',
+  LOCAL_FILE: 'local_file',
+  ONLINE_FILE: 'online_file',
+  OSS_FILE: 'oss_file',
+  CUSTOM_TEXT: 'custom_text',
+} as const;
+export type DataSourceType = (typeof DataSourceType)[keyof typeof DataSourceType];
+
+/** 兼容原 SDK 的 ChunkConfig 类型（独立部署用不到，仅占位） */
+export interface ChunkConfig {
+  separator?: string;
+  chunkSize?: number;
+  chunkOverlap?: number;
+  max_tokens?: number;
+  [key: string]: unknown;
+}
+
 export interface AddDocumentsOptions {
   separator?: string;
   chunkSize?: number;
@@ -60,8 +79,14 @@ export class KnowledgeClient {
     _tableName: string,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _options?: AddDocumentsOptions,
-  ): Promise<{ success: boolean; count: number }> {
-    return { success: true, count: documents.length };
+  ): Promise<{ success: boolean; count: number; code: number; doc_ids: string[]; msg: string }> {
+    return {
+      success: true,
+      count: documents.length,
+      code: 0,
+      doc_ids: documents.map((_, i) => `stub-doc-${Date.now()}-${i}`),
+      msg: 'ok (stub)',
+    };
   }
 
   /**
