@@ -11,13 +11,13 @@ import { S3Storage } from '@/lib/coze-replacement';
 import * as fs from 'fs';
 import * as path from 'path';
 
-// S3客户端
+// S3客户端 —— 优先读标准 S3_* 环境变量，回退到旧的 COZE_BUCKET_*
 const storage = new S3Storage({
-  endpointUrl: process.env.COZE_BUCKET_ENDPOINT_URL,
-  accessKey: '',
-  secretKey: '',
-  bucketName: process.env.COZE_BUCKET_NAME,
-  region: 'cn-beijing',
+  endpointUrl: process.env.S3_ENDPOINT_URL || process.env.COZE_BUCKET_ENDPOINT_URL,
+  accessKey: process.env.S3_ACCESS_KEY_ID || '',
+  secretKey: process.env.S3_SECRET_ACCESS_KEY || '',
+  bucketName: process.env.S3_BUCKET_NAME || process.env.COZE_BUCKET_NAME,
+  region: process.env.S3_REGION || 'cn-beijing',
 });
 
 // 本地缓存目录
