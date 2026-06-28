@@ -42,21 +42,44 @@ export class SearchClient {
   /** 原 SDK 兼容入口：webSearch(query, count) -> { web_items } */
   async webSearch(query: string, count = 20): Promise<WebSearchResponse> {
     if (this.provider === 'none') return { web_items: [] };
-    // local provider 不需要 API Key，其他 provider 必须有 Key
-    if (this.provider !== 'local' && !this.apiKey) return { web_items: [] };
-    try {
-      let items: WebSearchItem[] = [];
-      switch (this.provider) {
-        case 'serper': items = await this.searchSerper(query, count); break;
-        case 'bing':   items = await this.searchBing(query, count); break;
-        case 'tavily': items = await this.searchTavily(query, count); break;
-        case 'local':  items = await localPublicDomainSearch(query, count); break;
+
+    let items: WebSearchItem[] = [];
+
+    // 1. 先尝试配置的 provider（serper/bing/tavily 需要 API Key）
+    if (this.provider !== 'local' && this.apiKey) {
+      try {
+        switch (this.provider) {
+          case 'serper': items = await this.searchSerper(query, count); break;
+          case 'bing':   items = await this.searchBing(query, count); break;
+          case 'tavily': items = await this.searchTavily(query, count); break;
+        }
+        console.log(`[SearchClient][${this.provider}] 返回 ${items.length} 条`);
+      } catch (err) {
+        console.error(`[SearchClient][${this.provider}] 失败:`, (err as Error).message);
       }
-      return { web_items: items };
-    } catch (err) {
-      console.error(`[SearchClient][${this.provider}] 失败:`, (err as Error).message);
-      return { web_items: [] };
     }
+
+    // 2. 🔴 兜底：只要主 provider 返 0 条（或本就是 local），叠加 local 搜索
+    //    大陆 VPS 即使没配/key 失效/api 被墙，也能稳定拿到结果
+    if (items.length === 0 || this.provider === 'local') {
+      try {
+        const localItems = await localPublicDomainSearch(query, count);
+        const seen = new Set(items.map((x) => x.url));
+        for (const it of localItems) {
+          if (it.url && !seen.has(it.url)) {
+            items.push(it);
+            seen.add(it.url);
+          }
+        }
+        console.log(
+          `[SearchClient][local-fallback] 叠加 ${localItems.length} 条，最终 ${items.length} 条`,
+        );
+      } catch (err) {
+        console.error(`[SearchClient][local-fallback] 失败:`, (err as Error).message);
+      }
+    }
+
+    return { web_items: items };
   }
 
   /** 新的对象式签名，与上面的 webSearch 等价 */
