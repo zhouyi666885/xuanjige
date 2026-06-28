@@ -624,45 +624,122 @@ export default function AddBookPage() {
                   </div>
                 </div>
 
-                {/* 进度条1 - 录入进度 */}
-                {(isActive(task.status)) && (
-                  <div className="mb-1">
-                    <div className="flex justify-between text-[10px] text-[#8a8070] mb-0.5">
-                      <span>录入进度</span>
-                      <span>
-                        {task.totalChapters > 0
-                          ? `${task.currentChapter}/${task.totalChapters}`
-                          : `${task.progress}%`}
-                      </span>
+                {/* 三条独立进度条：搜索 / 录入 / 学习 */}
+                {(isActive(task.status) || task.learningStatus === 'learning' || task.learningStatus === 'done') && (
+                  <div className="space-y-2 mb-2">
+                    {/* 进度条1 - 搜索进度 */}
+                    <div>
+                      <div className="flex justify-between text-[10px] text-[#8a8070] mb-0.5">
+                        <span>🔎 搜索进度（多源穷尽）</span>
+                        <span>
+                          {task.status === 'searching' || task.status === 'pending'
+                            ? '搜索中…'
+                            : task.totalChapters > 0 || task.chars > 0
+                              ? `已找全 ${task.totalChapters || '?'}${task.chapterStructure || '章'}`
+                              : '未找到'}
+                        </span>
+                      </div>
+                      <SmoothProgressBar
+                        progress={
+                          task.status === 'searching' || task.status === 'pending'
+                            ? Math.min(50, task.progress)
+                            : task.totalChapters > 0 || task.chars > 0
+                              ? 100
+                              : 0
+                        }
+                        status={task.status}
+                        message={task.status === 'searching' ? '正在穷尽所有数据源' : ''}
+                      />
                     </div>
-                    <SmoothProgressBar
-                      progress={task.progress}
-                      status={task.status}
-                      message={task.message}
-                    />
-                    {/* 章节结构指示 */}
-                    {task.totalChapters > 0 && (
-                      <div className="grid grid-cols-3 gap-2 mt-1 text-xs">
-                        <div className="bg-[#0a0a0f] rounded-lg p-1.5 text-center">
-                          <p className="text-[#8a8070] text-[9px]">全书</p>
-                          <p className="text-[#d4a853] font-bold">{task.totalChapters}{task.chapterStructure || '章'}</p>
+
+                    {/* 进度条2 - 录入进度 */}
+                    <div>
+                      <div className="flex justify-between text-[10px] text-[#8a8070] mb-0.5">
+                        <span>📝 录入进度（一字不漏存全文）</span>
+                        <span>
+                          {task.totalChapters > 0
+                            ? `${task.currentChapter}/${task.totalChapters} ${task.chapterStructure || '章'}`
+                            : `${task.progress}%`}
+                        </span>
+                      </div>
+                      <SmoothProgressBar
+                        progress={task.progress}
+                        status={task.status}
+                        message={task.message}
+                      />
+                      {task.totalChapters > 0 && (
+                        <div className="grid grid-cols-3 gap-2 mt-1 text-xs">
+                          <div className="bg-[#0a0a0f] rounded-lg p-1.5 text-center">
+                            <p className="text-[#8a8070] text-[9px]">全书</p>
+                            <p className="text-[#d4a853] font-bold">{task.totalChapters}{task.chapterStructure || '章'}</p>
+                          </div>
+                          <div className="bg-[#0a0a0f] rounded-lg p-1.5 text-center">
+                            <p className="text-[#8a8070] text-[9px]">当前</p>
+                            <p className="text-[#d4a853] font-bold truncate" title={task.currentChapterName}>
+                              {task.currentChapterName || `第${task.currentChapter}${task.chapterStructure || '章'}`}
+                            </p>
+                          </div>
+                          <div className="bg-[#0a0a0f] rounded-lg p-1.5 text-center">
+                            <p className="text-[#8a8070] text-[9px]">剩余</p>
+                            <p className="text-[#d4a853] font-bold">{task.remainingChapters}{task.chapterStructure || '章'}</p>
+                          </div>
                         </div>
-                        <div className="bg-[#0a0a0f] rounded-lg p-1.5 text-center">
-                          <p className="text-[#8a8070] text-[9px]">当前</p>
-                          <p className="text-[#d4a853] font-bold truncate" title={task.currentChapterName}>
-                            {task.currentChapterName || `第${task.currentChapter}${task.chapterStructure || '章'}`}
-                          </p>
+                      )}
+                    </div>
+
+                    {/* 进度条3 - AI深度学习（6阶段细分） */}
+                    {(task.learningStatus === 'learning' || task.learningStatus === 'done' || task.status === 'done') && (
+                      <div>
+                        <div className="flex justify-between text-[10px] text-[#8a8070] mb-0.5">
+                          <span>🧠 深度学习（6阶段流水线）</span>
+                          <span>
+                            {task.learningStatus === 'done'
+                              ? '✅ 6阶段全部完成'
+                              : task.learningStatus === 'learning'
+                                ? `${task.learningProgress || 0}% · ${task.learningCurrentChunk || 0}/${task.learningTotalChunks || 0}块`
+                                : task.learningStatus === 'failed'
+                                  ? '❌ 学习失败'
+                                  : '待学习'}
+                          </span>
                         </div>
-                        <div className="bg-[#0a0a0f] rounded-lg p-1.5 text-center">
-                          <p className="text-[#8a8070] text-[9px]">剩余</p>
-                          <p className="text-[#d4a853] font-bold">{task.remainingChapters}{task.chapterStructure || '章'}</p>
+                        <SmoothProgressBar
+                          progress={task.learningProgress || 0}
+                          status={task.learningStatus || 'pending'}
+                          message={task.learningMessage || ''}
+                        />
+                        {/* 6阶段细分指示 */}
+                        <div className="grid grid-cols-6 gap-1 mt-1">
+                          {[
+                            { name: '通读', threshold: 5 },
+                            { name: '理解', threshold: 30 },
+                            { name: '要点', threshold: 50 },
+                            { name: '逻辑', threshold: 65 },
+                            { name: '应用', threshold: 80 },
+                            { name: '融会', threshold: 95 },
+                          ].map((stage) => {
+                            const lp = task.learningProgress || 0;
+                            const active = lp >= stage.threshold;
+                            const done = task.learningStatus === 'done' || lp >= 100;
+                            return (
+                              <div
+                                key={stage.name}
+                                className={`text-center text-[9px] py-1 rounded ${
+                                  done
+                                    ? 'bg-[#d4a853]/30 text-[#d4a853] border border-[#d4a853]/50'
+                                    : active
+                                      ? 'bg-[#d4a853]/15 text-[#d4a853] border border-[#d4a853]/30'
+                                      : 'bg-[#0a0a0f] text-[#8a8070] border border-[#1a1a2e]'
+                                }`}
+                              >
+                                {done ? '✓' : active ? '⟳' : '○'} {stage.name}
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
                     )}
                   </div>
                 )}
-
-                {/* AI深度学习进度已移至知识库页面，添加书籍页面只关注录入进度 */}
 
                 {/* 章节进度 */}
                 {task.totalChapters > 0 && task.status !== 'done' && task.status !== 'exists' && (
