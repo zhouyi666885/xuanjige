@@ -48,7 +48,8 @@ export interface BookMetadata {
     | 'google-books'
     | 'douban'
     | 'dangdang'
-    | 'jd-books';
+    | 'jd-books'
+    | `proxy:${string}`;
   detailUrl: string;
 }
 
@@ -58,19 +59,86 @@ export interface BookMetadata {
  * - 国内源（豆瓣/当当/京东）：国内 VPS 直连可用，HTML 解析获取元数据
  * - 单源失败不影响其他源
  */
+/**
+ * 境外 Book Search 代理服务（来自 book-search-deploy 技能部署的 Flask 服务）
+ * 如果配置了 BOOK_SEARCH_API_URL，会**优先**通过这个代理调用海外 API（Open Library + Google Books）
+ * 优势：境外服务器有海外网络出口，大陆 VPS 可直连境外服务器拿到结果
+ */
+const PROXY_URL = (process.env.BOOK_SEARCH_API_URL || '').replace(/\/+$/, '');
+
+export async function searchViaProxy(
+  query: string,
+  mode: 'title' | 'author' | 'isbn' | 'subject' = 'title',
+  limit = 20,
+): Promise<BookMetadata[]> {
+  if (!PROXY_URL) return [];
+  try {
+    const url = `${PROXY_URL}/api/search`;
+    const resp = await axios.get(url, {
+      params: { mode, query, limit },
+      headers: COMMON_HEADERS,
+      timeout: TIMEOUT_MS,
+      // 让 axios 用 UTF-8 处理 params，避免 Latin-1 编码 bug
+      paramsSerializer: {
+        serialize: (params) =>
+          Object.entries(params)
+            .map(
+              ([k, v]) =>
+                `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`,
+            )
+            .join('&'),
+      },
+    });
+    const books = Array.isArray(resp.data?.books) ? resp.data.books : [];
+    const items: BookMetadata[] = books.map(
+      (b: Record<string, unknown>): BookMetadata => ({
+        title: String(b.title || ''),
+        authors: Array.isArray(b.authors) ? (b.authors as string[]) : [],
+        isbn: b.isbn ? String(b.isbn) : undefined,
+        publisher: b.publisher ? String(b.publisher) : undefined,
+        publishDate: b.publish_date ? String(b.publish_date) : undefined,
+        pages: typeof b.pages === 'number' ? b.pages : undefined,
+        description: b.description ? String(b.description) : undefined,
+        coverUrl: b.cover_url ? String(b.cover_url) : undefined,
+        source: `proxy:${b.source || 'unknown'}` as `proxy:${string}`,
+        detailUrl: b.source_id
+          ? `https://openlibrary.org${String(b.source_id)}`
+          : (PROXY_URL || 'https://openlibrary.org'),
+      }),
+    );
+    console.log(
+      `[BookSearchAPI][proxy] mode=${mode} query="${query.slice(0, 30)}" 返回 ${items.length} 条`,
+    );
+    return items;
+  } catch (e) {
+    const msg = (e as Error).message || String(e);
+    console.log(
+      `[BookSearchAPI][proxy] mode=${mode} query="${query.slice(0, 30)}" 失败: ${msg.slice(0, 100)}`,
+    );
+    return [];
+  }
+}
+
 export async function aggregateBookSearch(
   query: string,
   limit = 20,
 ): Promise<BookMetadata[]> {
-  const tasks = [
-    // 海外（连不上自动跳过）
-    safeRun('openlibrary', () => searchOpenLibrary(query, limit)),
-    safeRun('google-books', () => searchGoogleBooks(query, limit)),
-    // 国内（大陆 VPS 直连可用）
-    safeRun('douban', () => searchDouban(query, limit)),
-    safeRun('dangdang', () => searchDangdang(query, limit)),
-    safeRun('jd-books', () => searchJDBooks(query, limit)),
-  ];
+  // 如果配置了境外代理，优先用代理（境外服务器能直连 Open Library + Google Books）
+  // 代理失败再 fallback 到直连 + 国内源
+  const tasks = PROXY_URL
+    ? [
+        safeRun('proxy', () => searchViaProxy(query, 'title', limit)),
+        safeRun('dangdang', () => searchDangdang(query, limit)),
+      ]
+    : [
+        // 海外（无代理时直连，大陆 VPS 大概率超时）
+        safeRun('openlibrary', () => searchOpenLibrary(query, limit)),
+        safeRun('google-books', () => searchGoogleBooks(query, limit)),
+        // 国内（大陆 VPS 直连可用）
+        safeRun('douban', () => searchDouban(query, limit)),
+        safeRun('dangdang', () => searchDangdang(query, limit)),
+        safeRun('jd-books', () => searchJDBooks(query, limit)),
+      ];
   const results = await Promise.all(tasks);
   const merged: BookMetadata[] = [];
   const seen = new Set<string>();
