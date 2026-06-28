@@ -416,11 +416,11 @@ export async function DELETE(request: NextRequest) {
     // 1. 从全文知识库删除（本地文件+缓存+学习状态+S3）
     const removed = removeBookFromKnowledgeBase(bookName);
 
-    // 2. 联动清理 book-task-manager 中同名任务（避免任务管理器把残留任务持久化回 book-tasks.json）
+    // 2. 联动清理 book-task-manager 中同名任务（🔴 仅精确匹配：删一本只删一本）
     const allTasks = getAllTasks();
     const matchedTasks = allTasks.filter(t => {
       const tn = (t.bookName || '').trim();
-      return tn === bookName || tn.includes(bookName) || bookName.includes(tn);
+      return tn === bookName;
     });
     let taskDeleted = 0;
     for (const t of matchedTasks) {
@@ -433,7 +433,8 @@ export async function DELETE(request: NextRequest) {
       const dbTasks = await listTasks();
       const dbMatched = dbTasks.filter((t: BookTaskRow) => {
         const tn = (t.book_name || '').trim();
-        return tn === bookName || tn.includes(bookName) || bookName.includes(tn);
+        // 🔴 仅精确匹配：避免删「易经」时误删「易经详解」「易经全书」
+        return tn === bookName;
       });
       for (const dt of dbMatched) {
         try {

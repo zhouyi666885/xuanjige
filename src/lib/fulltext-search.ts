@@ -1692,23 +1692,15 @@ export function addBookToKnowledgeBase(bookName: string, content: string): strin
 export function removeBookFromKnowledgeBase(bookName: string): boolean {
   loadBookCache();
   
-  // 找到精确匹配或模糊匹配的书名
+  // 🔴 仅精确匹配：避免删「子平真诠」时误删「子平真诠评注」「子平真诠笺释」等
+  // 用户需求：删一本只删一本，每本书内容互不影响
   let matchedName: string | null = null;
   if (bookNameList && bookCache) {
-    // 先精确匹配
     if (bookCache.has(bookName)) {
       matchedName = bookName;
-    } else {
-      // 模糊匹配
-      for (const name of bookNameList) {
-        if (name === bookName || name.includes(bookName) || bookName.includes(name)) {
-          matchedName = name;
-          break;
-        }
-      }
     }
   }
-  
+
   if (!matchedName) return false;
   
   const dir = getBookContentDir();
@@ -1727,11 +1719,17 @@ export function removeBookFromKnowledgeBase(bookName: string): boolean {
     fs.unlinkSync(translatingPath);
   }
   
-  // 删除任何以该书名开头的相关文件（防止残留）
+  // 🔴 只删完全等于 safeName 的临时残留文件（精确扩展名匹配）
+  // 不再用 startsWith：会误把「易经详解.txt」当成「易经.txt」的残留删掉
   try {
     const allFiles = fs.readdirSync(dir);
+    const exactBaseNames = new Set([
+      `${safeName}.tmp`,
+      `${safeName}.bak`,
+      `${safeName}.translating`,
+    ]);
     for (const f of allFiles) {
-      if (f.startsWith(safeName) && (f.endsWith('.txt') || f.endsWith('.translating') || f.endsWith('.tmp') || f.endsWith('.bak'))) {
+      if (exactBaseNames.has(f)) {
         fs.unlinkSync(path.join(dir, f));
       }
     }
