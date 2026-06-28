@@ -39,12 +39,63 @@ function sseLine(payload: unknown): string {
   return `data: ${JSON.stringify(payload)}\n\n`;
 }
 
+/** 把前端传的 birthInfo 对象（或字符串）统一格式化成 AI 易读的中文档案 */
+type BirthInfoObject = {
+  gender?: string;
+  birthYear?: number | string;
+  birthMonth?: number | string;
+  birthDay?: number | string;
+  birthHour?: number | string;
+  birthMinute?: number | string;
+  province?: string;
+  city?: string;
+  district?: string;
+};
+
+function formatBirthInfo(raw: unknown): string | undefined {
+  if (raw == null) return undefined;
+  // 字符串：直接用
+  if (typeof raw === 'string') {
+    const s = raw.trim();
+    return s || undefined;
+  }
+  // 对象：格式化为「坤造（女命）· 公历 2007-07-13 11:11 · 浙江省杭州市上城区」
+  if (typeof raw === 'object') {
+    const obj = raw as BirthInfoObject;
+    const parts: string[] = [];
+    const g = (obj.gender || '').toString();
+    if (g === '男') parts.push('乾造（男命）');
+    else if (g === '女') parts.push('坤造（女命）');
+    else if (g) parts.push(g);
+
+    const y = Number(obj.birthYear) || 0;
+    const m = Number(obj.birthMonth) || 0;
+    const d = Number(obj.birthDay) || 0;
+    const h = Number(obj.birthHour) || 0;
+    const mi = Number(obj.birthMinute) || 0;
+    if (y && m && d) {
+      const pad = (n: number) => String(n).padStart(2, '0');
+      parts.push(`公历 ${y}-${pad(m)}-${pad(d)} ${pad(h)}:${pad(mi)}`);
+    }
+
+    const loc = [obj.province, obj.city, obj.district].filter(Boolean).join('');
+    if (loc) parts.push(loc);
+
+    const text = parts.join(' · ');
+    return text || undefined;
+  }
+  return undefined;
+}
+
+type HistoryItem = { role: 'user' | 'assistant'; content: string };
+
 export async function POST(req: NextRequest) {
   let body: {
     message?: string;
     mode?: 'professional' | 'casual';
-    birthInfo?: string;
+    birthInfo?: string | BirthInfoObject;
     noLLM?: boolean;
+    history?: HistoryItem[];
   };
   try {
     body = await req.json();
@@ -58,7 +109,19 @@ export async function POST(req: NextRequest) {
   }
 
   const mode: 'professional' | 'casual' = body.mode === 'casual' ? 'casual' : 'professional';
-  const birthInfo = body.birthInfo ? String(body.birthInfo) : undefined;
+  const birthInfo = formatBirthInfo(body.birthInfo);
+
+  // 历史会话：最多取最近 10 轮，且只保留 user/assistant
+  const history: HistoryItem[] = Array.isArray(body.history)
+    ? body.history
+        .filter((h): h is HistoryItem =>
+          !!h &&
+          (h.role === 'user' || h.role === 'assistant') &&
+          typeof h.content === 'string' &&
+          h.content.trim().length > 0,
+        )
+        .slice(-10)
+    : [];
 
   // 🔑 是否走「📚 原文模式」：完全不调任何 LLM，纯关键词全库检索
   // 触发条件：① 前端显式传 noLLM=true；② 后端 LLM_API_KEY 为空（自动降级）
@@ -266,9 +329,20 @@ export async function POST(req: NextRequest) {
           mode === 'casual' ? buildSystemPromptCasual(birthInfo) : buildSystemPromptProfessional(birthInfo);
         const ironLawTail = hasContext ? KNOWLEDGE_IRON_LAW_FOUND : KNOWLEDGE_IRON_LAW_NOT_FOUND;
 
+        // 🎯 主动意会铁律：让 AI 拥有"读心术"
+        const empathyRule = `
+
+【主动意会铁律——所有回答必须遵守】
+1. 用户已在本次会话中提供的信息（包括生辰、性别、出生地、出生时间、问的领域等）必须一次性记住，**绝对禁止反复让用户重新提供同样的信息**。
+2. 当用户输入很短（如"公历"、"北京时间"、"嗯"、"好"、"是"、"再算一下"、"那婚姻呢"、"继续"等）时，**禁止把它当成新问题**，必须结合上下文意会，自动接续上一轮话题继续推进。
+3. 若上文确实缺少某个关键信息（如缺出生地/出生时间），只能问"一次"，并把已有信息复述一遍证明你记住了，然后明确说"只缺X项，请补充"。绝不能像第一次见面一样从零问起。
+4. 用户问题里没有提到的领域，不要主动跳到那个领域。用户问什么就答什么，禁止答非所问。
+5. 当上下文已有用户的「命盘信息」时，无论用户问什么短词都应该**直接基于命盘开始分析**，而不是反问。`;
+
         const systemPrompt = [
           baseSystemPrompt,
           ironLawTail,
+          empathyRule,
           hasContext
             ? `\n\n【知识库原文摘录——本次精读来自 ${mr.totalBooksReviewed} 部典籍、${mr.totalBatches} 个批次】\n${mr.context}`
             : '\n\n【知识库当前为空或本次预筛未命中任何书】请遵守"知识库铁律"，不要编造任何书名与论断。',
@@ -284,6 +358,8 @@ export async function POST(req: NextRequest) {
         const llmStream = llm.stream(
           [
             { role: 'system', content: systemPrompt },
+            // 注入多轮历史，让 AI 拥有完整记忆
+            ...history.map((h) => ({ role: h.role, content: h.content })),
             { role: 'user', content: message },
           ],
           { temperature: 0.6 },

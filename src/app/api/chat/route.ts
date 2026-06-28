@@ -616,6 +616,18 @@ ${bookContent.content}`;
 
     let systemPrompt = basePrompt + learnInfo + bookStructureInfo + '\n\n' + finalKnowledgeStr + knowledgeBaseInfo + bookContentInstruction + '\n\n' + topicGuide + autoQiGuaResult + contextStr + knowledgeIronLaw;
 
+    // 🎯 主动意会铁律：让 AI 拥有"读心术"，永远记住用户已提供的信息，不重复反问
+    const empathyRule = `
+
+【主动意会铁律——所有回答必须遵守】
+1. 用户已在本次会话中提供的信息（生辰、性别、出生地、出生时间、问的领域等）必须一次性记住，**绝对禁止反复让用户重新提供同样的信息**。
+2. 当用户输入很短（如"公历"、"北京时间"、"嗯"、"好"、"是"、"再算一下"、"那婚姻呢"、"继续"等）时，**禁止把它当成新问题**，必须结合上文意会，自动接续上一轮话题继续推进。
+3. 若上文确实缺少某个关键信息（如缺出生地/出生时间），只能问"一次"，并把已有信息复述一遍证明你记住了，然后明确说"只缺X项，请补充"。绝不能像第一次见面一样从零问起。
+4. 用户问什么就答什么，禁止答非所问。
+5. 当上下文已有用户的命盘信息时，无论用户说什么短词都应该**直接基于命盘开始分析**，而不是反问。
+`;
+    systemPrompt = systemPrompt + empathyRule;
+
     // 智能截断：确保总token不超模型上下文窗口（约128K tokens，中文约1.7字/token）
     // 书籍内容请求时：优先保留书籍内容，截断其他检索结果
     // 普通问答时：优先保留检索段落，截断整本书全文
