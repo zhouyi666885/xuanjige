@@ -14,7 +14,11 @@ function getStatusFileDir(): string {
     try { fsRaw.mkdirSync(dir, { recursive: true }); } catch { /* ignore */ }
     return dir;
   }
-  return pathRaw.join(process.env.COZE_WORKSPACE_PATH || '/workspace/projects', 'public', 'book-content');
+  // 三级兜底：Coze 沙箱用 COZE_WORKSPACE_PATH，VPS 用 process.cwd()，最后兜底 /workspace/projects
+  const baseDir = process.env.COZE_WORKSPACE_PATH || process.cwd() || '/workspace/projects';
+  const dir = pathRaw.join(baseDir, 'public', 'book-content');
+  try { fsRaw.mkdirSync(dir, { recursive: true }); } catch { /* ignore */ }
+  return dir;
 }
 
 function getStatusFilePath(): string {
@@ -36,7 +40,7 @@ function readLocalLearnStatusFile(): Record<string, {
   const candidates = [getStatusFilePath()];
   if (process.env.COZE_PROJECT_ENV === 'PROD') {
     // 生产也尝试读 public（如果有兜底）
-    candidates.push(pathRaw.join(process.env.COZE_WORKSPACE_PATH || '/workspace/projects', 'public', 'book-content', 'local-learn-tasks.json'));
+    candidates.push(pathRaw.join(process.env.COZE_WORKSPACE_PATH || process.cwd() || '/workspace/projects', 'public', 'book-content', 'local-learn-tasks.json'));
   }
   let merged: Record<string, ReturnType<typeof readLocalLearnStatusFile>[string]> = {};
   for (const file of candidates) {

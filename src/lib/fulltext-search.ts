@@ -669,7 +669,7 @@ async function syncSeedDataToDb(): Promise<void> {
     // 2) 再从候选 fs 目录补充（开发期使用）
     const candidates = [
       path.join(process.cwd(), 'public', 'book-content'),
-      path.join(process.env.COZE_WORKSPACE_PATH || '/workspace/projects', 'public', 'book-content'),
+      path.join(process.env.COZE_WORKSPACE_PATH || process.cwd() || '/workspace/projects', 'public', 'book-content'),
       path.join(process.cwd(), '..', 'public', 'book-content'),
       path.join(process.cwd(), '.next', 'standalone', 'public', 'book-content'),
     ];
