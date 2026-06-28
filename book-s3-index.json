@@ -7684,5 +7684,11 @@
     "size": 604,
     "uploadedAt": "2026-06-28T17:52:59.670Z",
     "localCached": true
+  },
+  "test-crlf": {
+    "s3Key": "books/test-crlf.txt",
+    "size": 369,
+    "uploadedAt": "2026-06-28T17:58:35.960Z",
+    "localCached": true
   }
 }

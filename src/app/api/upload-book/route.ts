@@ -93,35 +93,79 @@ async function parseDocx(buffer: Buffer): Promise<string> {
   return result.value || '';
 }
 
-/** 解析单个文件 → 返回纯文本 */
-async function parseFile(file: File): Promise<{ content: string; ext: string }> {
+/** 解析单个文件 → 返回原文 + 编码信息（严格保留原文，不做任何字符修改） */
+async function parseFile(
+  file: File,
+): Promise<{ content: string; ext: string; encoding: string }> {
   const lowerName = file.name.toLowerCase();
   const buffer = Buffer.from(await file.arrayBuffer());
 
   if (lowerName.endsWith('.txt') || lowerName.endsWith('.md')) {
+    // 1. 先按 UTF-8 解码
     let text = buffer.toString('utf-8');
-    if (text.includes('\uFFFD') && text.length > 100) {
+    let encoding = 'UTF-8';
+
+    // 2. 检测 UTF-8 是否乱码（替换字符 � 占比）
+    const utf8BadRatio = countReplacementRatio(text);
+    if (utf8BadRatio > 0.001 && buffer.length > 100) {
+      // UTF-8 失败 → 尝试 GBK 解码
       try {
         const iconv = (await import('iconv-lite')) as unknown as {
           decode: (buf: Buffer, enc: string) => string;
+          encodingExists: (enc: string) => boolean;
         };
-        text = iconv.decode(buffer, 'gbk');
+        const gbkText = iconv.decode(buffer, 'gbk');
+        const gbkBadRatio = countReplacementRatio(gbkText);
+        if (gbkBadRatio <= utf8BadRatio && gbkBadRatio < 0.001) {
+          text = gbkText;
+          encoding = 'GBK';
+        } else if (gbkBadRatio < utf8BadRatio) {
+          text = gbkText;
+          encoding = 'GBK';
+        }
       } catch {
-        // ignore
+        // 加载 iconv 失败：保留 UTF-8 结果，后面统一校验
       }
     }
-    return { content: text, ext: 'txt' };
+
+    // 3. 最终校验：编码异常立即报错（不允许带乱码入库）
+    const finalBadRatio = countReplacementRatio(text);
+    if (finalBadRatio > 0.005) {
+      throw new Error(
+        `文件编码异常（${(finalBadRatio * 100).toFixed(2)}% 字符无法解码），已尝试 UTF-8/GBK 均失败。请确认文件未损坏后重新上传，严禁带乱码继续学习。`,
+      );
+    }
+
+    return { content: text, ext: 'txt', encoding };
   }
 
   if (lowerName.endsWith('.pdf')) {
-    return { content: await parsePdf(buffer), ext: 'pdf' };
+    const content = await parsePdf(buffer);
+    if (!content || content.trim().length < 50) {
+      throw new Error('PDF 文本提取失败（可能是扫描版/图片型 PDF），无法保证原文完整性，已中止');
+    }
+    return { content, ext: 'pdf', encoding: 'PDF-Text' };
   }
 
   if (lowerName.endsWith('.docx') || lowerName.endsWith('.doc')) {
-    return { content: await parseDocx(buffer), ext: 'docx' };
+    const content = await parseDocx(buffer);
+    if (!content || content.trim().length < 50) {
+      throw new Error('docx 文本提取失败（文件可能损坏），已中止');
+    }
+    return { content, ext: 'docx', encoding: 'DOCX-Text' };
   }
 
   throw new Error(`不支持的文件类型：${file.name}`);
+}
+
+/** 计算字符串中 Unicode 替换字符 \uFFFD 的占比 */
+function countReplacementRatio(text: string): number {
+  if (text.length === 0) return 0;
+  let bad = 0;
+  for (let i = 0; i < text.length; i++) {
+    if (text.charCodeAt(i) === 0xfffd) bad++;
+  }
+  return bad / text.length;
 }
 
 /** 统计文本中的章节数 + 类型 */
@@ -199,7 +243,7 @@ export async function POST(req: NextRequest): Promise<Response> {
         });
 
         try {
-          // 1) 解析全文
+          // 1) 解析全文 + 编码校验
           send({
             ...base,
             type: 'parse',
@@ -208,34 +252,35 @@ export async function POST(req: NextRequest): Promise<Response> {
           });
           await sleep(20);
 
-          const { content } = await parseFile(file);
+          const { content, encoding } = await parseFile(file);
 
-          if (!content || content.trim().length < 100) {
+          if (!content || content.length < 100) {
             failedCount++;
             send({
               ...base,
               type: 'file-done',
               status: 'failed',
-              message: `❌ 内容过短（${content?.length || 0} 字），未能入库`,
+              message: `❌ 内容过短（${content?.length || 0} 字），未能入库（${encoding}）`,
               percent: 100,
               charCount: content?.length || 0,
             });
             continue;
           }
 
-          const cleaned = content.replace(/\r\n/g, '\n').trim();
-          const charCount = cleaned.length;
+          // 🔴 严格保留原文：不做 replace / trim / 重新编码
+          // content 即为入库内容，与上传文件原始内容逐字一致
+          const charCount = content.length;
 
-          // 2) 识别书名
+          // 2) 识别书名（仅用于检索定位，不修改原文）
           let bookName = extractBookNameFromFile(file.name);
           if (!bookName || bookName.length < 2) {
-            bookName = extractBookNameFromContent(cleaned) || file.name;
+            bookName = extractBookNameFromContent(content) || file.name;
           }
           send({
             ...base,
             type: 'extract',
             bookName,
-            message: `📝 识别书名：《${bookName}》（共 ${charCount.toLocaleString()} 字）`,
+            message: `📝 识别书名：《${bookName}》（${encoding} 编码，共 ${charCount.toLocaleString()} 字，原文逐字保留）`,
             charCount,
             percent: 15,
           });
@@ -256,8 +301,8 @@ export async function POST(req: NextRequest): Promise<Response> {
             continue;
           }
 
-          // 4) 章节识别
-          const { totalChapters, structureType } = detectChapters(cleaned);
+          // 4) 章节识别（仅用于进度上报，不修改原文）
+          const { totalChapters, structureType } = detectChapters(content);
           totalChaptersSum += totalChapters;
           send({
             ...base,
@@ -270,8 +315,8 @@ export async function POST(req: NextRequest): Promise<Response> {
           });
           await sleep(20);
 
-          // 5) 真实入库（一次性写入 + 元数据标记）
-          addBookToKnowledgeBase(bookName, cleaned);
+          // 5) 入库（原文按 UTF-8 落盘，知识库存储与上传文件逐字一致）
+          addBookToKnowledgeBase(bookName, content);
 
           // 6) 逐章学习上报（节流到不超过 60 帧）
           const stepInterval = Math.max(1, Math.ceil(totalChapters / 60));
