@@ -483,6 +483,26 @@ export default function AddBookPage() {
           </div>
           <span className="text-[#d4a853]/30 text-xl group-hover:text-[#d4a853]/60 transition-colors">›</span>
         </button>
+
+        {/* 上传文件入口（推荐） */}
+        <button
+          onClick={() => router.push('/upload-book')}
+          className="w-full bg-gradient-to-r from-[#1a1a2e] to-[#2a1a3e] border border-[#d4a853]/40 rounded-xl p-4 flex items-center gap-4 hover:border-[#d4a853]/70 hover:from-[#2a1a3e] hover:to-[#3a1a4e] transition-all group"
+        >
+          <div className="w-12 h-12 rounded-full bg-[#d4a853]/20 flex items-center justify-center text-2xl group-hover:scale-110 transition-transform">
+            📤
+          </div>
+          <div className="flex-1 text-left">
+            <p className="text-[#d4a853] font-bold text-sm">
+              上传本地书籍文件 <span className="text-[10px] text-[#52c41a] ml-1 font-normal">推荐·秒级入库</span>
+            </p>
+            <p className="text-xs text-[#8a8070] mt-0.5">
+              拖入 txt/pdf/docx 文件，跳过搜索直接入库
+            </p>
+          </div>
+          <span className="text-[#d4a853]/40 text-xl group-hover:text-[#d4a853]/80 transition-colors">›</span>
+        </button>
+
         {/* 输入区 */}
         <div className="bg-[#1a1a2e] rounded-xl p-5 border border-[#2a2a3e]">
           <p className="text-sm text-[#8a8070] mb-3">
