@@ -90,7 +90,7 @@
 7. GET /api/feedback - 查询反馈统计（JSON，返回准确率统计）
 8. GET /api/knowledge-base - 获取知识库书籍列表（支持search分页）
 9. DELETE /api/knowledge-base - 从知识库删除书籍
-10. POST /api/upload-book - 上传本地书籍文件（multipart，最多50个文件，秒级入库）
+10. POST /api/upload-book - 上传本地书籍文件（multipart，SSE 流式，最多50个文件，自动学习+逐章进度上报）
 11. GET /api/upload-book - 查询上传接口元数据
 
 ## 代码规范
@@ -131,6 +131,18 @@
 3. **Reduce**：合并所有批次的引用 → LLM 综合输出最终答案（流式 chunk）
 4. **SSE 事件序列**：`progress`（预筛/各批进度/Reduce）→ `meta`（citations + 元信息）→ `chunk` × N → `done`
 5. **铁律保障**：searchFullTextAsync(query, 0, 0, 0) 四个 0 不限制 + Map-Reduce 全量遍历，绝不因为 context window 而省略
+
+## 上传书籍自动学习流程（/api/upload-book）
+收到文件后**立即**自动执行 6 步，全程 SSE 流式上报，不需要用户触发：
+1. **file-start**：`📂 [i/N] 开始处理《xxx》`
+2. **parse**：`📖 正在完整读取「xxx」全部内容（从第一页第一个字到最后一页最后一个字）...` —— 完整解析 txt/md/pdf/docx/doc，不遗漏任何段落
+3. **extract**：`📝 识别书名：《XXX》（共 N 字）`
+4. **chapter-detect**：`🔍 切分章节：发现 N 章/卦/卷/篇/节/回/部` —— 自动识别中文典籍结构
+5. **learning × N**：`📖 学习中：第 K/N 章（X%）` —— 逐章上报，节流到不超过 60 帧，前端实时进度条
+6. **file-done**：`✅ 《XXX》学习完成：N 章 · N 字 · 已存入知识库`
+7. **all-done**：返回 `{successCount, duplicateCount, failedCount, totalChars, totalChapters}`
+
+入库过程同时：本地 .txt 文件落盘 → 全文缓存刷新 → markBookAsLearned 元数据标记 → S3 云存储同步 → Supabase 持久化。
 
 ## AI 分析框架（knowledge.ts 提示词体系）
 - 26步AI学习路径：从身份定位到持续迭代

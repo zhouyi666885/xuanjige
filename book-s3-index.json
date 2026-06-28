@@ -7678,5 +7678,11 @@
     "size": 4945,
     "uploadedAt": "2026-06-24T20:46:04.029Z",
     "localCached": true
+  },
+  "test-book": {
+    "s3Key": "books/test-book.txt",
+    "size": 604,
+    "uploadedAt": "2026-06-28T17:52:59.670Z",
+    "localCached": true
   }
 }
