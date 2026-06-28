@@ -1,583 +1,652 @@
 /**
- * 国学玄学经典数据源
- * 内置 100+ 本经典古籍的真实可访问 URL，绕过搜索引擎反爬
+ * 国学玄学数据源库
+ * 按用户要求：彻底删除预绑定书目映射，改为纯数据源（站点 endpoint）。
+ * 系统在抓取时遍历这些数据源，用 {q} 占位符注入书名进行搜索。
+ *
+ * 数据源说明：
+ *  - searchUrl: 站点搜索 URL 模板，{q} 会被替换为 URL 编码后的书名
+ *  - baseUrl:   站点根域名（用于反爬/重定向兜底）
+ *  - category:  站点主题（命理/占卜/风水/经典/综合 等）
+ *  - encoding:  目标站点的内容编码（默认 utf-8，少数老站为 gb2312）
  */
 
+export interface DataSource {
+  name: string;
+  baseUrl: string;
+  searchUrl: string;
+  category: string;
+  encoding?: 'utf-8' | 'gb2312';
+}
+
+/**
+ * 保持 lookupKnownBookSources 函数签名向后兼容
+ * 按用户要求：不再预绑定任何书目 → 直接返回空数组 → 让兜底层进入 LLM 兜底
+ */
 export interface KnownSource {
   url: string;
   source: string;
 }
-
-/**
- * 已知书籍多源 URL 库（按书名精确匹配）
- * 优先维护常用玄学典籍：命理/相术/占卜/风水/姓名
- */
-export const KNOWN_BOOK_SOURCES: Record<string, KnownSource[]> = {
-  // 命理类
-  '滴天髓': [
-    { url: 'https://www.gushiwen.cn/guwen/book_46653FD803893E4F73B4DF1A89121A30.aspx', source: '古诗文网' },
-    { url: 'https://www.guoxuemeng.com/mingli/ditianshui/', source: '国学梦' },
-    { url: 'https://zh.wikisource.org/wiki/%E6%BB%B4%E5%A4%A9%E9%AB%93', source: '维基文库' },
-  ],
-  '三命通会': [
-    { url: 'https://www.guoxuemeng.com/mingli/sanmingtonghui/', source: '国学梦' },
-    { url: 'https://zh.wikisource.org/wiki/%E4%B8%89%E5%91%BD%E9%80%9A%E6%9C%83', source: '维基文库' },
-  ],
-  '渊海子平': [
-    { url: 'https://www.guoxuemeng.com/mingli/yuanhaiziping/', source: '国学梦' },
-    { url: 'https://zh.wikisource.org/wiki/%E6%B7%B5%E6%B5%B7%E5%AD%90%E5%B9%B3', source: '维基文库' },
-  ],
-  '子平真诠': [
-    { url: 'https://www.guoxuemeng.com/mingli/ziping/', source: '国学梦' },
-    { url: 'https://zh.wikisource.org/wiki/%E5%AD%90%E5%B9%B3%E7%9C%9F%E8%A9%AE', source: '维基文库' },
-  ],
-  '穷通宝鉴': [
-    { url: 'https://www.guoxuemeng.com/mingli/qiongtongbaojian/', source: '国学梦' },
-  ],
-  '神峰通考': [
-    { url: 'https://www.guoxuemeng.com/mingli/shenfengtongkao/', source: '国学梦' },
-  ],
-  '兰台妙选': [
-    { url: 'https://www.guoxuemeng.com/mingli/lantaimiaoxuan/', source: '国学梦' },
-  ],
-  '李虚中命书': [
-    { url: 'https://www.guoxuemeng.com/mingli/lixuzhongmingshu/', source: '国学梦' },
-  ],
-  '玉照定真经': [
-    { url: 'https://www.guoxuemeng.com/mingli/yuzhaodingzhenjing/', source: '国学梦' },
-  ],
-  '星平会海': [
-    { url: 'https://www.guoxuemeng.com/mingli/xingpinghuihai/', source: '国学梦' },
-  ],
-
-  // 紫微斗数类
-  '紫微斗数全书': [
-    { url: 'https://www.guoxuemeng.com/mingli/ziweidoushu/', source: '国学梦' },
-  ],
-  '紫微斗数全集': [
-    { url: 'https://www.guoxuemeng.com/mingli/ziweidoushuquanji/', source: '国学梦' },
-  ],
-
-  // 占卜类（六爻/梅花易数/奇门/六壬/太乙）
-  '梅花易数': [
-    { url: 'https://www.guoxuemeng.com/buyi/meihuayishu/', source: '国学梦' },
-    { url: 'https://zh.wikisource.org/wiki/%E6%A2%85%E8%8A%B1%E6%98%93%E6%95%B8', source: '维基文库' },
-  ],
-  '增删卜易': [
-    { url: 'https://www.guoxuemeng.com/buyi/zengshanbuyi/', source: '国学梦' },
-  ],
-  '卜筮正宗': [
-    { url: 'https://www.guoxuemeng.com/buyi/bushizhengzong/', source: '国学梦' },
-  ],
-  '断易天机': [
-    { url: 'https://www.guoxuemeng.com/buyi/duanyitianji/', source: '国学梦' },
-  ],
-  '火珠林': [
-    { url: 'https://www.guoxuemeng.com/buyi/huozhulin/', source: '国学梦' },
-  ],
-  '黄金策': [
-    { url: 'https://www.guoxuemeng.com/buyi/huangjince/', source: '国学梦' },
-  ],
-  '易隐': [
-    { url: 'https://www.guoxuemeng.com/buyi/yiyin/', source: '国学梦' },
-  ],
-  '易冒': [
-    { url: 'https://www.guoxuemeng.com/buyi/yimao/', source: '国学梦' },
-  ],
-  '奇门遁甲': [
-    { url: 'https://www.guoxuemeng.com/qimen/qimendunjia/', source: '国学梦' },
-  ],
-  '奇门遁甲全书': [
-    { url: 'https://www.guoxuemeng.com/qimen/qimendunjiaquanshu/', source: '国学梦' },
-  ],
-  '烟波钓叟歌': [
-    { url: 'https://www.guoxuemeng.com/qimen/yanbodiaosouge/', source: '国学梦' },
-  ],
-  '大六壬': [
-    { url: 'https://www.guoxuemeng.com/liuren/daliuren/', source: '国学梦' },
-  ],
-  '六壬大全': [
-    { url: 'https://www.guoxuemeng.com/liuren/liurendaquan/', source: '国学梦' },
-  ],
-  '六壬指南': [
-    { url: 'https://www.guoxuemeng.com/liuren/liurenzhinan/', source: '国学梦' },
-  ],
-  '太乙神数': [
-    { url: 'https://www.guoxuemeng.com/taiyi/taiyishenshu/', source: '国学梦' },
-  ],
-
-  // 风水类
-  '葬书': [
-    { url: 'https://zh.wikisource.org/wiki/%E8%91%AC%E6%9B%B8', source: '维基文库' },
-    { url: 'https://www.guoxuemeng.com/fengshui/zangshu/', source: '国学梦' },
-  ],
-  '撼龙经': [
-    { url: 'https://www.guoxuemeng.com/fengshui/hanlongjing/', source: '国学梦' },
-  ],
-  '疑龙经': [
-    { url: 'https://www.guoxuemeng.com/fengshui/yilongjing/', source: '国学梦' },
-  ],
-  '青囊经': [
-    { url: 'https://www.guoxuemeng.com/fengshui/qingnangjing/', source: '国学梦' },
-  ],
-  '青囊奥语': [
-    { url: 'https://www.guoxuemeng.com/fengshui/qingnangaoyu/', source: '国学梦' },
-  ],
-  '天玉经': [
-    { url: 'https://www.guoxuemeng.com/fengshui/tianyujing/', source: '国学梦' },
-  ],
-  '都天宝照经': [
-    { url: 'https://www.guoxuemeng.com/fengshui/dutianbaozhaojing/', source: '国学梦' },
-  ],
-  '阳宅三要': [
-    { url: 'https://www.guoxuemeng.com/fengshui/yangzhaisanyao/', source: '国学梦' },
-  ],
-  '八宅明镜': [
-    { url: 'https://www.guoxuemeng.com/fengshui/bazhaimingjing/', source: '国学梦' },
-  ],
-  '玄空本义': [
-    { url: 'https://www.guoxuemeng.com/fengshui/xuankongbenyi/', source: '国学梦' },
-  ],
-  '沈氏玄空学': [
-    { url: 'https://www.guoxuemeng.com/fengshui/shenshixuankongxue/', source: '国学梦' },
-  ],
-
-  // 相术类
-  '麻衣神相': [
-    { url: 'https://www.guoxuemeng.com/xiangshu/mayishenxiang/', source: '国学梦' },
-  ],
-  '柳庄相法': [
-    { url: 'https://www.guoxuemeng.com/xiangshu/liuzhuangxiangfa/', source: '国学梦' },
-  ],
-  '神相全编': [
-    { url: 'https://www.guoxuemeng.com/xiangshu/shenxiangquanbian/', source: '国学梦' },
-  ],
-  '神相铁关刀': [
-    { url: 'https://www.guoxuemeng.com/xiangshu/shenxiangtieguandao/', source: '国学梦' },
-  ],
-  '冰鉴': [
-    { url: 'https://www.guoxuemeng.com/xiangshu/bingjian/', source: '国学梦' },
-    { url: 'https://zh.wikisource.org/wiki/%E5%86%B0%E9%91%92', source: '维基文库' },
-  ],
-
-  // 易经类（基础）
-  '周易': [
-    { url: 'https://www.guoxuemeng.com/zhouyi/', source: '国学梦' },
-    { url: 'https://zh.wikisource.org/wiki/%E6%98%93%E7%B6%93', source: '维基文库' },
-    { url: 'https://ctext.org/book-of-changes/zhs', source: '中国哲学书电子化计划' },
-  ],
-  '易经': [
-    { url: 'https://www.guoxuemeng.com/zhouyi/', source: '国学梦' },
-    { url: 'https://zh.wikisource.org/wiki/%E6%98%93%E7%B6%93', source: '维基文库' },
-  ],
-  '易传': [
-    { url: 'https://www.guoxuemeng.com/zhouyi/yizhuan/', source: '国学梦' },
-  ],
-  '系辞': [
-    { url: 'https://www.guoxuemeng.com/zhouyi/xici/', source: '国学梦' },
-  ],
-  '说卦传': [
-    { url: 'https://www.guoxuemeng.com/zhouyi/shuoguazhuan/', source: '国学梦' },
-  ],
-  '序卦传': [
-    { url: 'https://www.guoxuemeng.com/zhouyi/xuguazhuan/', source: '国学梦' },
-  ],
-  '杂卦传': [
-    { url: 'https://www.guoxuemeng.com/zhouyi/zaguazhuan/', source: '国学梦' },
-  ],
-
-  // 姓名学
-  '康熙字典': [
-    { url: 'https://www.zdic.net/', source: '汉典' },
-    { url: 'https://zh.wikisource.org/wiki/%E5%BA%B7%E7%86%99%E5%AD%97%E5%85%B8', source: '维基文库' },
-  ],
-  '说文解字': [
-    { url: 'https://www.guoxuemeng.com/zidian/shuowenjiezi/', source: '国学梦' },
-    { url: 'https://zh.wikisource.org/wiki/%E8%AA%AA%E6%96%87%E8%A7%A3%E5%AD%97', source: '维基文库' },
-  ],
-
-  // 其他玄学经典
-  '推背图': [
-    { url: 'https://www.guoxuemeng.com/yuyan/tuibeitu/', source: '国学梦' },
-  ],
-  '烧饼歌': [
-    { url: 'https://www.guoxuemeng.com/yuyan/shaobinge/', source: '国学梦' },
-  ],
-  '皇极经世': [
-    { url: 'https://www.guoxuemeng.com/yixue/huangjijingshi/', source: '国学梦' },
-  ],
-  '太玄经': [
-    { url: 'https://www.guoxuemeng.com/yixue/taixuanjing/', source: '国学梦' },
-  ],
-  '河洛理数': [
-    { url: 'https://www.guoxuemeng.com/yixue/heluolishu/', source: '国学梦' },
-  ],
-  '黄帝内经': [
-    { url: 'https://www.guoxuemeng.com/zhongyi/huangdineijing/', source: '国学梦' },
-    { url: 'https://ctext.org/huangdi-neijing/zhs', source: '中国哲学书电子化计划' },
-  ],
-
-  // ===== 命理类扩充 =====
-  '滴天髓阐微': [{ url: 'https://www.guoxuemeng.com/mingli/ditianshuichanwei/', source: '国学梦' }],
-  '滴天髓征义': [{ url: 'https://www.guoxuemeng.com/mingli/ditianshuizhengyi/', source: '国学梦' }],
-  '子平真诠评注': [{ url: 'https://www.guoxuemeng.com/mingli/zipingzhenquanpingzhu/', source: '国学梦' }],
-  '命理探源': [{ url: 'https://www.guoxuemeng.com/mingli/minglitanyuan/', source: '国学梦' }],
-  '命理约言': [{ url: 'https://www.guoxuemeng.com/mingli/mingliyueyan/', source: '国学梦' }],
-  '命理寻源': [{ url: 'https://www.guoxuemeng.com/mingli/minglixunyuan/', source: '国学梦' }],
-  '命理须知': [{ url: 'https://www.guoxuemeng.com/mingli/minglixuzhi/', source: '国学梦' }],
-  '命学新义': [{ url: 'https://www.guoxuemeng.com/mingli/mingxuexinyi/', source: '国学梦' }],
-  '滴天髓辑要': [{ url: 'https://www.guoxuemeng.com/mingli/ditianshuijiyao/', source: '国学梦' }],
-  '徐乐吾命理一得': [{ url: 'https://www.guoxuemeng.com/mingli/xuyuwumingliyide/', source: '国学梦' }],
-  '滴天髓补注': [{ url: 'https://www.guoxuemeng.com/mingli/ditianshuibuzhu/', source: '国学梦' }],
-  '造化元钥': [{ url: 'https://www.guoxuemeng.com/mingli/zaohuayuanyao/', source: '国学梦' }],
-  '造化玄钥': [{ url: 'https://www.guoxuemeng.com/mingli/zaohuaxuanyao/', source: '国学梦' }],
-  '子平管见': [{ url: 'https://www.guoxuemeng.com/mingli/zipingguanjian/', source: '国学梦' }],
-  '子平母法': [{ url: 'https://www.guoxuemeng.com/mingli/zipingmufa/', source: '国学梦' }],
-  '子平百章歌': [{ url: 'https://www.guoxuemeng.com/mingli/zipingbaizhangge/', source: '国学梦' }],
-  '子平粹言': [{ url: 'https://www.guoxuemeng.com/mingli/zipingcuiyan/', source: '国学梦' }],
-  '子平真传': [{ url: 'https://www.guoxuemeng.com/mingli/zipingzhenchuan/', source: '国学梦' }],
-  '神峰张楠命理正宗': [{ url: 'https://www.guoxuemeng.com/mingli/shenfengzhangnan/', source: '国学梦' }],
-  '玉井奥诀': [{ url: 'https://www.guoxuemeng.com/mingli/yujingaojue/', source: '国学梦' }],
-  '渊海子平评注': [{ url: 'https://www.guoxuemeng.com/mingli/yuanhaizipingpingzhu/', source: '国学梦' }],
-  '渊源子平': [{ url: 'https://www.guoxuemeng.com/mingli/yuanyuanziping/', source: '国学梦' }],
-  '兰台秘选': [{ url: 'https://www.guoxuemeng.com/mingli/lantaimixuan/', source: '国学梦' }],
-  '万育吾三命通会': [{ url: 'https://www.guoxuemeng.com/mingli/wanyuwusanmingtonghui/', source: '国学梦' }],
-  '三命指迷赋': [{ url: 'https://www.guoxuemeng.com/mingli/sanmingzhimifu/', source: '国学梦' }],
-  '三命提要': [{ url: 'https://www.guoxuemeng.com/mingli/sanmingtiyao/', source: '国学梦' }],
-  '三命汇通': [{ url: 'https://www.guoxuemeng.com/mingli/sanminghuitong/', source: '国学梦' }],
-  '珞琭子三命消息赋': [{ url: 'https://www.guoxuemeng.com/mingli/luoluzisanmingxiaoxifu/', source: '国学梦' }],
-  '珞琭子赋': [{ url: 'https://www.guoxuemeng.com/mingli/luoluzifu/', source: '国学梦' }],
-  '阴符经': [{ url: 'https://www.guoxuemeng.com/yixue/yinfujing/', source: '国学梦' }],
-  '玉门经': [{ url: 'https://www.guoxuemeng.com/mingli/yumenjing/', source: '国学梦' }],
-  '玄机赋': [{ url: 'https://www.guoxuemeng.com/mingli/xuanjifu/', source: '国学梦' }],
-  '元理赋': [{ url: 'https://www.guoxuemeng.com/mingli/yuanlifu/', source: '国学梦' }],
-  '指南赋': [{ url: 'https://www.guoxuemeng.com/mingli/zhinanfu/', source: '国学梦' }],
-  '通明赋': [{ url: 'https://www.guoxuemeng.com/mingli/tongmingfu/', source: '国学梦' }],
-  '心镜歌': [{ url: 'https://www.guoxuemeng.com/mingli/xinjingge/', source: '国学梦' }],
-  '寸金搜髓歌': [{ url: 'https://www.guoxuemeng.com/mingli/cunjinsousuige/', source: '国学梦' }],
-  '巫咸撮要歌': [{ url: 'https://www.guoxuemeng.com/mingli/wuxiancuoyaoge/', source: '国学梦' }],
-  '醉醒子赋': [{ url: 'https://www.guoxuemeng.com/mingli/zuixingzifu/', source: '国学梦' }],
-  '系泉真道': [{ url: 'https://www.guoxuemeng.com/mingli/xiquanzhendao/', source: '国学梦' }],
-  '化气十段锦': [{ url: 'https://www.guoxuemeng.com/mingli/huaqishiduanjin/', source: '国学梦' }],
-  '透天玄机': [{ url: 'https://www.guoxuemeng.com/mingli/toutianxuanji/', source: '国学梦' }],
-  '十干生死诀': [{ url: 'https://www.guoxuemeng.com/mingli/shigansheshijue/', source: '国学梦' }],
-  '十干用事歌': [{ url: 'https://www.guoxuemeng.com/mingli/shiganyongshige/', source: '国学梦' }],
-  '禄命书': [{ url: 'https://www.guoxuemeng.com/mingli/lumingshu/', source: '国学梦' }],
-  '禄命神煞总论': [{ url: 'https://www.guoxuemeng.com/mingli/lumingshenshazonglun/', source: '国学梦' }],
-  '神煞详解': [{ url: 'https://www.guoxuemeng.com/mingli/shenshaxiangjie/', source: '国学梦' }],
-  '徐子平正解': [{ url: 'https://www.guoxuemeng.com/mingli/xuzipingzhengjie/', source: '国学梦' }],
-  '徐乐吾子平粹言': [{ url: 'https://www.guoxuemeng.com/mingli/xuleyuziping/', source: '国学梦' }],
-  '袁树珊命理探源': [{ url: 'https://www.guoxuemeng.com/mingli/yuanshushanmingli/', source: '国学梦' }],
-  '韦千里命学讲义': [{ url: 'https://www.guoxuemeng.com/mingli/weiqianlimingxue/', source: '国学梦' }],
-  '何建忠八字心理推命学': [{ url: 'https://www.guoxuemeng.com/mingli/hejianzhongmingli/', source: '国学梦' }],
-  '果老星宗': [{ url: 'https://www.guoxuemeng.com/mingli/guolaoxingzong/', source: '国学梦' }],
-  '七政四余': [{ url: 'https://www.guoxuemeng.com/mingli/qizhengsiyu/', source: '国学梦' }],
-  '西洋占星术': [{ url: 'https://www.guoxuemeng.com/mingli/xiyangzhanxing/', source: '国学梦' }],
-  '玉匣记': [{ url: 'https://www.guoxuemeng.com/mingli/yuxiaji/', source: '国学梦' }],
-  '协纪辨方书': [{ url: 'https://www.guoxuemeng.com/mingli/xiejibianfangshu/', source: '国学梦' }],
-  '通书': [{ url: 'https://www.guoxuemeng.com/mingli/tongshu/', source: '国学梦' }],
-  '万年历': [{ url: 'https://www.guoxuemeng.com/mingli/wannianli/', source: '国学梦' }],
-  '诹吉宝鉴': [{ url: 'https://www.guoxuemeng.com/mingli/zoujibaojian/', source: '国学梦' }],
-
-  // ===== 紫微斗数扩充 =====
-  '紫微斗数捷览': [{ url: 'https://www.guoxuemeng.com/ziwei/jielan/', source: '国学梦' }],
-  '紫微斗数全书评注': [{ url: 'https://www.guoxuemeng.com/ziwei/quanshupingzhu/', source: '国学梦' }],
-  '紫微斗数命谱': [{ url: 'https://www.guoxuemeng.com/ziwei/mingpu/', source: '国学梦' }],
-  '紫微斗数论命': [{ url: 'https://www.guoxuemeng.com/ziwei/lunming/', source: '国学梦' }],
-  '紫微斗数密仪': [{ url: 'https://www.guoxuemeng.com/ziwei/miyi/', source: '国学梦' }],
-  '紫微斗数飞星秘仪': [{ url: 'https://www.guoxuemeng.com/ziwei/feixing/', source: '国学梦' }],
-  '紫微斗数四化': [{ url: 'https://www.guoxuemeng.com/ziwei/sihua/', source: '国学梦' }],
-  '陈希夷紫微斗数': [{ url: 'https://www.guoxuemeng.com/ziwei/chenxiyi/', source: '国学梦' }],
-  '太微紫微斗数': [{ url: 'https://www.guoxuemeng.com/ziwei/taiwei/', source: '国学梦' }],
-  '钦天监紫微斗数': [{ url: 'https://www.guoxuemeng.com/ziwei/qintianjian/', source: '国学梦' }],
-
-  // ===== 占卜/六爻/易卜扩充 =====
-  '六爻精解': [{ url: 'https://www.guoxuemeng.com/buyi/liuyaojingjie/', source: '国学梦' }],
-  '京氏易传': [{ url: 'https://www.guoxuemeng.com/buyi/jingshiyichuan/', source: '国学梦' }],
-  '焦氏易林': [{ url: 'https://www.guoxuemeng.com/buyi/jiaoshiyilin/', source: '国学梦' }],
-  '易林补遗': [{ url: 'https://www.guoxuemeng.com/buyi/yilinbuyi/', source: '国学梦' }],
-  '卜筮全书': [{ url: 'https://www.guoxuemeng.com/buyi/bushiquanshu/', source: '国学梦' }],
-  '卜筮元龟': [{ url: 'https://www.guoxuemeng.com/buyi/bushiyuangui/', source: '国学梦' }],
-  '海底眼': [{ url: 'https://www.guoxuemeng.com/buyi/haidiyan/', source: '国学梦' }],
-  '黄金策千金赋': [{ url: 'https://www.guoxuemeng.com/buyi/huangjincequnjinfu/', source: '国学梦' }],
-  '增删卜易评注': [{ url: 'https://www.guoxuemeng.com/buyi/zengshanbuyipingzhu/', source: '国学梦' }],
-  '易隐评注': [{ url: 'https://www.guoxuemeng.com/buyi/yiyinpingzhu/', source: '国学梦' }],
-  '梅花心易': [{ url: 'https://www.guoxuemeng.com/buyi/meihuaxinyi/', source: '国学梦' }],
-  '梅花易数评注': [{ url: 'https://www.guoxuemeng.com/buyi/meihuayishupingzhu/', source: '国学梦' }],
-  '邵子神数': [{ url: 'https://www.guoxuemeng.com/buyi/shaozishenshu/', source: '国学梦' }],
-  '邵康节梅花易数': [{ url: 'https://www.guoxuemeng.com/buyi/shaokangjiemeihua/', source: '国学梦' }],
-  '皇极策数': [{ url: 'https://www.guoxuemeng.com/buyi/huangjicheshu/', source: '国学梦' }],
-  '皇极数': [{ url: 'https://www.guoxuemeng.com/buyi/huangjishu/', source: '国学梦' }],
-  '六爻预测学': [{ url: 'https://www.guoxuemeng.com/buyi/liuyaoyuce/', source: '国学梦' }],
-  '六爻断卦秘诀': [{ url: 'https://www.guoxuemeng.com/buyi/duanguamijue/', source: '国学梦' }],
-  '六爻神断': [{ url: 'https://www.guoxuemeng.com/buyi/liuyaoshenduan/', source: '国学梦' }],
-  '王虎应六爻': [{ url: 'https://www.guoxuemeng.com/buyi/wanghuyingliuyao/', source: '国学梦' }],
-  '野鹤老人占卜全书': [{ url: 'https://www.guoxuemeng.com/buyi/yehelaoren/', source: '国学梦' }],
-  '京房易占': [{ url: 'https://www.guoxuemeng.com/buyi/jingfangyizhan/', source: '国学梦' }],
-  '占卜述要': [{ url: 'https://www.guoxuemeng.com/buyi/zhanbushuyao/', source: '国学梦' }],
-
-  // ===== 奇门遁甲扩充 =====
-  '奇门遁甲秘籍大全': [{ url: 'https://www.guoxuemeng.com/qimen/miji/', source: '国学梦' }],
-  '奇门遁甲统宗': [{ url: 'https://www.guoxuemeng.com/qimen/tongzong/', source: '国学梦' }],
-  '奇门遁甲秘笈': [{ url: 'https://www.guoxuemeng.com/qimen/mijie/', source: '国学梦' }],
-  '奇门遁甲元灵经': [{ url: 'https://www.guoxuemeng.com/qimen/yuanlingjing/', source: '国学梦' }],
-  '奇门遁甲符应经': [{ url: 'https://www.guoxuemeng.com/qimen/fuyingjing/', source: '国学梦' }],
-  '奇门法窍': [{ url: 'https://www.guoxuemeng.com/qimen/faqiao/', source: '国学梦' }],
-  '奇门遁甲心法': [{ url: 'https://www.guoxuemeng.com/qimen/xinfa/', source: '国学梦' }],
-  '奇门遁甲入门': [{ url: 'https://www.guoxuemeng.com/qimen/rumen/', source: '国学梦' }],
-  '奇门测局': [{ url: 'https://www.guoxuemeng.com/qimen/celiu/', source: '国学梦' }],
-  '太乙金镜式经': [{ url: 'https://www.guoxuemeng.com/qimen/taiyijinjing/', source: '国学梦' }],
-  '太乙淘金歌': [{ url: 'https://www.guoxuemeng.com/qimen/taiyitaojin/', source: '国学梦' }],
-  '太乙总论': [{ url: 'https://www.guoxuemeng.com/qimen/taiyizonglun/', source: '国学梦' }],
-
-  // ===== 大六壬扩充 =====
-  '六壬秘笈': [{ url: 'https://www.guoxuemeng.com/liuren/miji/', source: '国学梦' }],
-  '六壬粹言': [{ url: 'https://www.guoxuemeng.com/liuren/cuiyan/', source: '国学梦' }],
-  '六壬寻原': [{ url: 'https://www.guoxuemeng.com/liuren/xunyuan/', source: '国学梦' }],
-  '六壬辨疑': [{ url: 'https://www.guoxuemeng.com/liuren/bianyi/', source: '国学梦' }],
-  '六壬要旨': [{ url: 'https://www.guoxuemeng.com/liuren/yaozhi/', source: '国学梦' }],
-  '六壬课经集': [{ url: 'https://www.guoxuemeng.com/liuren/kejingji/', source: '国学梦' }],
-  '六壬玉连环': [{ url: 'https://www.guoxuemeng.com/liuren/yulianhuan/', source: '国学梦' }],
-  '毕法赋': [{ url: 'https://www.guoxuemeng.com/liuren/bifafu/', source: '国学梦' }],
-  '指南赋六壬': [{ url: 'https://www.guoxuemeng.com/liuren/zhinanfu/', source: '国学梦' }],
-  '邵彦和占验': [{ url: 'https://www.guoxuemeng.com/liuren/shaoyanhe/', source: '国学梦' }],
-  '袁天罡称骨歌': [{ url: 'https://www.guoxuemeng.com/mingli/yuantiangangchengguge/', source: '国学梦' }],
-  '李淳风藏头诗': [{ url: 'https://www.guoxuemeng.com/yuyan/lichunfengcangtoushi/', source: '国学梦' }],
-
-  // ===== 风水类大量扩充 =====
-  '地理人子须知': [{ url: 'https://www.guoxuemeng.com/fengshui/renzixuzhi/', source: '国学梦' }, { url: 'https://ctext.org/wiki.pl?if=gb&res=843156', source: 'ctext' }],
-  '地理五诀': [{ url: 'https://www.guoxuemeng.com/fengshui/diliwujue/', source: '国学梦' }, { url: 'https://zh.wikisource.org/wiki/%E5%9C%B0%E7%90%86%E4%BA%94%E8%A8%A3', source: '维基文库' }],
-  '地理辨正': [{ url: 'https://www.guoxuemeng.com/fengshui/dilibianzheng/', source: '国学梦' }],
-  '地理辨正疏': [{ url: 'https://www.guoxuemeng.com/fengshui/dilibianzhengshu/', source: '国学梦' }],
-  '地理大全': [{ url: 'https://www.guoxuemeng.com/fengshui/diliquanshu/', source: '国学梦' }],
-  '地理啖蔗录': [{ url: 'https://www.guoxuemeng.com/fengshui/dilidanzhelu/', source: '国学梦' }],
-  '地理琢玉斧': [{ url: 'https://www.guoxuemeng.com/fengshui/dilizuoyufu/', source: '国学梦' }],
-  '地理铁案': [{ url: 'https://www.guoxuemeng.com/fengshui/dilitiean/', source: '国学梦' }],
-  '地理直指': [{ url: 'https://www.guoxuemeng.com/fengshui/dilizhizhi/', source: '国学梦' }],
-  '地理水法点穴': [{ url: 'https://www.guoxuemeng.com/fengshui/dilishuifa/', source: '国学梦' }],
-  '地理精义': [{ url: 'https://www.guoxuemeng.com/fengshui/dilijingyi/', source: '国学梦' }],
-  '地理精蕴': [{ url: 'https://www.guoxuemeng.com/fengshui/dilijingyun/', source: '国学梦' }],
-  '地理玄机': [{ url: 'https://www.guoxuemeng.com/fengshui/dilixuanji/', source: '国学梦' }],
-  '地理秘旨': [{ url: 'https://www.guoxuemeng.com/fengshui/dilimizhi/', source: '国学梦' }],
-  '地理大成': [{ url: 'https://www.guoxuemeng.com/fengshui/dilidacheng/', source: '国学梦' }],
-  '地理全书': [{ url: 'https://www.guoxuemeng.com/fengshui/diliquanshu2/', source: '国学梦' }],
-  '阳宅集成': [{ url: 'https://www.guoxuemeng.com/fengshui/yangzhaijicheng/', source: '国学梦' }, { url: 'https://ctext.org/wiki.pl?if=gb&res=843200', source: 'ctext' }],
-  '阳宅十书': [{ url: 'https://www.guoxuemeng.com/fengshui/yangzhaishishu/', source: '国学梦' }, { url: 'https://zh.wikisource.org/wiki/%E9%99%BD%E5%AE%85%E5%8D%81%E6%9B%B8', source: '维基文库' }],
-  '阳宅大成': [{ url: 'https://www.guoxuemeng.com/fengshui/yangzhaidacheng/', source: '国学梦' }],
-  '阳宅大全': [{ url: 'https://www.guoxuemeng.com/fengshui/yangzhaiquanshu/', source: '国学梦' }],
-  '阳宅指南': [{ url: 'https://www.guoxuemeng.com/fengshui/yangzhaizhinan/', source: '国学梦' }],
-  '阳宅爱众篇': [{ url: 'https://www.guoxuemeng.com/fengshui/yangzhaiaizhong/', source: '国学梦' }],
-  '阳宅会心集': [{ url: 'https://www.guoxuemeng.com/fengshui/yangzhaihuixinji/', source: '国学梦' }],
-  '阳宅觉': [{ url: 'https://www.guoxuemeng.com/fengshui/yangzhaijue/', source: '国学梦' }],
-  '阴宅秘传': [{ url: 'https://www.guoxuemeng.com/fengshui/yinzhaimichuan/', source: '国学梦' }],
-  '阴阳宝海': [{ url: 'https://www.guoxuemeng.com/fengshui/yinyangbaohai/', source: '国学梦' }],
-  '玄空真解': [{ url: 'https://www.guoxuemeng.com/fengshui/xuankongzhenjie/', source: '国学梦' }],
-  '玄空秘旨': [{ url: 'https://www.guoxuemeng.com/fengshui/xuankongmizhi/', source: '国学梦' }],
-  '玄空法鉴': [{ url: 'https://www.guoxuemeng.com/fengshui/xuankongfajian/', source: '国学梦' }],
-  '玄空大卦秘诀': [{ url: 'https://www.guoxuemeng.com/fengshui/xuankongdaguamijue/', source: '国学梦' }],
-  '玄空飞星全书': [{ url: 'https://www.guoxuemeng.com/fengshui/xuankongfeixing/', source: '国学梦' }],
-  '玄空紫白诀': [{ url: 'https://www.guoxuemeng.com/fengshui/xuankongzibaijue/', source: '国学梦' }],
-  '雪心赋': [{ url: 'https://www.guoxuemeng.com/fengshui/xuexinfu/', source: '国学梦' }, { url: 'https://zh.wikisource.org/wiki/%E9%9B%AA%E5%BF%83%E8%B3%A6', source: '维基文库' }],
-  '入地眼全书': [{ url: 'https://www.guoxuemeng.com/fengshui/rudiyan/', source: '国学梦' }],
-  '催官篇': [{ url: 'https://www.guoxuemeng.com/fengshui/cuiguanpian/', source: '国学梦' }],
-  '罗经透解': [{ url: 'https://www.guoxuemeng.com/fengshui/luojingtoujie/', source: '国学梦' }],
-  '罗经顶门针': [{ url: 'https://www.guoxuemeng.com/fengshui/luojingdingmenzhen/', source: '国学梦' }],
-  '罗经解定': [{ url: 'https://www.guoxuemeng.com/fengshui/luojingjieding/', source: '国学梦' }],
-  '撼龙经评注': [{ url: 'https://www.guoxuemeng.com/fengshui/hanlongjingpingzhu/', source: '国学梦' }],
-  '葬经翼': [{ url: 'https://www.guoxuemeng.com/fengshui/zangjingyi/', source: '国学梦' }],
-  '葬经笺注': [{ url: 'https://www.guoxuemeng.com/fengshui/zangjingjianzhu/', source: '国学梦' }],
-  '葬法倒杖': [{ url: 'https://www.guoxuemeng.com/fengshui/zangfadaozhang/', source: '国学梦' }],
-  '三元总录': [{ url: 'https://www.guoxuemeng.com/fengshui/sanyuanzonglu/', source: '国学梦' }],
-  '三元地理': [{ url: 'https://www.guoxuemeng.com/fengshui/sanyuandili/', source: '国学梦' }],
-  '三合风水': [{ url: 'https://www.guoxuemeng.com/fengshui/sanhefengshui/', source: '国学梦' }],
-  '八宅周书': [{ url: 'https://www.guoxuemeng.com/fengshui/bazhaizhoushu/', source: '国学梦' }],
-  '宅经': [{ url: 'https://www.guoxuemeng.com/fengshui/zhaijing/', source: '国学梦' }, { url: 'https://zh.wikisource.org/wiki/%E5%AE%85%E7%B6%93', source: '维基文库' }, { url: 'https://ctext.org/wiki.pl?if=gb&res=843159', source: 'ctext' }],
-  '宅心赋': [{ url: 'https://www.guoxuemeng.com/fengshui/zhaixinfu/', source: '国学梦' }],
-  '黄帝宅经': [{ url: 'https://www.guoxuemeng.com/fengshui/huangdizhaijing/', source: '国学梦' }, { url: 'https://ctext.org/wiki.pl?if=gb&res=843161', source: 'ctext' }],
-  '蒋大鸿地理辨正': [{ url: 'https://www.guoxuemeng.com/fengshui/jiangdahong/', source: '国学梦' }],
-  '杨公风水': [{ url: 'https://www.guoxuemeng.com/fengshui/yanggongfengshui/', source: '国学梦' }],
-  '杨筠松全集': [{ url: 'https://www.guoxuemeng.com/fengshui/yangyunsongquanji/', source: '国学梦' }],
-  '形势理气': [{ url: 'https://www.guoxuemeng.com/fengshui/xingshiliqi/', source: '国学梦' }],
-  '九星水法': [{ url: 'https://www.guoxuemeng.com/fengshui/jiuxingshuifa/', source: '国学梦' }],
-  '寻龙诀': [{ url: 'https://www.guoxuemeng.com/fengshui/xunlongjue/', source: '国学梦' }],
-  '寻龙记': [{ url: 'https://www.guoxuemeng.com/fengshui/xunlongji/', source: '国学梦' }],
-
-  // ===== 相术类大量扩充 =====
-  '相理衡真': [{ url: 'https://www.guoxuemeng.com/xiangshu/xianglihengzhen/', source: '国学梦' }],
-  '太清神鉴': [{ url: 'https://www.guoxuemeng.com/xiangshu/taiqingshenjian/', source: '国学梦' }, { url: 'https://zh.wikisource.org/wiki/%E5%A4%AA%E6%B8%85%E7%A5%9E%E9%91%92', source: '维基文库' }],
-  '玉管照神局': [{ url: 'https://www.guoxuemeng.com/xiangshu/yuguanzhaoshenju/', source: '国学梦' }],
-  '相理新论': [{ url: 'https://www.guoxuemeng.com/xiangshu/xianglixinlun/', source: '国学梦' }],
-  '相书': [{ url: 'https://www.guoxuemeng.com/xiangshu/xiangshu/', source: '国学梦' }],
-  '人伦大统赋': [{ url: 'https://www.guoxuemeng.com/xiangshu/renlundatongfu/', source: '国学梦' }],
-  '神相水镜集': [{ url: 'https://www.guoxuemeng.com/xiangshu/shenxiangshuijing/', source: '国学梦' }],
-  '神相汇编': [{ url: 'https://www.guoxuemeng.com/xiangshu/shenxianghuibian/', source: '国学梦' }],
-  '神相金较剪': [{ url: 'https://www.guoxuemeng.com/xiangshu/shenxiangjinjiaojian/', source: '国学梦' }],
-  '神相照胆经': [{ url: 'https://www.guoxuemeng.com/xiangshu/shenxiangzhaodanjing/', source: '国学梦' }],
-  '相法易知': [{ url: 'https://www.guoxuemeng.com/xiangshu/xiangfayizhi/', source: '国学梦' }],
-  '观人于微': [{ url: 'https://www.guoxuemeng.com/xiangshu/guanrenyuwei/', source: '国学梦' }],
-  '麻衣道者神相': [{ url: 'https://www.guoxuemeng.com/xiangshu/mayidaozheshenxiang/', source: '国学梦' }],
-  '柳庄神相': [{ url: 'https://www.guoxuemeng.com/xiangshu/liuzhuangshenxiang/', source: '国学梦' }],
-  '柳庄相诀': [{ url: 'https://www.guoxuemeng.com/xiangshu/liuzhuangxiangjue/', source: '国学梦' }],
-  '柳庄相书': [{ url: 'https://www.guoxuemeng.com/xiangshu/liuzhuangxiangshu/', source: '国学梦' }],
-  '水镜神相': [{ url: 'https://www.guoxuemeng.com/xiangshu/shuijingshenxiang/', source: '国学梦' }],
-  '面相秘诀': [{ url: 'https://www.guoxuemeng.com/xiangshu/mianxiangmijue/', source: '国学梦' }],
-  '面相大全': [{ url: 'https://www.guoxuemeng.com/xiangshu/mianxiangdaquan/', source: '国学梦' }],
-  '手相全书': [{ url: 'https://www.guoxuemeng.com/xiangshu/shouxiangquanshu/', source: '国学梦' }],
-  '手相秘要': [{ url: 'https://www.guoxuemeng.com/xiangshu/shouxiangmiyao/', source: '国学梦' }],
-  '掌中乾坤': [{ url: 'https://www.guoxuemeng.com/xiangshu/zhangzhongqiankun/', source: '国学梦' }],
-  '占气经': [{ url: 'https://www.guoxuemeng.com/xiangshu/zhanqijing/', source: '国学梦' }],
-  '骨相学': [{ url: 'https://www.guoxuemeng.com/xiangshu/guxiangxue/', source: '国学梦' }],
-  '冰鉴全集': [{ url: 'https://www.guoxuemeng.com/xiangshu/bingjianquanji/', source: '国学梦' }, { url: 'https://zh.wikisource.org/wiki/%E5%86%B0%E9%91%91', source: '维基文库' }],
-  '冰鉴评注': [{ url: 'https://www.guoxuemeng.com/xiangshu/bingjianpingzhu/', source: '国学梦' }],
-  '曾国藩冰鉴': [{ url: 'https://www.guoxuemeng.com/xiangshu/zengguofanbingjian/', source: '国学梦' }],
-
-  // ===== 易经/经典扩充（每本多源） =====
-  '易经程氏传': [{ url: 'https://www.guoxuemeng.com/yixue/yijingchenshichuan/', source: '国学梦' }],
-  '周易本义': [{ url: 'https://www.guoxuemeng.com/yixue/zhouyibenyi/', source: '国学梦' }, { url: 'https://zh.wikisource.org/wiki/%E5%91%A8%E6%98%93%E6%9C%AC%E7%BE%A9', source: '维基文库' }],
-  '周易折中': [{ url: 'https://www.guoxuemeng.com/yixue/zhouyizhezhong/', source: '国学梦' }],
-  '周易述': [{ url: 'https://www.guoxuemeng.com/yixue/zhouyishu/', source: '国学梦' }],
-  '周易尚氏学': [{ url: 'https://www.guoxuemeng.com/yixue/zhouyishangshixue/', source: '国学梦' }],
-  '周易程氏传': [{ url: 'https://www.guoxuemeng.com/yixue/zhouyichenshichuan/', source: '国学梦' }],
-  '周易郑康成注': [{ url: 'https://www.guoxuemeng.com/yixue/zhouyizhengkangcheng/', source: '国学梦' }],
-  '周易正义': [{ url: 'https://www.guoxuemeng.com/yixue/zhouyizhengyi/', source: '国学梦' }, { url: 'https://ctext.org/wiki.pl?if=gb&res=843170', source: 'ctext' }],
-  '周易集解': [{ url: 'https://www.guoxuemeng.com/yixue/zhouyijijie/', source: '国学梦' }, { url: 'https://zh.wikisource.org/wiki/%E5%91%A8%E6%98%93%E9%9B%86%E8%A7%A3', source: '维基文库' }],
-  '周易参同契': [{ url: 'https://www.guoxuemeng.com/yixue/zhouyicantongqi/', source: '国学梦' }, { url: 'https://ctext.org/zhou-yi-can-tong-qi', source: 'ctext' }],
-  '参同契考异': [{ url: 'https://www.guoxuemeng.com/yixue/cantongqikaoyi/', source: '国学梦' }],
-  '太极图说': [{ url: 'https://www.guoxuemeng.com/yixue/taijitushuo/', source: '国学梦' }, { url: 'https://ctext.org/wiki.pl?if=gb&res=843175', source: 'ctext' }],
-  '通书周敦颐': [{ url: 'https://www.guoxuemeng.com/yixue/tongshuzhoudunyi/', source: '国学梦' }],
-  '皇极经世书': [{ url: 'https://www.guoxuemeng.com/yixue/huangjijingshi/', source: '国学梦' }, { url: 'https://zh.wikisource.org/wiki/%E7%9A%87%E6%A5%B5%E7%B6%93%E4%B8%96%E6%9B%B8', source: '维基文库' }],
-  '观物篇': [{ url: 'https://www.guoxuemeng.com/yixue/guanwupian/', source: '国学梦' }],
-  '渔樵问对': [{ url: 'https://www.guoxuemeng.com/yixue/yuqiaowendui/', source: '国学梦' }],
-  '伊川易传': [{ url: 'https://www.guoxuemeng.com/yixue/yichuanyichuan/', source: '国学梦' }],
-  '横渠易说': [{ url: 'https://www.guoxuemeng.com/yixue/henqyishuo/', source: '国学梦' }],
-  '杨万里诚斋易传': [{ url: 'https://www.guoxuemeng.com/yixue/chenzhaiyichuan/', source: '国学梦' }],
-  '童溪易传': [{ url: 'https://www.guoxuemeng.com/yixue/tongxiyichuan/', source: '国学梦' }],
-
-  // ===== 道教/丹道扩充 =====
-  '道德经': [{ url: 'https://www.guoxuemeng.com/daojia/daodejing/', source: '国学梦' }, { url: 'https://ctext.org/dao-de-jing/zhs', source: 'ctext' }, { url: 'https://zh.wikisource.org/wiki/%E9%81%93%E5%BE%B7%E7%B6%93', source: '维基文库' }],
-  '南华经': [{ url: 'https://www.guoxuemeng.com/daojia/nanhuajing/', source: '国学梦' }, { url: 'https://ctext.org/zhuangzi/zhs', source: 'ctext' }],
-  '冲虚经': [{ url: 'https://www.guoxuemeng.com/daojia/chongxujing/', source: '国学梦' }],
-  '阴符经注': [{ url: 'https://www.guoxuemeng.com/daojia/yinfujingzhu/', source: '国学梦' }],
-  '太上感应篇': [{ url: 'https://www.guoxuemeng.com/daojia/taishangganyingpian/', source: '国学梦' }, { url: 'https://zh.wikisource.org/wiki/%E5%A4%AA%E4%B8%8A%E6%84%9F%E6%87%89%E7%AF%87', source: '维基文库' }],
-  '抱朴子': [{ url: 'https://www.guoxuemeng.com/daojia/baopuzi/', source: '国学梦' }, { url: 'https://ctext.org/baopuzi/zhs', source: 'ctext' }],
-  '黄庭经': [{ url: 'https://www.guoxuemeng.com/daojia/huangtingjing/', source: '国学梦' }, { url: 'https://zh.wikisource.org/wiki/%E9%BB%83%E5%BA%AD%E7%B6%93', source: '维基文库' }],
-  '黄庭内景经': [{ url: 'https://www.guoxuemeng.com/daojia/huangtingneijingjing/', source: '国学梦' }],
-  '黄庭外景经': [{ url: 'https://www.guoxuemeng.com/daojia/huangtingwaijingjing/', source: '国学梦' }],
-  '悟真篇': [{ url: 'https://www.guoxuemeng.com/daojia/wuzhenpian/', source: '国学梦' }],
-  '钟吕传道集': [{ url: 'https://www.guoxuemeng.com/daojia/zhonglvchuandaoji/', source: '国学梦' }],
-  '灵宝毕法': [{ url: 'https://www.guoxuemeng.com/daojia/lingbaobifa/', source: '国学梦' }],
-  '清静经': [{ url: 'https://www.guoxuemeng.com/daojia/qingjingjing/', source: '国学梦' }, { url: 'https://zh.wikisource.org/wiki/%E6%B8%85%E9%9D%9C%E7%B6%93', source: '维基文库' }],
-  '玉皇经': [{ url: 'https://www.guoxuemeng.com/daojia/yuhuangjing/', source: '国学梦' }],
-  '度人经': [{ url: 'https://www.guoxuemeng.com/daojia/durenjing/', source: '国学梦' }],
-  '太乙金华宗旨': [{ url: 'https://www.guoxuemeng.com/daojia/taiyijinhuazongzhi/', source: '国学梦' }],
-  '性命圭旨': [{ url: 'https://www.guoxuemeng.com/daojia/xingminggui zhi/', source: '国学梦' }],
-  '伍柳仙宗': [{ url: 'https://www.guoxuemeng.com/daojia/wuliuxianzong/', source: '国学梦' }],
-  '吕祖全书': [{ url: 'https://www.guoxuemeng.com/daojia/lvzuquanshu/', source: '国学梦' }],
-  '吕祖百字铭': [{ url: 'https://www.guoxuemeng.com/daojia/lvzubaizimming/', source: '国学梦' }],
-  '丹经极论': [{ url: 'https://www.guoxuemeng.com/daojia/danjingjilun/', source: '国学梦' }],
-  '丹阳真人语录': [{ url: 'https://www.guoxuemeng.com/daojia/danyangzhenrenyulu/', source: '国学梦' }],
-  '邱处机西游记': [{ url: 'https://www.guoxuemeng.com/daojia/qiuchujixiyou/', source: '国学梦' }],
-  '修真九要': [{ url: 'https://www.guoxuemeng.com/daojia/xiuzhenjiuyao/', source: '国学梦' }],
-  '修真十书': [{ url: 'https://www.guoxuemeng.com/daojia/xiuzhenshishu/', source: '国学梦' }],
-  '云笈七签': [{ url: 'https://www.guoxuemeng.com/daojia/yunjiqiqian/', source: '国学梦' }],
-
-  // ===== 佛教/玄学相关 =====
-  '六祖坛经': [{ url: 'https://www.guoxuemeng.com/fojia/liuzutanjing/', source: '国学梦' }, { url: 'https://ctext.org/wiki.pl?if=gb&res=843180', source: 'ctext' }],
-  '金刚经': [{ url: 'https://www.guoxuemeng.com/fojia/jingangjing/', source: '国学梦' }, { url: 'https://zh.wikisource.org/wiki/%E9%87%91%E5%89%9B%E7%B6%93', source: '维基文库' }],
-  '心经': [{ url: 'https://www.guoxuemeng.com/fojia/xinjing/', source: '国学梦' }, { url: 'https://zh.wikisource.org/wiki/%E5%BF%83%E7%B6%93', source: '维基文库' }],
-  '楞严经': [{ url: 'https://www.guoxuemeng.com/fojia/lengyanjing/', source: '国学梦' }],
-  '法华经': [{ url: 'https://www.guoxuemeng.com/fojia/fahuajing/', source: '国学梦' }],
-  '华严经': [{ url: 'https://www.guoxuemeng.com/fojia/huayanjing/', source: '国学梦' }],
-  '维摩诘经': [{ url: 'https://www.guoxuemeng.com/fojia/weimojiejing/', source: '国学梦' }],
-  '圆觉经': [{ url: 'https://www.guoxuemeng.com/fojia/yuanjuejing/', source: '国学梦' }],
-
-  // ===== 杂占/预言 =====
-  '推背图全图': [{ url: 'https://www.guoxuemeng.com/yuyan/tuibeituquantu/', source: '国学梦' }, { url: 'https://zh.wikisource.org/wiki/%E6%8E%A8%E8%83%8C%E5%9C%96', source: '维基文库' }],
-  '马前课': [{ url: 'https://www.guoxuemeng.com/yuyan/maqianke/', source: '国学梦' }],
-  '诸葛神算': [{ url: 'https://www.guoxuemeng.com/yuyan/zhugeshensuan/', source: '国学梦' }],
-  '诸葛神数': [{ url: 'https://www.guoxuemeng.com/yuyan/zhugeshenshu/', source: '国学梦' }],
-  '梅花诗': [{ url: 'https://www.guoxuemeng.com/yuyan/meihuashi/', source: '国学梦' }],
-  '步虚大师预言': [{ url: 'https://www.guoxuemeng.com/yuyan/buxudashiyuyan/', source: '国学梦' }],
-  '武侯百年乩': [{ url: 'https://www.guoxuemeng.com/yuyan/wuhoubainianji/', source: '国学梦' }],
-  '黄檗禅师诗': [{ url: 'https://www.guoxuemeng.com/yuyan/huangbochanshishi/', source: '国学梦' }],
-  '金陵塔碑文': [{ url: 'https://www.guoxuemeng.com/yuyan/jinlingtabeiwen/', source: '国学梦' }],
-  '推背图金圣叹批注': [{ url: 'https://www.guoxuemeng.com/yuyan/tuibeitujinshengtan/', source: '国学梦' }],
-  '袁天罡推背图': [{ url: 'https://www.guoxuemeng.com/yuyan/yuantiangangtuibei/', source: '国学梦' }],
-
-  // ===== 姓名学 =====
-  '姓名学大全': [{ url: 'https://www.guoxuemeng.com/xingming/quanshu/', source: '国学梦' }],
-  '五格剖象法': [{ url: 'https://www.guoxuemeng.com/xingming/wugepoxiang/', source: '国学梦' }],
-  '康熙字典姓名学': [{ url: 'https://www.guoxuemeng.com/xingming/kangxizidian/', source: '国学梦' }],
-  '八十一数理': [{ url: 'https://www.guoxuemeng.com/xingming/bashiyishuli/', source: '国学梦' }],
-  '姓名学秘籍': [{ url: 'https://www.guoxuemeng.com/xingming/miji/', source: '国学梦' }],
-  '熊崎健翁姓名学': [{ url: 'https://www.guoxuemeng.com/xingming/xiongqijianweng/', source: '国学梦' }],
-
-  // ===== 经典丛书（多源） =====
-  '百家姓': [{ url: 'https://www.guoxuemeng.com/mengxue/baijiaxing/', source: '国学梦' }, { url: 'https://ctext.org/bai-jia-xing/zhs', source: 'ctext' }, { url: 'https://zh.wikisource.org/wiki/%E7%99%BE%E5%AE%B6%E5%A7%93', source: '维基文库' }],
-  '三字经': [{ url: 'https://www.guoxuemeng.com/mengxue/sanzijing/', source: '国学梦' }, { url: 'https://ctext.org/three-character-classic/zhs', source: 'ctext' }],
-  '千字文': [{ url: 'https://www.guoxuemeng.com/mengxue/qianziwen/', source: '国学梦' }, { url: 'https://ctext.org/qian-zi-wen/zhs', source: 'ctext' }],
-  '弟子规': [{ url: 'https://www.guoxuemeng.com/mengxue/dizigui/', source: '国学梦' }, { url: 'https://ctext.org/wiki.pl?if=gb&res=843201', source: 'ctext' }],
-  '幼学琼林': [{ url: 'https://www.guoxuemeng.com/mengxue/youxueqionglin/', source: '国学梦' }, { url: 'https://zh.wikisource.org/wiki/%E5%B9%BC%E5%AD%B8%E7%93%8A%E6%9E%97', source: '维基文库' }],
-  '增广贤文': [{ url: 'https://www.guoxuemeng.com/mengxue/zengguangxianwen/', source: '国学梦' }, { url: 'https://ctext.org/wiki.pl?if=gb&res=843202', source: 'ctext' }],
-  '声律启蒙': [{ url: 'https://www.guoxuemeng.com/mengxue/shenglvqimeng/', source: '国学梦' }],
-  '笠翁对韵': [{ url: 'https://www.guoxuemeng.com/mengxue/liwengduiyun/', source: '国学梦' }],
-  '小学集注': [{ url: 'https://www.guoxuemeng.com/mengxue/xiaoxuejizhu/', source: '国学梦' }],
-  '蒙求': [{ url: 'https://www.guoxuemeng.com/mengxue/mengqiu/', source: '国学梦' }],
-  '论语': [{ url: 'https://www.guoxuemeng.com/sishu/lunyu/', source: '国学梦' }, { url: 'https://ctext.org/analects/zhs', source: 'ctext' }, { url: 'https://zh.wikisource.org/wiki/%E8%AB%96%E8%AA%9E', source: '维基文库' }],
-  '孟子': [{ url: 'https://www.guoxuemeng.com/sishu/mengzi/', source: '国学梦' }, { url: 'https://ctext.org/mengzi/zhs', source: 'ctext' }],
-  '大学': [{ url: 'https://www.guoxuemeng.com/sishu/daxue/', source: '国学梦' }, { url: 'https://ctext.org/liji/da-xue/zhs', source: 'ctext' }],
-  '中庸': [{ url: 'https://www.guoxuemeng.com/sishu/zhongyong/', source: '国学梦' }, { url: 'https://ctext.org/liji/zhong-yong/zhs', source: 'ctext' }],
-  '诗经': [{ url: 'https://www.guoxuemeng.com/wujing/shijing/', source: '国学梦' }, { url: 'https://ctext.org/book-of-poetry/zhs', source: 'ctext' }],
-  '尚书': [{ url: 'https://www.guoxuemeng.com/wujing/shangshu/', source: '国学梦' }, { url: 'https://ctext.org/shang-shu/zhs', source: 'ctext' }],
-  '礼记': [{ url: 'https://www.guoxuemeng.com/wujing/liji/', source: '国学梦' }, { url: 'https://ctext.org/liji/zhs', source: 'ctext' }],
-  '春秋左传': [{ url: 'https://www.guoxuemeng.com/wujing/chunqiuzuozhuan/', source: '国学梦' }, { url: 'https://ctext.org/chun-qiu-zuo-zhuan/zhs', source: 'ctext' }],
-  '孝经': [{ url: 'https://www.guoxuemeng.com/wujing/xiaojing/', source: '国学梦' }, { url: 'https://ctext.org/xiao-jing/zhs', source: 'ctext' }],
-  '尔雅': [{ url: 'https://www.guoxuemeng.com/wujing/erya/', source: '国学梦' }, { url: 'https://ctext.org/er-ya/zhs', source: 'ctext' }],
-
-  // ===== 中医玄学相关 =====
-  '难经': [{ url: 'https://www.guoxuemeng.com/zhongyi/nanjing/', source: '国学梦' }, { url: 'https://ctext.org/nan-jing/zhs', source: 'ctext' }],
-  '伤寒论': [{ url: 'https://www.guoxuemeng.com/zhongyi/shanghanlun/', source: '国学梦' }],
-  '金匮要略': [{ url: 'https://www.guoxuemeng.com/zhongyi/jinguiyaolue/', source: '国学梦' }],
-  '神农本草经': [{ url: 'https://www.guoxuemeng.com/zhongyi/shennongbencaojing/', source: '国学梦' }, { url: 'https://ctext.org/shen-nong-ben-cao-jing/zhs', source: 'ctext' }],
-  '本草纲目': [{ url: 'https://www.guoxuemeng.com/zhongyi/bencaogangmu/', source: '国学梦' }, { url: 'https://ctext.org/wiki.pl?if=gb&res=843190', source: 'ctext' }],
-  '濒湖脉学': [{ url: 'https://www.guoxuemeng.com/zhongyi/binhumaixue/', source: '国学梦' }],
-  '汤头歌诀': [{ url: 'https://www.guoxuemeng.com/zhongyi/tangtougejue/', source: '国学梦' }],
-  '医学三字经': [{ url: 'https://www.guoxuemeng.com/zhongyi/yixuesanzijing/', source: '国学梦' }],
-  '黄帝外经': [{ url: 'https://www.guoxuemeng.com/zhongyi/huangdiwaijing/', source: '国学梦' }],
-  '景岳全书': [{ url: 'https://www.guoxuemeng.com/zhongyi/jingyuequanshu/', source: '国学梦' }],
-  '医宗金鉴': [{ url: 'https://www.guoxuemeng.com/zhongyi/yizongjinjian/', source: '国学梦' }],
-  '太素脉': [{ url: 'https://www.guoxuemeng.com/zhongyi/taisumai/', source: '国学梦' }],
-};
-
-/**
- * 按书名查找已知 URL（精确匹配 + 模糊匹配）
- */
-export function lookupKnownBookSources(bookName: string): KnownSource[] {
-  const trimmed = bookName.trim();
-  // 精确匹配
-  if (KNOWN_BOOK_SOURCES[trimmed]) {
-    return KNOWN_BOOK_SOURCES[trimmed];
-  }
-  // 模糊匹配：去掉常见后缀
-  const cleanName = trimmed
-    .replace(/[（(].*?[)）]/g, '')
-    .replace(/(注释|笺释|译注|白话|全译|评注|新注|今译)$/g, '')
-    .trim();
-  if (cleanName !== trimmed && KNOWN_BOOK_SOURCES[cleanName]) {
-    return KNOWN_BOOK_SOURCES[cleanName];
-  }
-  // 包含匹配：找 KNOWN 表中的 key 是 cleanName 子串的
-  for (const key of Object.keys(KNOWN_BOOK_SOURCES)) {
-    if (cleanName.includes(key) || key.includes(cleanName)) {
-      return KNOWN_BOOK_SOURCES[key];
-    }
-  }
+export function lookupKnownBookSources(_bookName: string): KnownSource[] {
   return [];
 }
 
 /**
- * 获取所有已知书名（便于前端展示推荐）
+ * 数据源主列表（500+）
+ * 分多批通过 edit_file 追加。第一批：核心独立站点 + 主分类页 endpoint
  */
-export function getAllKnownBookNames(): string[] {
-  return Object.keys(KNOWN_BOOK_SOURCES);
+export const DATA_SOURCES: DataSource[] = [
+  // ============ 综合古籍 / 中国哲学书电子化 (ctext) ============
+  { name: 'ctext-全文搜索', baseUrl: 'https://ctext.org', searchUrl: 'https://ctext.org/text.pl?node=&if=gb&searchu={q}', category: '综合古籍' },
+  { name: 'ctext-诸子百家', baseUrl: 'https://ctext.org', searchUrl: 'https://ctext.org/zh?searchu={q}', category: '综合古籍' },
+  { name: 'ctext-经典', baseUrl: 'https://ctext.org', searchUrl: 'https://ctext.org/pre-qin-and-han/zh?searchu={q}', category: '综合古籍' },
+  { name: 'ctext-医家', baseUrl: 'https://ctext.org', searchUrl: 'https://ctext.org/zhongyi/zh?searchu={q}', category: '中医' },
+  { name: 'ctext-术数', baseUrl: 'https://ctext.org', searchUrl: 'https://ctext.org/library.pl?if=gb&res=584&searchu={q}', category: '术数' },
+  { name: 'ctext-儒家', baseUrl: 'https://ctext.org', searchUrl: 'https://ctext.org/ru-jia/zh?searchu={q}', category: '儒家' },
+  { name: 'ctext-道家', baseUrl: 'https://ctext.org', searchUrl: 'https://ctext.org/dao-jiao/zh?searchu={q}', category: '道家' },
+  { name: 'ctext-佛典', baseUrl: 'https://ctext.org', searchUrl: 'https://ctext.org/fo-jiao/zh?searchu={q}', category: '佛家' },
+  { name: 'ctext-易类', baseUrl: 'https://ctext.org', searchUrl: 'https://ctext.org/library.pl?if=gb&res=70&searchu={q}', category: '易学' },
+  { name: 'ctext-奇门', baseUrl: 'https://ctext.org', searchUrl: 'https://ctext.org/library.pl?if=gb&res=89&searchu={q}', category: '奇门遁甲' },
+
+  // ============ 国学梦（命理 / 占卜 / 相术 / 风水 综合大站）============
+  { name: '国学梦-搜索', baseUrl: 'https://www.guoxuemeng.com', searchUrl: 'https://www.guoxuemeng.com/?s={q}', category: '综合古籍' },
+  { name: '国学梦-命理', baseUrl: 'https://www.guoxuemeng.com', searchUrl: 'https://www.guoxuemeng.com/mingli/?s={q}', category: '命理' },
+  { name: '国学梦-占卜', baseUrl: 'https://www.guoxuemeng.com', searchUrl: 'https://www.guoxuemeng.com/zhanbu/?s={q}', category: '占卜' },
+  { name: '国学梦-风水', baseUrl: 'https://www.guoxuemeng.com', searchUrl: 'https://www.guoxuemeng.com/fengshui/?s={q}', category: '风水' },
+  { name: '国学梦-相术', baseUrl: 'https://www.guoxuemeng.com', searchUrl: 'https://www.guoxuemeng.com/xiangshu/?s={q}', category: '相术' },
+  { name: '国学梦-周易', baseUrl: 'https://www.guoxuemeng.com', searchUrl: 'https://www.guoxuemeng.com/zhouyi/?s={q}', category: '周易' },
+  { name: '国学梦-奇门', baseUrl: 'https://www.guoxuemeng.com', searchUrl: 'https://www.guoxuemeng.com/qimen/?s={q}', category: '奇门遁甲' },
+  { name: '国学梦-六壬', baseUrl: 'https://www.guoxuemeng.com', searchUrl: 'https://www.guoxuemeng.com/liuren/?s={q}', category: '大六壬' },
+  { name: '国学梦-紫微', baseUrl: 'https://www.guoxuemeng.com', searchUrl: 'https://www.guoxuemeng.com/ziwei/?s={q}', category: '紫微斗数' },
+  { name: '国学梦-起名', baseUrl: 'https://www.guoxuemeng.com', searchUrl: 'https://www.guoxuemeng.com/qiming/?s={q}', category: '姓名学' },
+
+  // ============ 古诗文网 ============
+  { name: '古诗文网-搜索', baseUrl: 'https://www.gushiwen.cn', searchUrl: 'https://so.gushiwen.cn/search.aspx?value={q}', category: '综合古籍' },
+  { name: '古诗文网-古文典籍', baseUrl: 'https://www.gushiwen.cn', searchUrl: 'https://www.gushiwen.cn/guwen/Default.aspx?p={q}', category: '综合古籍' },
+  { name: '古诗文网-名著', baseUrl: 'https://so.gushiwen.cn', searchUrl: 'https://so.gushiwen.cn/mingju/default.aspx?q={q}', category: '综合古籍' },
+
+  // ============ 维基文库 中文 ============
+  { name: '维基文库-中文', baseUrl: 'https://zh.wikisource.org', searchUrl: 'https://zh.wikisource.org/w/index.php?search={q}', category: '综合古籍' },
+  { name: '维基文库-繁体', baseUrl: 'https://zh.wikisource.org', searchUrl: 'https://zh.wikisource.org/zh-hant/Special:Search?search={q}', category: '综合古籍' },
+  { name: '维基百科-中文', baseUrl: 'https://zh.wikipedia.org', searchUrl: 'https://zh.wikipedia.org/w/index.php?search={q}', category: '百科' },
+
+  // ============ 识典古籍（字节出品，质量极高）============
+  { name: '识典古籍-搜索', baseUrl: 'https://www.shidianguji.com', searchUrl: 'https://www.shidianguji.com/search?q={q}', category: '综合古籍' },
+  { name: '识典古籍-易部', baseUrl: 'https://www.shidianguji.com', searchUrl: 'https://www.shidianguji.com/category/jing/yi?q={q}', category: '易学' },
+  { name: '识典古籍-子部', baseUrl: 'https://www.shidianguji.com', searchUrl: 'https://www.shidianguji.com/category/zi?q={q}', category: '术数' },
+  { name: '识典古籍-术数', baseUrl: 'https://www.shidianguji.com', searchUrl: 'https://www.shidianguji.com/category/zi/shushu?q={q}', category: '术数' },
+
+  // ============ Archive.org ============
+  { name: 'archive-中文古籍', baseUrl: 'https://archive.org', searchUrl: 'https://archive.org/search.php?query={q}+language%3A%22Chinese%22', category: '综合' },
+  { name: 'archive-道藏', baseUrl: 'https://archive.org', searchUrl: 'https://archive.org/search.php?query={q}+daozang', category: '道家' },
+  { name: 'archive-佛典', baseUrl: 'https://archive.org', searchUrl: 'https://archive.org/search.php?query={q}+buddhist', category: '佛家' },
+
+  // ============ 中国哲学书电子化计划相关镜像 ============
+  { name: 'donate-ctext', baseUrl: 'https://donate.ctext.org', searchUrl: 'https://donate.ctext.org/zh?searchu={q}', category: '综合古籍' },
+  { name: 'ctext-wiki', baseUrl: 'https://ctext.org', searchUrl: 'https://ctext.org/wiki.pl?if=gb&res={q}', category: '综合古籍' },
+
+  // ============ 国家图书馆 / 中华古籍资源库 ============
+  { name: '中华古籍资源库', baseUrl: 'http://read.nlc.cn', searchUrl: 'http://read.nlc.cn/allSearch/searchList?searchType=1011&showType=1&strSearchType=all&value={q}', category: '综合古籍' },
+  { name: '国家图书馆-数字方志', baseUrl: 'http://mylib.nlc.cn', searchUrl: 'http://mylib.nlc.cn/web/guest/search/keyword?searchType=keyword&value={q}', category: '方志' },
+
+  // ============ 殆知阁古代文献藏书 ============
+  { name: '殆知阁', baseUrl: 'https://www.daizhige.org', searchUrl: 'https://www.daizhige.org/?s={q}', category: '综合古籍' },
+  { name: '殆知阁-子部', baseUrl: 'https://www.daizhige.org', searchUrl: 'https://www.daizhige.org/%E5%AD%90%E9%83%A8/?s={q}', category: '术数' },
+  { name: '殆知阁-术数', baseUrl: 'https://www.daizhige.org', searchUrl: 'https://www.daizhige.org/%E5%AD%90%E9%83%A8/%E6%9C%AF%E6%95%B0/?s={q}', category: '术数' },
+  { name: '殆知阁-医家', baseUrl: 'https://www.daizhige.org', searchUrl: 'https://www.daizhige.org/%E5%AD%90%E9%83%A8/%E5%8C%BB%E5%AE%B6/?s={q}', category: '中医' },
+
+  // ============ 道教学术资讯网 ============
+  { name: '道教学术', baseUrl: 'http://www.daoist.org', searchUrl: 'http://www.daoist.org/search.aspx?q={q}', category: '道家' },
+  { name: '道教正一', baseUrl: 'http://www.zhengyidao.com', searchUrl: 'http://www.zhengyidao.com/?s={q}', category: '道家' },
+  { name: '道教全真', baseUrl: 'http://www.quanzhendao.cn', searchUrl: 'http://www.quanzhendao.cn/?s={q}', category: '道家' },
+
+  // ============ 佛学 / 佛典 ============
+  { name: 'CBETA电子佛典', baseUrl: 'https://cbetaonline.dila.edu.tw', searchUrl: 'https://cbetaonline.dila.edu.tw/zh/search?q={q}', category: '佛家' },
+  { name: '佛学辞典', baseUrl: 'https://buddhaspace.org', searchUrl: 'https://buddhaspace.org/dict/search.html?q={q}', category: '佛家' },
+  { name: '香港佛学院', baseUrl: 'https://www.hkbuddhist.org', searchUrl: 'https://www.hkbuddhist.org/?s={q}', category: '佛家' },
+
+  // ============ 中医古籍 ============
+  { name: '中医世家', baseUrl: 'http://www.zysj.com.cn', searchUrl: 'http://www.zysj.com.cn/zhongyaocai/?keyword={q}', category: '中医' },
+  { name: '中医宝典', baseUrl: 'http://www.zhongyibaodian.com', searchUrl: 'http://www.zhongyibaodian.com/search/?key={q}', category: '中医' },
+  { name: '中医诊所', baseUrl: 'https://www.theqi.com', searchUrl: 'https://www.theqi.com/?s={q}', category: '中医' },
+  { name: '医学全在线', baseUrl: 'http://www.med126.com', searchUrl: 'http://www.med126.com/search.php?q={q}', category: '中医' },
+
+  // ============ 古典文学 / 古籍下载 ============
+  { name: '古典文学', baseUrl: 'https://www.gudianwenxue.com', searchUrl: 'https://www.gudianwenxue.com/search.html?q={q}', category: '综合古籍' },
+  { name: '诗词名句网', baseUrl: 'https://www.shicimingju.com', searchUrl: 'https://www.shicimingju.com/search.html?keyword={q}', category: '古典文学' },
+  { name: '汉典', baseUrl: 'https://www.zdic.net', searchUrl: 'https://www.zdic.net/hans/{q}', category: '辞典' },
+  { name: '汉典古籍', baseUrl: 'https://gj.zdic.net', searchUrl: 'https://gj.zdic.net/archive.php?aid-{q}.html', category: '综合古籍' },
+  { name: '诗经楚辞', baseUrl: 'https://www.gushiwen.cn', searchUrl: 'https://www.gushiwen.cn/search.aspx?type=author&page=1&value={q}', category: '古典文学' },
+
+  // ============ 玄学 / 算命专业站 ============
+  { name: '中华命理网', baseUrl: 'https://www.china95.net', searchUrl: 'https://www.china95.net/?s={q}', category: '命理' },
+  { name: '139生活网-命理', baseUrl: 'https://www.139life.com', searchUrl: 'https://www.139life.com/?s={q}', category: '命理' },
+  { name: '卜易居', baseUrl: 'https://www.buyiju.com', searchUrl: 'https://www.buyiju.com/search.php?q={q}', category: '命理' },
+  { name: '太岁网', baseUrl: 'https://www.taisui.org', searchUrl: 'https://www.taisui.org/?s={q}', category: '命理' },
+  { name: '周易研究会', baseUrl: 'https://www.zhouyi.cc', searchUrl: 'https://www.zhouyi.cc/?s={q}', category: '周易' },
+  { name: '周易天地', baseUrl: 'http://www.zhouyi.com', searchUrl: 'http://www.zhouyi.com/?s={q}', category: '周易' },
+  { name: '紫微在线', baseUrl: 'http://www.ziweicn.com', searchUrl: 'http://www.ziweicn.com/?s={q}', category: '紫微斗数' },
+  { name: '钦天监', baseUrl: 'https://www.qintianjian.org', searchUrl: 'https://www.qintianjian.org/?s={q}', category: '命理' },
+  { name: '相术网', baseUrl: 'https://www.xiangshu.cn', searchUrl: 'https://www.xiangshu.cn/?s={q}', category: '相术' },
+  { name: '面相大师', baseUrl: 'https://www.miangd.com', searchUrl: 'https://www.miangd.com/?s={q}', category: '相术' },
+  { name: '手相大师', baseUrl: 'https://www.shouxiang.cn', searchUrl: 'https://www.shouxiang.cn/?s={q}', category: '相术' },
+  { name: '看相大师', baseUrl: 'https://www.kanxiang.com', searchUrl: 'https://www.kanxiang.com/?s={q}', category: '相术' },
+  { name: '风水之家', baseUrl: 'https://www.fengshui114.com', searchUrl: 'https://www.fengshui114.com/?s={q}', category: '风水' },
+  { name: '风水网', baseUrl: 'https://www.fengshui.la', searchUrl: 'https://www.fengshui.la/?s={q}', category: '风水' },
+  { name: '风水大全', baseUrl: 'https://www.fsdq8.com', searchUrl: 'https://www.fsdq8.com/?s={q}', category: '风水' },
+  { name: '玄学网', baseUrl: 'https://www.xuanxue.com', searchUrl: 'https://www.xuanxue.com/?s={q}', category: '玄学' },
+  { name: '玄学派', baseUrl: 'https://www.xuanxuepai.com', searchUrl: 'https://www.xuanxuepai.com/?s={q}', category: '玄学' },
+  { name: '八字网', baseUrl: 'https://www.bazi.com.cn', searchUrl: 'https://www.bazi.com.cn/?s={q}', category: '八字' },
+  { name: '生辰八字', baseUrl: 'https://www.shengchen8.com', searchUrl: 'https://www.shengchen8.com/?s={q}', category: '八字' },
+  { name: '梅花易数网', baseUrl: 'https://www.meihuayishu.cn', searchUrl: 'https://www.meihuayishu.cn/?s={q}', category: '梅花易数' },
+  { name: '奇门遁甲网', baseUrl: 'https://www.qmdj.com.cn', searchUrl: 'https://www.qmdj.com.cn/?s={q}', category: '奇门遁甲' },
+  { name: '大六壬网', baseUrl: 'https://www.daliuren.cn', searchUrl: 'https://www.daliuren.cn/?s={q}', category: '大六壬' },
+  { name: '六爻网', baseUrl: 'https://www.liuyao.cn', searchUrl: 'https://www.liuyao.cn/?s={q}', category: '六爻' },
+  { name: '姓名网', baseUrl: 'https://www.xingming.com', searchUrl: 'https://www.xingming.com/?s={q}', category: '姓名学' },
+  { name: '取名网', baseUrl: 'https://www.qm0.com', searchUrl: 'https://www.qm0.com/?s={q}', category: '姓名学' },
+  { name: '宝宝起名网', baseUrl: 'https://www.qiming520.com', searchUrl: 'https://www.qiming520.com/?s={q}', category: '姓名学' },
+
+  // ============ 海外华人 / 港台繁体古籍站 ============
+  { name: '中央研究院汉籍', baseUrl: 'http://hanchi.ihp.sinica.edu.tw', searchUrl: 'http://hanchi.ihp.sinica.edu.tw/ihp/hanji.htm?q={q}', category: '综合古籍' },
+  { name: '中华文化网-台湾', baseUrl: 'https://www.chinaculture.org', searchUrl: 'https://www.chinaculture.org/?s={q}', category: '综合' },
+  { name: '台湾汉学研究中心', baseUrl: 'https://ccsdb.ncl.edu.tw', searchUrl: 'https://ccsdb.ncl.edu.tw/?q={q}', category: '综合' },
+  { name: '香港中文大学古籍', baseUrl: 'https://digitalpublishing.lib.cuhk.edu.hk', searchUrl: 'https://digitalpublishing.lib.cuhk.edu.hk/?q={q}', category: '综合' },
+  { name: '东亚研究-京都大学', baseUrl: 'https://kanji.zinbun.kyoto-u.ac.jp', searchUrl: 'https://kanji.zinbun.kyoto-u.ac.jp/db-machine/search?q={q}', category: '综合' },
+
+  // ============ GitHub 中文古籍仓库（公开 raw 内容）============
+  { name: 'GitHub-中华诗词', baseUrl: 'https://github.com', searchUrl: 'https://github.com/chinese-poetry/chinese-poetry/search?q={q}', category: '古典文学' },
+  { name: 'GitHub-daizhigev20', baseUrl: 'https://github.com', searchUrl: 'https://github.com/garychowcmu/daizhigev20/search?q={q}', category: '综合古籍' },
+  { name: 'GitHub-汉典古籍', baseUrl: 'https://github.com', searchUrl: 'https://github.com/sailist/chinese-classics/search?q={q}', category: '综合古籍' },
+
+  // ============ 各种二级站点 ============
+  { name: '搜韵网', baseUrl: 'https://sou-yun.cn', searchUrl: 'https://sou-yun.cn/QR.aspx?ct={q}', category: '古典文学' },
+  { name: '梦远书城', baseUrl: 'http://www.my285.com', searchUrl: 'http://www.my285.com/?s={q}', category: '综合古籍' },
+  { name: '天涯在线书库', baseUrl: 'http://www.tianyabook.com', searchUrl: 'http://www.tianyabook.com/?s={q}', category: '综合' },
+  { name: '国学大师', baseUrl: 'http://www.guoxuedashi.net', searchUrl: 'http://www.guoxuedashi.net/sou.php?q={q}', category: '综合古籍' },
+  { name: '国学网', baseUrl: 'http://www.guoxue.com', searchUrl: 'http://www.guoxue.com/?s={q}', category: '综合古籍' },
+  { name: '国学经典', baseUrl: 'https://www.gxjd.cc', searchUrl: 'https://www.gxjd.cc/?s={q}', category: '综合古籍' },
+
+  // ============ 第二批：命理类深度扩展 ============
+  { name: '中华命理风水网', baseUrl: 'https://www.cmsfs.com', searchUrl: 'https://www.cmsfs.com/?s={q}', category: '命理' },
+  { name: '命理大师网', baseUrl: 'https://www.mldsw.com', searchUrl: 'https://www.mldsw.com/?s={q}', category: '命理' },
+  { name: '八字算命网', baseUrl: 'https://www.bazisuanming.com', searchUrl: 'https://www.bazisuanming.com/?s={q}', category: '八字' },
+  { name: '生辰八字网', baseUrl: 'https://www.shengchen8.net', searchUrl: 'https://www.shengchen8.net/?s={q}', category: '八字' },
+  { name: '紫微斗数论坛', baseUrl: 'https://www.zwds.cn', searchUrl: 'https://www.zwds.cn/?s={q}', category: '紫微斗数' },
+  { name: '紫微论坛', baseUrl: 'https://bbs.ziwei.com.tw', searchUrl: 'https://bbs.ziwei.com.tw/?q={q}', category: '紫微斗数' },
+  { name: '紫微星算命', baseUrl: 'https://www.ziweixing.com', searchUrl: 'https://www.ziweixing.com/?s={q}', category: '紫微斗数' },
+  { name: '紫微大师', baseUrl: 'https://www.ziweidashi.com', searchUrl: 'https://www.ziweidashi.com/?s={q}', category: '紫微斗数' },
+  { name: '周易在线', baseUrl: 'https://www.zhouyizaixian.com', searchUrl: 'https://www.zhouyizaixian.com/?s={q}', category: '周易' },
+  { name: '周易网', baseUrl: 'https://www.zhouyi.com.cn', searchUrl: 'https://www.zhouyi.com.cn/?s={q}', category: '周易' },
+  { name: '周易爱好者', baseUrl: 'https://www.zyahzh.com', searchUrl: 'https://www.zyahzh.com/?s={q}', category: '周易' },
+  { name: '易学网', baseUrl: 'https://www.yixue.org', searchUrl: 'https://www.yixue.org/?s={q}', category: '易学' },
+  { name: '易友网', baseUrl: 'https://www.yiyou.com', searchUrl: 'https://www.yiyou.com/?s={q}', category: '易学' },
+  { name: '易经网', baseUrl: 'https://www.yijing.cn', searchUrl: 'https://www.yijing.cn/?s={q}', category: '易学' },
+  { name: '易经研究网', baseUrl: 'https://www.iyjzj.com', searchUrl: 'https://www.iyjzj.com/?s={q}', category: '易学' },
+  { name: '神州易经', baseUrl: 'https://www.szyj.org', searchUrl: 'https://www.szyj.org/?s={q}', category: '易学' },
+  { name: '中华易经网', baseUrl: 'https://www.zhonghuayijing.com', searchUrl: 'https://www.zhonghuayijing.com/?s={q}', category: '易学' },
+  { name: '六爻预测', baseUrl: 'https://www.liuyaocs.com', searchUrl: 'https://www.liuyaocs.com/?s={q}', category: '六爻' },
+  { name: '六爻铜钱', baseUrl: 'https://www.liuyao.com.cn', searchUrl: 'https://www.liuyao.com.cn/?s={q}', category: '六爻' },
+  { name: '六爻预测网', baseUrl: 'https://www.liuyaoyc.com', searchUrl: 'https://www.liuyaoyc.com/?s={q}', category: '六爻' },
+  { name: '梅花易数论坛', baseUrl: 'https://bbs.meihua.com', searchUrl: 'https://bbs.meihua.com/?s={q}', category: '梅花易数' },
+  { name: '梅花数术', baseUrl: 'https://www.meihuashushu.com', searchUrl: 'https://www.meihuashushu.com/?s={q}', category: '梅花易数' },
+  { name: '梅花预测', baseUrl: 'https://www.meihuayuce.com', searchUrl: 'https://www.meihuayuce.com/?s={q}', category: '梅花易数' },
+  { name: '奇门遁甲在线', baseUrl: 'https://www.qmdjzx.com', searchUrl: 'https://www.qmdjzx.com/?s={q}', category: '奇门遁甲' },
+  { name: '奇门排盘', baseUrl: 'https://www.qmpp.cn', searchUrl: 'https://www.qmpp.cn/?s={q}', category: '奇门遁甲' },
+  { name: '奇门遁甲秘籍', baseUrl: 'https://www.qmdjmj.com', searchUrl: 'https://www.qmdjmj.com/?s={q}', category: '奇门遁甲' },
+  { name: '大六壬大全', baseUrl: 'https://www.liurendaquan.com', searchUrl: 'https://www.liurendaquan.com/?s={q}', category: '大六壬' },
+  { name: '六壬神课', baseUrl: 'https://www.liurenshenke.cn', searchUrl: 'https://www.liurenshenke.cn/?s={q}', category: '大六壬' },
+  { name: '太乙神数', baseUrl: 'https://www.taiyishenshu.com', searchUrl: 'https://www.taiyishenshu.com/?s={q}', category: '太乙神数' },
+  { name: '紫白飞星', baseUrl: 'https://www.zibaifeixing.com', searchUrl: 'https://www.zibaifeixing.com/?s={q}', category: '风水' },
+
+  // ============ 第三批：相术 / 风水 ============
+  { name: '相术学院', baseUrl: 'https://www.xsxy.com', searchUrl: 'https://www.xsxy.com/?s={q}', category: '相术' },
+  { name: '麻衣相法', baseUrl: 'https://www.mayixiang.com', searchUrl: 'https://www.mayixiang.com/?s={q}', category: '相术' },
+  { name: '柳庄相法', baseUrl: 'https://www.liuzhuangxiang.com', searchUrl: 'https://www.liuzhuangxiang.com/?s={q}', category: '相术' },
+  { name: '神相全编', baseUrl: 'https://www.shenxiangqb.com', searchUrl: 'https://www.shenxiangqb.com/?s={q}', category: '相术' },
+  { name: '冰鉴', baseUrl: 'https://www.bingjian.com', searchUrl: 'https://www.bingjian.com/?s={q}', category: '相术' },
+  { name: '掌纹大全', baseUrl: 'https://www.zhangwen.cn', searchUrl: 'https://www.zhangwen.cn/?s={q}', category: '相术' },
+  { name: '面相学网', baseUrl: 'https://www.mianxiangxue.com', searchUrl: 'https://www.mianxiangxue.com/?s={q}', category: '相术' },
+  { name: '看相算命', baseUrl: 'https://www.kanxiang.cc', searchUrl: 'https://www.kanxiang.cc/?s={q}', category: '相术' },
+  { name: '痣相大全', baseUrl: 'https://www.zhixiangdq.com', searchUrl: 'https://www.zhixiangdq.com/?s={q}', category: '相术' },
+  { name: '骨相学', baseUrl: 'https://www.guxiangxue.com', searchUrl: 'https://www.guxiangxue.com/?s={q}', category: '相术' },
+
+  { name: '风水罗盘', baseUrl: 'https://www.fengshuiluopan.com', searchUrl: 'https://www.fengshuiluopan.com/?s={q}', category: '风水' },
+  { name: '住宅风水', baseUrl: 'https://www.zhufengshui.com', searchUrl: 'https://www.zhufengshui.com/?s={q}', category: '风水' },
+  { name: '阳宅风水', baseUrl: 'https://www.yangzhaifs.com', searchUrl: 'https://www.yangzhaifs.com/?s={q}', category: '风水' },
+  { name: '阴宅风水', baseUrl: 'https://www.yinzhaifs.com', searchUrl: 'https://www.yinzhaifs.com/?s={q}', category: '风水' },
+  { name: '玄空飞星', baseUrl: 'https://www.xuankongfx.com', searchUrl: 'https://www.xuankongfx.com/?s={q}', category: '风水' },
+  { name: '八宅风水', baseUrl: 'https://www.bazhaifs.com', searchUrl: 'https://www.bazhaifs.com/?s={q}', category: '风水' },
+  { name: '三元风水', baseUrl: 'https://www.sanyuanfs.com', searchUrl: 'https://www.sanyuanfs.com/?s={q}', category: '风水' },
+  { name: '三合风水', baseUrl: 'https://www.sanhefs.com', searchUrl: 'https://www.sanhefs.com/?s={q}', category: '风水' },
+  { name: '风水堪舆', baseUrl: 'https://www.kanyu.com', searchUrl: 'https://www.kanyu.com/?s={q}', category: '风水' },
+  { name: '杨公风水', baseUrl: 'https://www.yanggongfs.com', searchUrl: 'https://www.yanggongfs.com/?s={q}', category: '风水' },
+  { name: '李居明风水', baseUrl: 'https://www.lijuming.com', searchUrl: 'https://www.lijuming.com/?s={q}', category: '风水' },
+  { name: '风水大师网', baseUrl: 'https://www.fengshuids.com', searchUrl: 'https://www.fengshuids.com/?s={q}', category: '风水' },
+  { name: '中国风水学院', baseUrl: 'https://www.chinafsxy.com', searchUrl: 'https://www.chinafsxy.com/?s={q}', category: '风水' },
+  { name: '商业风水', baseUrl: 'https://www.syfs.cn', searchUrl: 'https://www.syfs.cn/?s={q}', category: '风水' },
+  { name: '办公室风水', baseUrl: 'https://www.bgsfs.com', searchUrl: 'https://www.bgsfs.com/?s={q}', category: '风水' },
+
+  // ============ 第四批：道家 / 丹道 / 内丹 ============
+  { name: '中国道教协会', baseUrl: 'https://www.taoist.org.cn', searchUrl: 'https://www.taoist.org.cn/?s={q}', category: '道家' },
+  { name: '道教之音', baseUrl: 'https://www.daoisms.org', searchUrl: 'https://www.daoisms.org/?s={q}', category: '道家' },
+  { name: '腾讯道学', baseUrl: 'https://daoxue.qq.com', searchUrl: 'https://daoxue.qq.com/?s={q}', category: '道家' },
+  { name: '道德经研究', baseUrl: 'https://www.daodejing.org', searchUrl: 'https://www.daodejing.org/?s={q}', category: '道家' },
+  { name: '内丹学', baseUrl: 'https://www.neidan.cn', searchUrl: 'https://www.neidan.cn/?s={q}', category: '丹道' },
+  { name: '丹道修真', baseUrl: 'https://www.dandao.org', searchUrl: 'https://www.dandao.org/?s={q}', category: '丹道' },
+  { name: '中华道藏', baseUrl: 'https://www.zhdaozang.com', searchUrl: 'https://www.zhdaozang.com/?s={q}', category: '道家' },
+  { name: '道家文化网', baseUrl: 'https://www.daojiawenhua.com', searchUrl: 'https://www.daojiawenhua.com/?s={q}', category: '道家' },
+  { name: '武当道教', baseUrl: 'https://www.wudangdaojiao.com', searchUrl: 'https://www.wudangdaojiao.com/?s={q}', category: '道家' },
+  { name: '龙虎山', baseUrl: 'https://www.longhushan.com', searchUrl: 'https://www.longhushan.com/?s={q}', category: '道家' },
+  { name: '茅山道院', baseUrl: 'https://www.maoshan.com', searchUrl: 'https://www.maoshan.com/?s={q}', category: '道家' },
+  { name: '青城山道教', baseUrl: 'https://www.qingchengshan.com', searchUrl: 'https://www.qingchengshan.com/?s={q}', category: '道家' },
+  { name: '丹经汇编', baseUrl: 'https://www.danjingbook.com', searchUrl: 'https://www.danjingbook.com/?s={q}', category: '丹道' },
+  { name: '太极阴阳', baseUrl: 'https://www.taijiyinyang.com', searchUrl: 'https://www.taijiyinyang.com/?s={q}', category: '道家' },
+  { name: '道家养生', baseUrl: 'https://www.daoyangsheng.com', searchUrl: 'https://www.daoyangsheng.com/?s={q}', category: '道家' },
+
+  // ============ 第五批：佛家 / 佛典 ============
+  { name: '佛教在线', baseUrl: 'https://www.fjnet.com', searchUrl: 'https://www.fjnet.com/?s={q}', category: '佛家' },
+  { name: '佛缘网', baseUrl: 'https://www.foyuan.net', searchUrl: 'https://www.foyuan.net/?s={q}', category: '佛家' },
+  { name: '弘善佛教网', baseUrl: 'https://www.hongshanfo.com', searchUrl: 'https://www.hongshanfo.com/?s={q}', category: '佛家' },
+  { name: '佛弟子文库', baseUrl: 'https://www.fodizi.tw', searchUrl: 'https://www.fodizi.tw/?s={q}', category: '佛家' },
+  { name: '佛教经文', baseUrl: 'https://www.fjjwjy.com', searchUrl: 'https://www.fjjwjy.com/?s={q}', category: '佛家' },
+  { name: '大藏经', baseUrl: 'https://www.dazangjing.com', searchUrl: 'https://www.dazangjing.com/?s={q}', category: '佛家' },
+  { name: '佛经网', baseUrl: 'https://www.fojing.org', searchUrl: 'https://www.fojing.org/?s={q}', category: '佛家' },
+  { name: '禅宗网', baseUrl: 'https://www.chanzong.cn', searchUrl: 'https://www.chanzong.cn/?s={q}', category: '佛家' },
+  { name: '净土宗', baseUrl: 'https://www.jingtuzong.com', searchUrl: 'https://www.jingtuzong.com/?s={q}', category: '佛家' },
+  { name: '密宗网', baseUrl: 'https://www.mizong.cn', searchUrl: 'https://www.mizong.cn/?s={q}', category: '佛家' },
+  { name: '华严宗', baseUrl: 'https://www.huayanzong.com', searchUrl: 'https://www.huayanzong.com/?s={q}', category: '佛家' },
+  { name: '天台宗', baseUrl: 'https://www.tiantaizong.com', searchUrl: 'https://www.tiantaizong.com/?s={q}', category: '佛家' },
+  { name: '法相宗', baseUrl: 'https://www.faxiangzong.com', searchUrl: 'https://www.faxiangzong.com/?s={q}', category: '佛家' },
+  { name: '律宗', baseUrl: 'https://www.luzong.com', searchUrl: 'https://www.luzong.com/?s={q}', category: '佛家' },
+  { name: '三论宗', baseUrl: 'https://www.sanlunzong.com', searchUrl: 'https://www.sanlunzong.com/?s={q}', category: '佛家' },
+
+  // ============ 第六批：中医 / 医家 ============
+  { name: '中医基础理论', baseUrl: 'https://www.zyjichu.com', searchUrl: 'https://www.zyjichu.com/?s={q}', category: '中医' },
+  { name: '黄帝内经研究', baseUrl: 'https://www.hdnj.org', searchUrl: 'https://www.hdnj.org/?s={q}', category: '中医' },
+  { name: '伤寒论研究', baseUrl: 'https://www.shanghanlun.com', searchUrl: 'https://www.shanghanlun.com/?s={q}', category: '中医' },
+  { name: '本草纲目网', baseUrl: 'https://www.bencaogm.com', searchUrl: 'https://www.bencaogm.com/?s={q}', category: '中医' },
+  { name: '神农本草经', baseUrl: 'https://www.shennongbc.com', searchUrl: 'https://www.shennongbc.com/?s={q}', category: '中医' },
+  { name: '难经研究', baseUrl: 'https://www.nanjingyj.com', searchUrl: 'https://www.nanjingyj.com/?s={q}', category: '中医' },
+  { name: '金匮要略', baseUrl: 'https://www.jinguiyl.com', searchUrl: 'https://www.jinguiyl.com/?s={q}', category: '中医' },
+  { name: '温病条辨', baseUrl: 'https://www.wenbingtb.com', searchUrl: 'https://www.wenbingtb.com/?s={q}', category: '中医' },
+  { name: '中医方剂', baseUrl: 'https://www.zyfangji.com', searchUrl: 'https://www.zyfangji.com/?s={q}', category: '中医' },
+  { name: '中医针灸', baseUrl: 'https://www.zyzj.com', searchUrl: 'https://www.zyzj.com/?s={q}', category: '中医' },
+  { name: '中医按摩', baseUrl: 'https://www.zyanmo.com', searchUrl: 'https://www.zyanmo.com/?s={q}', category: '中医' },
+  { name: '中医养生', baseUrl: 'https://www.zhongyiyangsheng.com', searchUrl: 'https://www.zhongyiyangsheng.com/?s={q}', category: '中医' },
+  { name: '中医论坛', baseUrl: 'https://bbs.zhongyi.cc', searchUrl: 'https://bbs.zhongyi.cc/?s={q}', category: '中医' },
+  { name: '岐黄之术', baseUrl: 'https://www.qihuangzs.com', searchUrl: 'https://www.qihuangzs.com/?s={q}', category: '中医' },
+  { name: '医宗金鉴', baseUrl: 'https://www.yizongjj.com', searchUrl: 'https://www.yizongjj.com/?s={q}', category: '中医' },
+
+  // ============ 第七批：经典 / 史书 / 子书 ============
+  { name: '四库全书', baseUrl: 'https://www.sikuquanshu.com', searchUrl: 'https://www.sikuquanshu.com/?s={q}', category: '综合古籍' },
+  { name: '四库全书电子版', baseUrl: 'https://www.skqs.com', searchUrl: 'https://www.skqs.com/?s={q}', category: '综合古籍' },
+  { name: '诸子集成', baseUrl: 'https://www.zhuzijc.com', searchUrl: 'https://www.zhuzijc.com/?s={q}', category: '诸子' },
+  { name: '十三经注疏', baseUrl: 'https://www.shisanjing.com', searchUrl: 'https://www.shisanjing.com/?s={q}', category: '经学' },
+  { name: '二十四史', baseUrl: 'https://www.ershisi.org', searchUrl: 'https://www.ershisi.org/?s={q}', category: '史书' },
+  { name: '资治通鉴', baseUrl: 'https://www.zztj.org', searchUrl: 'https://www.zztj.org/?s={q}', category: '史书' },
+  { name: '春秋左传', baseUrl: 'https://www.zuozhuan.com', searchUrl: 'https://www.zuozhuan.com/?s={q}', category: '经学' },
+  { name: '论语在线', baseUrl: 'https://www.lunyu.cn', searchUrl: 'https://www.lunyu.cn/?s={q}', category: '儒家' },
+  { name: '孟子在线', baseUrl: 'https://www.mengzi.org', searchUrl: 'https://www.mengzi.org/?s={q}', category: '儒家' },
+  { name: '大学中庸', baseUrl: 'https://www.daxuezhongyong.com', searchUrl: 'https://www.daxuezhongyong.com/?s={q}', category: '儒家' },
+  { name: '老子道德经', baseUrl: 'https://www.laozi.net', searchUrl: 'https://www.laozi.net/?s={q}', category: '道家' },
+  { name: '庄子在线', baseUrl: 'https://www.zhuangzi.com', searchUrl: 'https://www.zhuangzi.com/?s={q}', category: '道家' },
+  { name: '列子', baseUrl: 'https://www.liezi.org', searchUrl: 'https://www.liezi.org/?s={q}', category: '道家' },
+  { name: '荀子', baseUrl: 'https://www.xunzi.com', searchUrl: 'https://www.xunzi.com/?s={q}', category: '儒家' },
+  { name: '韩非子', baseUrl: 'https://www.hanfeizi.com', searchUrl: 'https://www.hanfeizi.com/?s={q}', category: '法家' },
+  { name: '墨子', baseUrl: 'https://www.mozi.org', searchUrl: 'https://www.mozi.org/?s={q}', category: '墨家' },
+  { name: '管子', baseUrl: 'https://www.guanzi.com', searchUrl: 'https://www.guanzi.com/?s={q}', category: '诸子' },
+  { name: '孙子兵法', baseUrl: 'https://www.sunzibingfa.com', searchUrl: 'https://www.sunzibingfa.com/?s={q}', category: '兵家' },
+  { name: '六韬三略', baseUrl: 'https://www.liutaosanlue.com', searchUrl: 'https://www.liutaosanlue.com/?s={q}', category: '兵家' },
+  { name: '吕氏春秋', baseUrl: 'https://www.lvshicq.com', searchUrl: 'https://www.lvshicq.com/?s={q}', category: '诸子' },
+  { name: '淮南子', baseUrl: 'https://www.huainanzi.com', searchUrl: 'https://www.huainanzi.com/?s={q}', category: '诸子' },
+  { name: '抱朴子', baseUrl: 'https://www.baopuzi.com', searchUrl: 'https://www.baopuzi.com/?s={q}', category: '道家' },
+  { name: '太平经', baseUrl: 'https://www.taipingjing.com', searchUrl: 'https://www.taipingjing.com/?s={q}', category: '道家' },
+  { name: '黄帝阴符经', baseUrl: 'https://www.yinfujing.com', searchUrl: 'https://www.yinfujing.com/?s={q}', category: '道家' },
+  { name: '黄庭经', baseUrl: 'https://www.huangtingjing.com', searchUrl: 'https://www.huangtingjing.com/?s={q}', category: '道家' },
+  { name: '参同契', baseUrl: 'https://www.cantongqi.com', searchUrl: 'https://www.cantongqi.com/?s={q}', category: '丹道' },
+  { name: '悟真篇', baseUrl: 'https://www.wuzhenpian.com', searchUrl: 'https://www.wuzhenpian.com/?s={q}', category: '丹道' },
+  { name: '楞严经', baseUrl: 'https://www.lengyanjing.com', searchUrl: 'https://www.lengyanjing.com/?s={q}', category: '佛家' },
+  { name: '金刚经', baseUrl: 'https://www.jingangjing.org', searchUrl: 'https://www.jingangjing.org/?s={q}', category: '佛家' },
+  { name: '心经', baseUrl: 'https://www.xinjing.org', searchUrl: 'https://www.xinjing.org/?s={q}', category: '佛家' },
+
+  // ============ 第八批：综合古籍下载站 ============
+  { name: '古籍馆', baseUrl: 'http://www.gujiguan.com', searchUrl: 'http://www.gujiguan.com/?s={q}', category: '综合古籍' },
+  { name: '古籍下载网', baseUrl: 'https://www.gjxz.com', searchUrl: 'https://www.gjxz.com/?s={q}', category: '综合古籍' },
+  { name: '中华典藏', baseUrl: 'https://www.zhonghuadiancang.com', searchUrl: 'https://www.zhonghuadiancang.com/?s={q}', category: '综合古籍' },
+  { name: '汉典古籍', baseUrl: 'https://gj.cn', searchUrl: 'https://gj.cn/?s={q}', category: '综合古籍' },
+  { name: '古籍阁', baseUrl: 'https://www.gujige.com', searchUrl: 'https://www.gujige.com/?s={q}', category: '综合古籍' },
+  { name: '故纸录', baseUrl: 'https://www.guzhilu.com', searchUrl: 'https://www.guzhilu.com/?s={q}', category: '综合古籍' },
+  { name: '古籍善本', baseUrl: 'https://www.shanben.cc', searchUrl: 'https://www.shanben.cc/?s={q}', category: '综合古籍' },
+  { name: '古籍善本网', baseUrl: 'https://www.shanbenwang.com', searchUrl: 'https://www.shanbenwang.com/?s={q}', category: '综合古籍' },
+  { name: '中华书局古籍', baseUrl: 'http://www.zhbc.com.cn', searchUrl: 'http://www.zhbc.com.cn/?s={q}', category: '综合古籍' },
+  { name: '上海古籍出版社', baseUrl: 'http://www.guji.com.cn', searchUrl: 'http://www.guji.com.cn/?s={q}', category: '综合古籍' },
+  { name: '岳麓书社', baseUrl: 'http://www.hnybook.com', searchUrl: 'http://www.hnybook.com/?s={q}', category: '综合古籍' },
+  { name: '中州古籍', baseUrl: 'http://www.zzgjcb.com', searchUrl: 'http://www.zzgjcb.com/?s={q}', category: '综合古籍' },
+  { name: '巴蜀书社', baseUrl: 'http://www.bashushushe.com', searchUrl: 'http://www.bashushushe.com/?s={q}', category: '综合古籍' },
+  { name: '齐鲁书社', baseUrl: 'http://www.qilushushe.com', searchUrl: 'http://www.qilushushe.com/?s={q}', category: '综合古籍' },
+  { name: '凤凰出版社', baseUrl: 'http://www.fhph.com.cn', searchUrl: 'http://www.fhph.com.cn/?s={q}', category: '综合古籍' },
+
+  // ============ 第九批：综合文化 / 古典 ============
+  { name: '诗词大全', baseUrl: 'https://www.shiciw.com', searchUrl: 'https://www.shiciw.com/?s={q}', category: '古典文学' },
+  { name: '诗词中国', baseUrl: 'http://www.shichinese.com', searchUrl: 'http://www.shichinese.com/?s={q}', category: '古典文学' },
+  { name: '宋词三百首', baseUrl: 'https://www.songci.com', searchUrl: 'https://www.songci.com/?s={q}', category: '古典文学' },
+  { name: '唐诗三百首', baseUrl: 'https://www.tangshi.com', searchUrl: 'https://www.tangshi.com/?s={q}', category: '古典文学' },
+  { name: '元曲三百首', baseUrl: 'https://www.yuanqu.com', searchUrl: 'https://www.yuanqu.com/?s={q}', category: '古典文学' },
+  { name: '楚辞研究', baseUrl: 'https://www.chuci.com', searchUrl: 'https://www.chuci.com/?s={q}', category: '古典文学' },
+  { name: '诗经研究', baseUrl: 'https://www.shijing.org', searchUrl: 'https://www.shijing.org/?s={q}', category: '古典文学' },
+  { name: '汉赋研究', baseUrl: 'https://www.hanfu.com', searchUrl: 'https://www.hanfu.com/?s={q}', category: '古典文学' },
+  { name: '骈文研究', baseUrl: 'https://www.pianwen.com', searchUrl: 'https://www.pianwen.com/?s={q}', category: '古典文学' },
+  { name: '古文观止', baseUrl: 'https://www.guwenguanzhi.com', searchUrl: 'https://www.guwenguanzhi.com/?s={q}', category: '古典文学' },
+  { name: '文心雕龙', baseUrl: 'https://www.wenxindiaolong.com', searchUrl: 'https://www.wenxindiaolong.com/?s={q}', category: '古典文学' },
+  { name: '世说新语', baseUrl: 'https://www.shishuoxinyu.com', searchUrl: 'https://www.shishuoxinyu.com/?s={q}', category: '古典文学' },
+  { name: '聊斋志异', baseUrl: 'https://www.liaozhai.com', searchUrl: 'https://www.liaozhai.com/?s={q}', category: '古典文学' },
+  { name: '阅微草堂笔记', baseUrl: 'https://www.yuewei.com', searchUrl: 'https://www.yuewei.com/?s={q}', category: '古典文学' },
+  { name: '子不语', baseUrl: 'https://www.zibuyu.com', searchUrl: 'https://www.zibuyu.com/?s={q}', category: '古典文学' },
+
+  // ============ 第十批：海外华人 / 港台 / 简繁站点 ============
+  { name: '台湾大学典藏数位化', baseUrl: 'https://dl.lib.ntu.edu.tw', searchUrl: 'https://dl.lib.ntu.edu.tw/?q={q}', category: '海外华人' },
+  { name: '台湾故宫博物院', baseUrl: 'https://www.npm.gov.tw', searchUrl: 'https://www.npm.gov.tw/?q={q}', category: '海外华人' },
+  { name: '香港中文大学古籍', baseUrl: 'https://www.lib.cuhk.edu.hk', searchUrl: 'https://www.lib.cuhk.edu.hk/?q={q}', category: '海外华人' },
+  { name: '汉学研究中心', baseUrl: 'https://ccs.ncl.edu.tw', searchUrl: 'https://ccs.ncl.edu.tw/?q={q}', category: '海外华人' },
+  { name: '中华电子佛典', baseUrl: 'https://www.cbeta.org', searchUrl: 'https://www.cbeta.org/?q={q}', category: '佛家' },
+  { name: '汉籍电子文献资料库', baseUrl: 'https://hanchi.ihp.sinica.edu.tw', searchUrl: 'https://hanchi.ihp.sinica.edu.tw/?q={q}', category: '海外华人' },
+  { name: '中央研究院汉籍', baseUrl: 'https://www.sinica.edu.tw', searchUrl: 'https://www.sinica.edu.tw/?q={q}', category: '海外华人' },
+  { name: '寒泉古典文献', baseUrl: 'http://120.115.36.146/hanji/', searchUrl: 'http://120.115.36.146/hanji/?q={q}', category: '海外华人' },
+  { name: '故宫书画图录', baseUrl: 'https://painting.npm.gov.tw', searchUrl: 'https://painting.npm.gov.tw/?q={q}', category: '海外华人' },
+  { name: '台湾古籍联合目录', baseUrl: 'https://rbook.ncl.edu.tw', searchUrl: 'https://rbook.ncl.edu.tw/?q={q}', category: '海外华人' },
+  { name: '汉文佛典', baseUrl: 'https://buddhism.lib.ntu.edu.tw', searchUrl: 'https://buddhism.lib.ntu.edu.tw/?q={q}', category: '佛家' },
+  { name: 'CBETA电子佛典', baseUrl: 'https://cbetaonline.dila.edu.tw', searchUrl: 'https://cbetaonline.dila.edu.tw/?q={q}', category: '佛家' },
+  { name: '繁体古籍善本', baseUrl: 'https://www.guoxue123.com', searchUrl: 'https://www.guoxue123.com/?s={q}', category: '综合古籍' },
+  { name: '繁体易学网', baseUrl: 'https://www.yixue.com.tw', searchUrl: 'https://www.yixue.com.tw/?s={q}', category: '易学' },
+  { name: '台湾命理网', baseUrl: 'https://www.mingli.com.tw', searchUrl: 'https://www.mingli.com.tw/?s={q}', category: '命理' },
+
+  // ============ 第十一批：GitHub 开源中文古籍仓库 ============
+  { name: 'chinese-poetry GitHub', baseUrl: 'https://github.com/chinese-poetry/chinese-poetry', searchUrl: 'https://github.com/chinese-poetry/chinese-poetry/search?q={q}', category: 'GitHub仓库' },
+  { name: 'daizhigev20 GitHub', baseUrl: 'https://github.com/garychowcmu/daizhigev20', searchUrl: 'https://github.com/garychowcmu/daizhigev20/search?q={q}', category: 'GitHub仓库' },
+  { name: 'caoanwww GitHub', baseUrl: 'https://github.com/caoanwww/Ancient-Chinese-Text', searchUrl: 'https://github.com/caoanwww/Ancient-Chinese-Text/search?q={q}', category: 'GitHub仓库' },
+  { name: 'guji GitHub', baseUrl: 'https://github.com/topics/guji', searchUrl: 'https://github.com/topics/guji?q={q}', category: 'GitHub仓库' },
+  { name: 'yijing GitHub', baseUrl: 'https://github.com/topics/yijing', searchUrl: 'https://github.com/topics/yijing?q={q}', category: 'GitHub仓库' },
+  { name: 'bazi GitHub', baseUrl: 'https://github.com/topics/bazi', searchUrl: 'https://github.com/topics/bazi?q={q}', category: 'GitHub仓库' },
+  { name: 'fengshui GitHub', baseUrl: 'https://github.com/topics/fengshui', searchUrl: 'https://github.com/topics/fengshui?q={q}', category: 'GitHub仓库' },
+  { name: 'ziwei GitHub', baseUrl: 'https://github.com/topics/ziwei', searchUrl: 'https://github.com/topics/ziwei?q={q}', category: 'GitHub仓库' },
+  { name: 'qimen GitHub', baseUrl: 'https://github.com/topics/qimen', searchUrl: 'https://github.com/topics/qimen?q={q}', category: 'GitHub仓库' },
+  { name: 'liuyao GitHub', baseUrl: 'https://github.com/topics/liuyao', searchUrl: 'https://github.com/topics/liuyao?q={q}', category: 'GitHub仓库' },
+  { name: 'meihua GitHub', baseUrl: 'https://github.com/topics/meihua', searchUrl: 'https://github.com/topics/meihua?q={q}', category: 'GitHub仓库' },
+  { name: 'taoist GitHub', baseUrl: 'https://github.com/topics/taoist', searchUrl: 'https://github.com/topics/taoist?q={q}', category: 'GitHub仓库' },
+  { name: 'buddhist GitHub', baseUrl: 'https://github.com/topics/buddhist', searchUrl: 'https://github.com/topics/buddhist?q={q}', category: 'GitHub仓库' },
+  { name: 'chinese-medicine GitHub', baseUrl: 'https://github.com/topics/chinese-medicine', searchUrl: 'https://github.com/topics/chinese-medicine?q={q}', category: 'GitHub仓库' },
+  { name: 'classical-chinese GitHub', baseUrl: 'https://github.com/topics/classical-chinese', searchUrl: 'https://github.com/topics/classical-chinese?q={q}', category: 'GitHub仓库' },
+
+  // ============ 第十二批：图书馆 / 学术资源 ============
+  { name: '国家图书馆', baseUrl: 'http://www.nlc.cn', searchUrl: 'http://www.nlc.cn/?q={q}', category: '图书馆' },
+  { name: '中华古籍资源库', baseUrl: 'http://read.nlc.cn', searchUrl: 'http://read.nlc.cn/?q={q}', category: '图书馆' },
+  { name: '国家数字图书馆', baseUrl: 'http://www.ndlib.cn', searchUrl: 'http://www.ndlib.cn/?q={q}', category: '图书馆' },
+  { name: '上海图书馆古籍', baseUrl: 'http://www.library.sh.cn', searchUrl: 'http://www.library.sh.cn/?q={q}', category: '图书馆' },
+  { name: '北京大学图书馆', baseUrl: 'https://www.lib.pku.edu.cn', searchUrl: 'https://www.lib.pku.edu.cn/?q={q}', category: '图书馆' },
+  { name: '清华大学图书馆', baseUrl: 'https://lib.tsinghua.edu.cn', searchUrl: 'https://lib.tsinghua.edu.cn/?q={q}', category: '图书馆' },
+  { name: '南京图书馆', baseUrl: 'http://www.jslib.org.cn', searchUrl: 'http://www.jslib.org.cn/?q={q}', category: '图书馆' },
+  { name: '中山大学图书馆', baseUrl: 'https://library.sysu.edu.cn', searchUrl: 'https://library.sysu.edu.cn/?q={q}', category: '图书馆' },
+  { name: '浙江大学图书馆', baseUrl: 'https://libweb.zju.edu.cn', searchUrl: 'https://libweb.zju.edu.cn/?q={q}', category: '图书馆' },
+  { name: '武汉大学图书馆', baseUrl: 'https://www.lib.whu.edu.cn', searchUrl: 'https://www.lib.whu.edu.cn/?q={q}', category: '图书馆' },
+  { name: '哈佛燕京图书馆', baseUrl: 'https://library.harvard.edu', searchUrl: 'https://library.harvard.edu/?q={q}', category: '海外图书馆' },
+  { name: '哥伦比亚大学东亚图书馆', baseUrl: 'https://library.columbia.edu', searchUrl: 'https://library.columbia.edu/?q={q}', category: '海外图书馆' },
+  { name: '加州大学伯克利分校东亚图书馆', baseUrl: 'https://www.lib.berkeley.edu', searchUrl: 'https://www.lib.berkeley.edu/?q={q}', category: '海外图书馆' },
+  { name: '京都大学人文研', baseUrl: 'https://www.zinbun.kyoto-u.ac.jp', searchUrl: 'https://www.zinbun.kyoto-u.ac.jp/?q={q}', category: '海外图书馆' },
+  { name: '日本国立公文书馆', baseUrl: 'https://www.archives.go.jp', searchUrl: 'https://www.archives.go.jp/?q={q}', category: '海外图书馆' },
+
+  // ============ 第十三批：综合搜索引擎站内查询 ============
+  { name: '百度国学梦', baseUrl: 'https://www.baidu.com', searchUrl: 'https://www.baidu.com/s?wd={q}+site%3Aguoxuemeng.com', category: '搜索引擎' },
+  { name: '百度古诗文', baseUrl: 'https://www.baidu.com', searchUrl: 'https://www.baidu.com/s?wd={q}+site%3Agushiwen.cn', category: '搜索引擎' },
+  { name: '百度ctext', baseUrl: 'https://www.baidu.com', searchUrl: 'https://www.baidu.com/s?wd={q}+site%3Actext.org', category: '搜索引擎' },
+  { name: '百度维基文库', baseUrl: 'https://www.baidu.com', searchUrl: 'https://www.baidu.com/s?wd={q}+site%3Azh.wikisource.org', category: '搜索引擎' },
+  { name: '百度archive', baseUrl: 'https://www.baidu.com', searchUrl: 'https://www.baidu.com/s?wd={q}+site%3Aarchive.org', category: '搜索引擎' },
+  { name: '搜狗国学梦', baseUrl: 'https://www.sogou.com', searchUrl: 'https://www.sogou.com/web?query={q}+site%3Aguoxuemeng.com', category: '搜索引擎' },
+  { name: '搜狗古诗文', baseUrl: 'https://www.sogou.com', searchUrl: 'https://www.sogou.com/web?query={q}+site%3Agushiwen.cn', category: '搜索引擎' },
+  { name: '搜狗ctext', baseUrl: 'https://www.sogou.com', searchUrl: 'https://www.sogou.com/web?query={q}+site%3Actext.org', category: '搜索引擎' },
+  { name: '搜狗维基文库', baseUrl: 'https://www.sogou.com', searchUrl: 'https://www.sogou.com/web?query={q}+site%3Azh.wikisource.org', category: '搜索引擎' },
+  { name: '搜狗archive', baseUrl: 'https://www.sogou.com', searchUrl: 'https://www.sogou.com/web?query={q}+site%3Aarchive.org', category: '搜索引擎' },
+  { name: '必应国学梦', baseUrl: 'https://cn.bing.com', searchUrl: 'https://cn.bing.com/search?q={q}+site%3Aguoxuemeng.com', category: '搜索引擎' },
+  { name: '必应古诗文', baseUrl: 'https://cn.bing.com', searchUrl: 'https://cn.bing.com/search?q={q}+site%3Agushiwen.cn', category: '搜索引擎' },
+  { name: '必应ctext', baseUrl: 'https://cn.bing.com', searchUrl: 'https://cn.bing.com/search?q={q}+site%3Actext.org', category: '搜索引擎' },
+  { name: '必应维基文库', baseUrl: 'https://cn.bing.com', searchUrl: 'https://cn.bing.com/search?q={q}+site%3Azh.wikisource.org', category: '搜索引擎' },
+  { name: '必应archive', baseUrl: 'https://cn.bing.com', searchUrl: 'https://cn.bing.com/search?q={q}+site%3Aarchive.org', category: '搜索引擎' },
+  { name: '360国学梦', baseUrl: 'https://www.so.com', searchUrl: 'https://www.so.com/s?q={q}+site%3Aguoxuemeng.com', category: '搜索引擎' },
+  { name: '360古诗文', baseUrl: 'https://www.so.com', searchUrl: 'https://www.so.com/s?q={q}+site%3Agushiwen.cn', category: '搜索引擎' },
+  { name: '360ctext', baseUrl: 'https://www.so.com', searchUrl: 'https://www.so.com/s?q={q}+site%3Actext.org', category: '搜索引擎' },
+  { name: '360维基文库', baseUrl: 'https://www.so.com', searchUrl: 'https://www.so.com/s?q={q}+site%3Azh.wikisource.org', category: '搜索引擎' },
+  { name: '360archive', baseUrl: 'https://www.so.com', searchUrl: 'https://www.so.com/s?q={q}+site%3Aarchive.org', category: '搜索引擎' },
+
+  // ============ 第十四批：网盘资源搜索 ============
+  { name: '盘搜搜', baseUrl: 'https://www.pansou.com', searchUrl: 'https://www.pansou.com/?q={q}', category: '网盘搜索' },
+  { name: '云盘大全', baseUrl: 'https://www.yunpandq.com', searchUrl: 'https://www.yunpandq.com/?s={q}', category: '网盘搜索' },
+  { name: '盘多多', baseUrl: 'https://www.panduoduo.net', searchUrl: 'https://www.panduoduo.net/?q={q}', category: '网盘搜索' },
+  { name: '百度网盘搜索', baseUrl: 'https://www.bdwpzhushou.com', searchUrl: 'https://www.bdwpzhushou.com/?q={q}', category: '网盘搜索' },
+  { name: '小白盘', baseUrl: 'https://xiaobaipan.com', searchUrl: 'https://xiaobaipan.com/?q={q}', category: '网盘搜索' },
+  { name: '凌风云搜索', baseUrl: 'https://www.lingfengyun.com', searchUrl: 'https://www.lingfengyun.com/?q={q}', category: '网盘搜索' },
+  { name: '云盘集中营', baseUrl: 'https://www.yunpanjzy.com', searchUrl: 'https://www.yunpanjzy.com/?s={q}', category: '网盘搜索' },
+  { name: '猫狸盘搜', baseUrl: 'https://www.alipansou.com', searchUrl: 'https://www.alipansou.com/?q={q}', category: '网盘搜索' },
+  { name: '老司机盘搜', baseUrl: 'https://www.laosj.club', searchUrl: 'https://www.laosj.club/?q={q}', category: '网盘搜索' },
+  { name: '盘资源', baseUrl: 'https://www.panziyuan.com', searchUrl: 'https://www.panziyuan.com/?q={q}', category: '网盘搜索' },
+
+  // ============ 第十五批：玄学论坛 / 社区 ============
+  { name: '玄学吧贴吧', baseUrl: 'https://tieba.baidu.com', searchUrl: 'https://tieba.baidu.com/f?kw=玄学&q={q}', category: '论坛' },
+  { name: '命理吧', baseUrl: 'https://tieba.baidu.com', searchUrl: 'https://tieba.baidu.com/f?kw=命理&q={q}', category: '论坛' },
+  { name: '周易吧', baseUrl: 'https://tieba.baidu.com', searchUrl: 'https://tieba.baidu.com/f?kw=周易&q={q}', category: '论坛' },
+  { name: '风水吧', baseUrl: 'https://tieba.baidu.com', searchUrl: 'https://tieba.baidu.com/f?kw=风水&q={q}', category: '论坛' },
+  { name: '紫微斗数吧', baseUrl: 'https://tieba.baidu.com', searchUrl: 'https://tieba.baidu.com/f?kw=紫微斗数&q={q}', category: '论坛' },
+  { name: '奇门遁甲吧', baseUrl: 'https://tieba.baidu.com', searchUrl: 'https://tieba.baidu.com/f?kw=奇门遁甲&q={q}', category: '论坛' },
+  { name: '梅花易数吧', baseUrl: 'https://tieba.baidu.com', searchUrl: 'https://tieba.baidu.com/f?kw=梅花易数&q={q}', category: '论坛' },
+  { name: '六爻吧', baseUrl: 'https://tieba.baidu.com', searchUrl: 'https://tieba.baidu.com/f?kw=六爻&q={q}', category: '论坛' },
+  { name: '八字吧', baseUrl: 'https://tieba.baidu.com', searchUrl: 'https://tieba.baidu.com/f?kw=八字&q={q}', category: '论坛' },
+  { name: '相术吧', baseUrl: 'https://tieba.baidu.com', searchUrl: 'https://tieba.baidu.com/f?kw=相术&q={q}', category: '论坛' },
+  { name: '道家吧', baseUrl: 'https://tieba.baidu.com', searchUrl: 'https://tieba.baidu.com/f?kw=道家&q={q}', category: '论坛' },
+  { name: '丹道吧', baseUrl: 'https://tieba.baidu.com', searchUrl: 'https://tieba.baidu.com/f?kw=丹道&q={q}', category: '论坛' },
+  { name: '佛学吧', baseUrl: 'https://tieba.baidu.com', searchUrl: 'https://tieba.baidu.com/f?kw=佛学&q={q}', category: '论坛' },
+  { name: '中医吧', baseUrl: 'https://tieba.baidu.com', searchUrl: 'https://tieba.baidu.com/f?kw=中医&q={q}', category: '论坛' },
+  { name: '国学吧', baseUrl: 'https://tieba.baidu.com', searchUrl: 'https://tieba.baidu.com/f?kw=国学&q={q}', category: '论坛' },
+  { name: '古籍吧', baseUrl: 'https://tieba.baidu.com', searchUrl: 'https://tieba.baidu.com/f?kw=古籍&q={q}', category: '论坛' },
+
+  // ============ 第十六批：电子书库 / archive ============
+  { name: 'archive.org', baseUrl: 'https://archive.org', searchUrl: 'https://archive.org/search?query={q}', category: '电子书库' },
+  { name: 'Z-Library', baseUrl: 'https://zh.z-lib.io', searchUrl: 'https://zh.z-lib.io/?q={q}', category: '电子书库' },
+  { name: '鸠摩搜索', baseUrl: 'https://www.jiumodiary.com', searchUrl: 'https://www.jiumodiary.com/?q={q}', category: '电子书库' },
+  { name: '熊猫搜书', baseUrl: 'https://xmsoushu.com', searchUrl: 'https://xmsoushu.com/?q={q}', category: '电子书库' },
+  { name: '苦瓜书盘', baseUrl: 'https://www.kgbook.com', searchUrl: 'https://www.kgbook.com/?q={q}', category: '电子书库' },
+  { name: '搜书吧', baseUrl: 'https://www.soushu8.com', searchUrl: 'https://www.soushu8.com/?q={q}', category: '电子书库' },
+  { name: '免费电子书下载', baseUrl: 'https://www.mfdzs.com', searchUrl: 'https://www.mfdzs.com/?s={q}', category: '电子书库' },
+  { name: '雅书', baseUrl: 'https://www.yabook.org', searchUrl: 'https://www.yabook.org/?q={q}', category: '电子书库' },
+  { name: '云海电子书', baseUrl: 'https://www.yunhaiebook.com', searchUrl: 'https://www.yunhaiebook.com/?q={q}', category: '电子书库' },
+  { name: '掌上书院', baseUrl: 'https://www.zhangshangshuyuan.com', searchUrl: 'https://www.zhangshangshuyuan.com/?q={q}', category: '电子书库' },
+
+  // ============ 第十七批：道教站点 ============
+  { name: '中华道教网', baseUrl: 'http://www.daoisms.org', searchUrl: 'http://www.daoisms.org/?q={q}', category: '道教' },
+  { name: '道教文化', baseUrl: 'http://www.daoism.cn', searchUrl: 'http://www.daoism.cn/?q={q}', category: '道教' },
+  { name: '道教在线', baseUrl: 'http://www.daoisms.cn', searchUrl: 'http://www.daoisms.cn/?q={q}', category: '道教' },
+  { name: '正一道教', baseUrl: 'http://www.zhengyi.org', searchUrl: 'http://www.zhengyi.org/?q={q}', category: '道教' },
+  { name: '全真道教', baseUrl: 'http://www.quanzhen.org', searchUrl: 'http://www.quanzhen.org/?q={q}', category: '道教' },
+  { name: '武当道教协会', baseUrl: 'http://www.wddjxh.com', searchUrl: 'http://www.wddjxh.com/?q={q}', category: '道教' },
+  { name: '青城山道教', baseUrl: 'http://www.qingchengshan.cn', searchUrl: 'http://www.qingchengshan.cn/?q={q}', category: '道教' },
+  { name: '茅山道院', baseUrl: 'http://www.maoshandao.com', searchUrl: 'http://www.maoshandao.com/?q={q}', category: '道教' },
+  { name: '龙虎山道教', baseUrl: 'http://www.lhsdj.com', searchUrl: 'http://www.lhsdj.com/?q={q}', category: '道教' },
+  { name: '道家文化研究院', baseUrl: 'http://www.daojia.com', searchUrl: 'http://www.daojia.com/?q={q}', category: '道教' },
+  { name: '内丹学堂', baseUrl: 'http://www.neidan.org', searchUrl: 'http://www.neidan.org/?q={q}', category: '道教' },
+  { name: '丹道修真网', baseUrl: 'http://www.dandao.org', searchUrl: 'http://www.dandao.org/?q={q}', category: '道教' },
+  { name: '中国道教协会', baseUrl: 'http://www.taoist.org.cn', searchUrl: 'http://www.taoist.org.cn/?q={q}', category: '道教' },
+  { name: '道教文化资料库', baseUrl: 'http://www.daoinfo.org', searchUrl: 'http://www.daoinfo.org/?q={q}', category: '道教' },
+  { name: '道藏精华', baseUrl: 'http://www.daozang.org', searchUrl: 'http://www.daozang.org/?q={q}', category: '道教' },
+
+  // ============ 第十八批：易学专业站点 ============
+  { name: '易学网', baseUrl: 'http://www.zhouyi.cc', searchUrl: 'http://www.zhouyi.cc/?q={q}', category: '易学' },
+  { name: '中华易经网', baseUrl: 'http://www.yijing.cn', searchUrl: 'http://www.yijing.cn/?q={q}', category: '易学' },
+  { name: '周易研究院', baseUrl: 'http://www.zhouyi.org', searchUrl: 'http://www.zhouyi.org/?q={q}', category: '易学' },
+  { name: '易经研究会', baseUrl: 'http://www.yijing.org.cn', searchUrl: 'http://www.yijing.org.cn/?q={q}', category: '易学' },
+  { name: '易学大讲堂', baseUrl: 'http://www.yixuedjt.com', searchUrl: 'http://www.yixuedjt.com/?q={q}', category: '易学' },
+  { name: '中国易学网', baseUrl: 'http://www.zhongguoyixue.com', searchUrl: 'http://www.zhongguoyixue.com/?q={q}', category: '易学' },
+  { name: '易经百科', baseUrl: 'http://www.yijingbaike.com', searchUrl: 'http://www.yijingbaike.com/?q={q}', category: '易学' },
+  { name: '周易文化', baseUrl: 'http://www.zhouyiwh.com', searchUrl: 'http://www.zhouyiwh.com/?q={q}', category: '易学' },
+  { name: '易学典籍', baseUrl: 'http://www.yixuedj.com', searchUrl: 'http://www.yixuedj.com/?q={q}', category: '易学' },
+  { name: '易海拾贝', baseUrl: 'http://www.yihaishi.com', searchUrl: 'http://www.yihaishi.com/?q={q}', category: '易学' },
+  { name: '易经研究网', baseUrl: 'http://www.yjyjw.com', searchUrl: 'http://www.yjyjw.com/?q={q}', category: '易学' },
+  { name: '周易天地', baseUrl: 'http://www.zytd.org', searchUrl: 'http://www.zytd.org/?q={q}', category: '易学' },
+  { name: '易学论坛', baseUrl: 'http://www.yixuebbs.com', searchUrl: 'http://www.yixuebbs.com/?q={q}', category: '易学' },
+  { name: '中华易学院', baseUrl: 'http://www.zhyxy.org', searchUrl: 'http://www.zhyxy.org/?q={q}', category: '易学' },
+  { name: '易学经典网', baseUrl: 'http://www.yxjd.com', searchUrl: 'http://www.yxjd.com/?q={q}', category: '易学' },
+
+  // ============ 第十九批：八字 / 命理实战站点 ============
+  { name: '中华命理网', baseUrl: 'http://www.zhmingli.com', searchUrl: 'http://www.zhmingli.com/?q={q}', category: '命理' },
+  { name: '八字算命网', baseUrl: 'http://www.bazi.com.cn', searchUrl: 'http://www.bazi.com.cn/?q={q}', category: '命理' },
+  { name: '四柱八字', baseUrl: 'http://www.sizhubazi.com', searchUrl: 'http://www.sizhubazi.com/?q={q}', category: '命理' },
+  { name: '八字精批', baseUrl: 'http://www.bazijp.com', searchUrl: 'http://www.bazijp.com/?q={q}', category: '命理' },
+  { name: '命理实战', baseUrl: 'http://www.mingli.org', searchUrl: 'http://www.mingli.org/?q={q}', category: '命理' },
+  { name: '子平八字', baseUrl: 'http://www.ziping.com', searchUrl: 'http://www.ziping.com/?q={q}', category: '命理' },
+  { name: '盲派八字', baseUrl: 'http://www.mangpai.com', searchUrl: 'http://www.mangpai.com/?q={q}', category: '命理' },
+  { name: '滴天髓研究', baseUrl: 'http://www.ditianshui.org', searchUrl: 'http://www.ditianshui.org/?q={q}', category: '命理' },
+  { name: '穷通宝鉴网', baseUrl: 'http://www.qiongtong.com', searchUrl: 'http://www.qiongtong.com/?q={q}', category: '命理' },
+  { name: '三命通会论坛', baseUrl: 'http://www.smtonghui.com', searchUrl: 'http://www.smtonghui.com/?q={q}', category: '命理' },
+  { name: '渊海子平网', baseUrl: 'http://www.yuanhaiziping.com', searchUrl: 'http://www.yuanhaiziping.com/?q={q}', category: '命理' },
+  { name: '子平真诠网', baseUrl: 'http://www.zhenquan.com', searchUrl: 'http://www.zhenquan.com/?q={q}', category: '命理' },
+  { name: '神峰通考网', baseUrl: 'http://www.shenfengtongkao.com', searchUrl: 'http://www.shenfengtongkao.com/?q={q}', category: '命理' },
+  { name: '李虚中命书', baseUrl: 'http://www.lixuzhong.com', searchUrl: 'http://www.lixuzhong.com/?q={q}', category: '命理' },
+  { name: '万育吾', baseUrl: 'http://www.wanyuwu.com', searchUrl: 'http://www.wanyuwu.com/?q={q}', category: '命理' },
+
+  // ============ 第二十批：紫微 / 奇门 / 六壬 / 梅花专业站 ============
+  { name: '紫微斗数论坛', baseUrl: 'http://www.ziwei.cn', searchUrl: 'http://www.ziwei.cn/?q={q}', category: '紫微' },
+  { name: '紫微在线', baseUrl: 'http://www.ziweionline.com', searchUrl: 'http://www.ziweionline.com/?q={q}', category: '紫微' },
+  { name: '紫微斗数全书', baseUrl: 'http://www.ziweidoushu.com', searchUrl: 'http://www.ziweidoushu.com/?q={q}', category: '紫微' },
+  { name: '中州派紫微', baseUrl: 'http://www.zhongzhou.com', searchUrl: 'http://www.zhongzhou.com/?q={q}', category: '紫微' },
+  { name: '飞星紫微', baseUrl: 'http://www.feixingziwei.com', searchUrl: 'http://www.feixingziwei.com/?q={q}', category: '紫微' },
+  { name: '奇门遁甲网', baseUrl: 'http://www.qimendunjia.com', searchUrl: 'http://www.qimendunjia.com/?q={q}', category: '奇门' },
+  { name: '奇门在线', baseUrl: 'http://www.qimenonline.com', searchUrl: 'http://www.qimenonline.com/?q={q}', category: '奇门' },
+  { name: '阴盘奇门', baseUrl: 'http://www.yinpan.com', searchUrl: 'http://www.yinpan.com/?q={q}', category: '奇门' },
+  { name: '阳盘奇门', baseUrl: 'http://www.yangpan.com', searchUrl: 'http://www.yangpan.com/?q={q}', category: '奇门' },
+  { name: '飞盘奇门', baseUrl: 'http://www.feipanqimen.com', searchUrl: 'http://www.feipanqimen.com/?q={q}', category: '奇门' },
+  { name: '大六壬网', baseUrl: 'http://www.daliuren.com', searchUrl: 'http://www.daliuren.com/?q={q}', category: '六壬' },
+  { name: '六壬大全', baseUrl: 'http://www.liurendq.com', searchUrl: 'http://www.liurendq.com/?q={q}', category: '六壬' },
+  { name: '小六壬', baseUrl: 'http://www.xiaoliuren.com', searchUrl: 'http://www.xiaoliuren.com/?q={q}', category: '六壬' },
+  { name: '梅花易数网', baseUrl: 'http://www.meihuayishu.com', searchUrl: 'http://www.meihuayishu.com/?q={q}', category: '梅花' },
+  { name: '邵雍研究', baseUrl: 'http://www.shaoyong.com', searchUrl: 'http://www.shaoyong.com/?q={q}', category: '梅花' },
+
+  // ============ 第二十一批：风水 / 玄空 / 八宅 ============
+  { name: '中华风水网', baseUrl: 'http://www.zhfsw.com', searchUrl: 'http://www.zhfsw.com/?q={q}', category: '风水' },
+  { name: '风水在线', baseUrl: 'http://www.fengshui.cn', searchUrl: 'http://www.fengshui.cn/?q={q}', category: '风水' },
+  { name: '玄空风水网', baseUrl: 'http://www.xuankong.com', searchUrl: 'http://www.xuankong.com/?q={q}', category: '风水' },
+  { name: '八宅明镜', baseUrl: 'http://www.bazhai.org', searchUrl: 'http://www.bazhai.org/?q={q}', category: '风水' },
+  { name: '三元风水', baseUrl: 'http://www.sanyuan.com', searchUrl: 'http://www.sanyuan.com/?q={q}', category: '风水' },
+  { name: '三合风水', baseUrl: 'http://www.sanhe.com', searchUrl: 'http://www.sanhe.com/?q={q}', category: '风水' },
+  { name: '形势派风水', baseUrl: 'http://www.xingshipai.com', searchUrl: 'http://www.xingshipai.com/?q={q}', category: '风水' },
+  { name: '理气派风水', baseUrl: 'http://www.liqipai.com', searchUrl: 'http://www.liqipai.com/?q={q}', category: '风水' },
+  { name: '阳宅风水网', baseUrl: 'http://www.yangzhai.com', searchUrl: 'http://www.yangzhai.com/?q={q}', category: '风水' },
+  { name: '阴宅风水', baseUrl: 'http://www.yinzhai.com', searchUrl: 'http://www.yinzhai.com/?q={q}', category: '风水' },
+  { name: '青囊经研究', baseUrl: 'http://www.qingnangjing.com', searchUrl: 'http://www.qingnangjing.com/?q={q}', category: '风水' },
+  { name: '葬经研究', baseUrl: 'http://www.zangjing.com', searchUrl: 'http://www.zangjing.com/?q={q}', category: '风水' },
+  { name: '撼龙经', baseUrl: 'http://www.hanlongjing.com', searchUrl: 'http://www.hanlongjing.com/?q={q}', category: '风水' },
+  { name: '催官篇研究', baseUrl: 'http://www.cuiguan.com', searchUrl: 'http://www.cuiguan.com/?q={q}', category: '风水' },
+  { name: '黄帝宅经', baseUrl: 'http://www.huangdizhaijing.com', searchUrl: 'http://www.huangdizhaijing.com/?q={q}', category: '风水' },
+
+  // ============ 第二十二批：姓名学 / 测字 / 起名 ============
+  { name: '中华姓名网', baseUrl: 'http://www.zhxingming.com', searchUrl: 'http://www.zhxingming.com/?q={q}', category: '姓名学' },
+  { name: '康熙字典网', baseUrl: 'http://www.kxzd.com', searchUrl: 'http://www.kxzd.com/?q={q}', category: '姓名学' },
+  { name: '说文解字', baseUrl: 'http://www.shuowen.org', searchUrl: 'http://www.shuowen.org/?q={q}', category: '姓名学' },
+  { name: '姓名测试', baseUrl: 'http://www.xingming.com', searchUrl: 'http://www.xingming.com/?q={q}', category: '姓名学' },
+  { name: '起名网', baseUrl: 'http://www.qiming.com', searchUrl: 'http://www.qiming.com/?q={q}', category: '姓名学' },
+  { name: '宝宝起名', baseUrl: 'http://www.baobaoqiming.com', searchUrl: 'http://www.baobaoqiming.com/?q={q}', category: '姓名学' },
+  { name: '五格剖象', baseUrl: 'http://www.wugepouxiang.com', searchUrl: 'http://www.wugepouxiang.com/?q={q}', category: '姓名学' },
+  { name: '三才五格', baseUrl: 'http://www.sancaiwuge.com', searchUrl: 'http://www.sancaiwuge.com/?q={q}', category: '姓名学' },
+  { name: '测字解梦', baseUrl: 'http://www.cezi.com', searchUrl: 'http://www.cezi.com/?q={q}', category: '姓名学' },
+  { name: '周易起名', baseUrl: 'http://www.zhouyiqiming.com', searchUrl: 'http://www.zhouyiqiming.com/?q={q}', category: '姓名学' },
+
+  // ============ 第二十三批：相术 / 面相 / 手相 ============
+  { name: '中华相术网', baseUrl: 'http://www.zhxiangshu.com', searchUrl: 'http://www.zhxiangshu.com/?q={q}', category: '相术' },
+  { name: '面相学网', baseUrl: 'http://www.mianxiang.com', searchUrl: 'http://www.mianxiang.com/?q={q}', category: '相术' },
+  { name: '手相学网', baseUrl: 'http://www.shouxiang.com', searchUrl: 'http://www.shouxiang.com/?q={q}', category: '相术' },
+  { name: '骨相学', baseUrl: 'http://www.guxiang.com', searchUrl: 'http://www.guxiang.com/?q={q}', category: '相术' },
+  { name: '体相学', baseUrl: 'http://www.tixiang.com', searchUrl: 'http://www.tixiang.com/?q={q}', category: '相术' },
+  { name: '麻衣神相网', baseUrl: 'http://www.mayishenxiang.com', searchUrl: 'http://www.mayishenxiang.com/?q={q}', category: '相术' },
+  { name: '柳庄相法', baseUrl: 'http://www.liuzhuangxiang.com', searchUrl: 'http://www.liuzhuangxiang.com/?q={q}', category: '相术' },
+  { name: '冰鉴研究', baseUrl: 'http://www.bingjian.com', searchUrl: 'http://www.bingjian.com/?q={q}', category: '相术' },
+  { name: '神相全编', baseUrl: 'http://www.shenxiang.com', searchUrl: 'http://www.shenxiang.com/?q={q}', category: '相术' },
+  { name: '相理衡真', baseUrl: 'http://www.xianglihengzhen.com', searchUrl: 'http://www.xianglihengzhen.com/?q={q}', category: '相术' },
+
+  // ============ 第二十四批：占卜 / 塔罗 / 六爻 ============
+  { name: '中华占卜网', baseUrl: 'http://www.zhzhanbu.com', searchUrl: 'http://www.zhzhanbu.com/?q={q}', category: '占卜' },
+  { name: '六爻在线', baseUrl: 'http://www.liuyao.cn', searchUrl: 'http://www.liuyao.cn/?q={q}', category: '占卜' },
+  { name: '增删卜易', baseUrl: 'http://www.zengshanbuyi.com', searchUrl: 'http://www.zengshanbuyi.com/?q={q}', category: '占卜' },
+  { name: '卜筮正宗', baseUrl: 'http://www.bushizhengzong.com', searchUrl: 'http://www.bushizhengzong.com/?q={q}', category: '占卜' },
+  { name: '火珠林', baseUrl: 'http://www.huozhulin.com', searchUrl: 'http://www.huozhulin.com/?q={q}', category: '占卜' },
+  { name: '黄金策', baseUrl: 'http://www.huangjince.com', searchUrl: 'http://www.huangjince.com/?q={q}', category: '占卜' },
+  { name: '断易天机', baseUrl: 'http://www.duanyitianji.com', searchUrl: 'http://www.duanyitianji.com/?q={q}', category: '占卜' },
+  { name: '塔罗在线', baseUrl: 'http://www.taluo.cn', searchUrl: 'http://www.taluo.cn/?q={q}', category: '占卜' },
+  { name: '中华神煞网', baseUrl: 'http://www.shensha.com', searchUrl: 'http://www.shensha.com/?q={q}', category: '占卜' },
+  { name: '解梦大全', baseUrl: 'http://www.jiemengdq.com', searchUrl: 'http://www.jiemengdq.com/?q={q}', category: '占卜' },
+
+  // ============ 第二十五批：博客 / 个人站 ============
+  { name: '玄学博客', baseUrl: 'http://blog.sina.com.cn', searchUrl: 'http://blog.sina.com.cn/?q={q}', category: '博客' },
+  { name: '命理博客', baseUrl: 'http://www.mingli-blog.com', searchUrl: 'http://www.mingli-blog.com/?q={q}', category: '博客' },
+  { name: '周易博客', baseUrl: 'http://www.zhouyi-blog.com', searchUrl: 'http://www.zhouyi-blog.com/?q={q}', category: '博客' },
+  { name: '风水博客', baseUrl: 'http://www.fengshui-blog.com', searchUrl: 'http://www.fengshui-blog.com/?q={q}', category: '博客' },
+  { name: '紫微博客', baseUrl: 'http://www.ziwei-blog.com', searchUrl: 'http://www.ziwei-blog.com/?q={q}', category: '博客' },
+  { name: '奇门博客', baseUrl: 'http://www.qimen-blog.com', searchUrl: 'http://www.qimen-blog.com/?q={q}', category: '博客' },
+  { name: '梅花博客', baseUrl: 'http://www.meihua-blog.com', searchUrl: 'http://www.meihua-blog.com/?q={q}', category: '博客' },
+  { name: '六爻博客', baseUrl: 'http://www.liuyao-blog.com', searchUrl: 'http://www.liuyao-blog.com/?q={q}', category: '博客' },
+  { name: '相术博客', baseUrl: 'http://www.xiangshu-blog.com', searchUrl: 'http://www.xiangshu-blog.com/?q={q}', category: '博客' },
+  { name: '道教博客', baseUrl: 'http://www.daojiao-blog.com', searchUrl: 'http://www.daojiao-blog.com/?q={q}', category: '博客' },
+
+  // ============ 第二十六批：经典原文站点 ============
+  { name: '中华经典网', baseUrl: 'http://www.zhonghuajingdian.com', searchUrl: 'http://www.zhonghuajingdian.com/?q={q}', category: '经典原文' },
+  { name: '诗词中国', baseUrl: 'http://www.shici.com', searchUrl: 'http://www.shici.com/?q={q}', category: '经典原文' },
+  { name: '古典文学网', baseUrl: 'http://www.gudianwenxue.com', searchUrl: 'http://www.gudianwenxue.com/?q={q}', category: '经典原文' },
+  { name: '汉典', baseUrl: 'http://www.zdic.net', searchUrl: 'http://www.zdic.net/?q={q}', category: '经典原文' },
+  { name: '汉典古籍', baseUrl: 'http://www.handian.org', searchUrl: 'http://www.handian.org/?q={q}', category: '经典原文' },
+  { name: '汉文化网', baseUrl: 'http://www.hanwenhua.com', searchUrl: 'http://www.hanwenhua.com/?q={q}', category: '经典原文' },
+  { name: '国学大师', baseUrl: 'http://www.guoxuedashi.com', searchUrl: 'http://www.guoxuedashi.com/?q={q}', category: '经典原文' },
+  { name: '国学经典', baseUrl: 'http://www.guoxuejingdian.com', searchUrl: 'http://www.guoxuejingdian.com/?q={q}', category: '经典原文' },
+  { name: '国学百科', baseUrl: 'http://www.guoxuebaike.com', searchUrl: 'http://www.guoxuebaike.com/?q={q}', category: '经典原文' },
+  { name: '汉典网', baseUrl: 'http://www.handian.com', searchUrl: 'http://www.handian.com/?q={q}', category: '经典原文' },
+  { name: '中华典籍', baseUrl: 'http://www.zhdianji.com', searchUrl: 'http://www.zhdianji.com/?q={q}', category: '经典原文' },
+  { name: '古文献网', baseUrl: 'http://www.guwenxian.com', searchUrl: 'http://www.guwenxian.com/?q={q}', category: '经典原文' },
+  { name: '古今注', baseUrl: 'http://www.gujinzhu.com', searchUrl: 'http://www.gujinzhu.com/?q={q}', category: '经典原文' },
+  { name: '四部丛刊', baseUrl: 'http://www.sibu.com', searchUrl: 'http://www.sibu.com/?q={q}', category: '经典原文' },
+  { name: '四库全书', baseUrl: 'http://www.siku.com', searchUrl: 'http://www.siku.com/?q={q}', category: '经典原文' },
+
+  // ============ 第二十七批：百科类 / 知识库 ============
+  { name: '维基百科', baseUrl: 'https://zh.wikipedia.org', searchUrl: 'https://zh.wikipedia.org/wiki/{q}', category: '百科' },
+  { name: '百度百科', baseUrl: 'https://baike.baidu.com', searchUrl: 'https://baike.baidu.com/item/{q}', category: '百科' },
+  { name: '互动百科', baseUrl: 'https://www.baike.com', searchUrl: 'https://www.baike.com/item/{q}', category: '百科' },
+  { name: '搜狗百科', baseUrl: 'https://baike.sogou.com', searchUrl: 'https://baike.sogou.com/?query={q}', category: '百科' },
+  { name: '中文维基文库', baseUrl: 'https://zh.wikisource.org', searchUrl: 'https://zh.wikisource.org/wiki/{q}', category: '百科' },
+  { name: '英文维基百科', baseUrl: 'https://en.wikipedia.org', searchUrl: 'https://en.wikipedia.org/wiki/{q}', category: '百科' },
+  { name: '萌娘百科', baseUrl: 'https://zh.moegirl.org.cn', searchUrl: 'https://zh.moegirl.org.cn/{q}', category: '百科' },
+  { name: '汉语百科', baseUrl: 'https://www.cnbaike.com', searchUrl: 'https://www.cnbaike.com/?q={q}', category: '百科' },
+  { name: '简书', baseUrl: 'https://www.jianshu.com', searchUrl: 'https://www.jianshu.com/search?q={q}', category: '百科' },
+  { name: '知乎', baseUrl: 'https://www.zhihu.com', searchUrl: 'https://www.zhihu.com/search?type=content&q={q}', category: '百科' },
+  { name: '豆瓣读书', baseUrl: 'https://book.douban.com', searchUrl: 'https://book.douban.com/subject_search?search_text={q}', category: '百科' },
+  { name: '百度学术', baseUrl: 'https://xueshu.baidu.com', searchUrl: 'https://xueshu.baidu.com/s?wd={q}', category: '百科' },
+  { name: '中国知网', baseUrl: 'https://www.cnki.net', searchUrl: 'https://search.cnki.net/Search/Result?theme={q}', category: '百科' },
+  { name: '万方数据', baseUrl: 'https://www.wanfangdata.com.cn', searchUrl: 'https://www.wanfangdata.com.cn/?q={q}', category: '百科' },
+  { name: '维普期刊', baseUrl: 'https://www.cqvip.com', searchUrl: 'https://www.cqvip.com/?q={q}', category: '百科' },
+
+];
+
+/**
+ * 把搜索 URL 模板填入书名（自动 URL 编码）
+ */
+export function buildSearchUrl(template: string, bookName: string): string {
+  return template.replace('{q}', encodeURIComponent(bookName));
+}
+
+/**
+ * 获取所有数据源的实际搜索 URL（按书名生成）
+ */
+export function getAllSearchUrls(bookName: string): Array<{ name: string; url: string; category: string }> {
+  return DATA_SOURCES.map((ds) => ({
+    name: ds.name,
+    url: buildSearchUrl(ds.searchUrl, bookName),
+    category: ds.category,
+  }));
+}
+
+/**
+ * 按类别筛选数据源
+ */
+export function getSourcesByCategory(category: string): DataSource[] {
+  return DATA_SOURCES.filter((ds) => ds.category === category);
 }
