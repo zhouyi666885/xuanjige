@@ -1569,15 +1569,71 @@ async function processTask(taskId: string): Promise<void> {
     const searchElapsed = Math.round((Date.now() - searchStartTime) / 1000);
     addLog(taskId, `搜索完成：共 ${roundIndex} 轮（${completedFullCycles}个完整循环），耗时 ${searchElapsed}秒，累计 ${allResults.length} 个来源`);
 
+    // 🟢 兜底层 1：已知数据源（KNOWN_BOOK_SOURCES）—— 不依赖搜索引擎，直接拿真实 URL
+    if (allResults.length === 0) {
+      addLog(taskId, `[兜底1] 搜索引擎全 0 条，查询已知数据源库...`);
+      try {
+        const { lookupKnownBookSources } = await import('./coze-replacement/known-book-sources');
+        const knownSources = lookupKnownBookSources(task.bookName);
+        if (knownSources.length > 0) {
+          for (const src of knownSources) {
+            allResults.push({
+              url: src.url,
+              title: `${task.bookName} - ${src.source}`,
+              snippet: `已知数据源 ${src.source} 提供的《${task.bookName}》页面`,
+            });
+          }
+          addLog(taskId, `[兜底1] ✅ 命中已知数据源，新增 ${knownSources.length} 条 URL`);
+          updateTask(taskId, {
+            status: 'searching',
+            message: `已知数据源命中 ${knownSources.length} 条，开始抓取内容...`,
+            progress: 3,
+          });
+        } else {
+          addLog(taskId, `[兜底1] 未命中已知数据源`);
+        }
+      } catch (e) {
+        addLog(taskId, `[兜底1] 已知数据源查询出错: ${(e as Error).message}`);
+      }
+    }
+
+    // 🟢 兜底层 2：LLM 知识库 —— 用大模型背诵古籍原文
+    if (allResults.length === 0) {
+      addLog(taskId, `[兜底2] 已知数据源也空，启动 LLM 知识兜底...`);
+      updateTask(taskId, {
+        status: 'searching',
+        message: `🟢 启动 LLM 知识兜底，让大模型直接背诵《${task.bookName}》全文...`,
+        progress: 5,
+      });
+      try {
+        const llmContent = await generateBookContentByLLM(task.bookName, taskId);
+        if (llmContent && llmContent.length > 1000) {
+          addBookToKnowledgeBase(task.bookName, llmContent);
+          addLog(taskId, `[兜底2] ✅ LLM 生成 ${llmContent.length} 字内容，已录入知识库`);
+          updateTask(taskId, {
+            status: 'done',
+            message: `✅ LLM 知识兜底完成录入：共 ${llmContent.length} 字`,
+            progress: 100,
+            completedAt: Date.now(),
+          });
+          return;
+        } else {
+          addLog(taskId, `[兜底2] LLM 返回内容过短（${llmContent?.length || 0} 字），判定为冷门书`);
+        }
+      } catch (e) {
+        addLog(taskId, `[兜底2] LLM 兜底失败: ${(e as Error).message}`);
+      }
+    }
+
     // 只有一种情况判定版权问题：全网所有渠道全部搜遍，确认找不到
     if (allResults.length === 0) {
       updateTask(taskId, {
         status: 'copyright',
-        message: `已穷尽全网搜索（${completedFullCycles}轮完整循环×${TOTAL_ROUNDS}个渠道=共${roundIndex}轮搜索，涵盖百度/搜狗/必应/360搜索引擎+百度文库/道客巴巴/豆丁文档平台+知乎/豆瓣/贴吧/微博社区+古籍数据库/学术平台+网盘/书源），确认 nowhere to be found，均未找到《${task.bookName}》的完整内容`,
+        message: `已穷尽全网搜索（${completedFullCycles}轮完整循环×${TOTAL_ROUNDS}个渠道=共${roundIndex}轮搜索），并启用已知数据源+LLM知识兜底，均未找到《${task.bookName}》的完整内容`,
         progress: 0,
         completedAt: Date.now(),
       });
-      addLog(taskId, `共${roundIndex}轮搜索均未找到此书，判定为版权问题`);
+      addLog(taskId, `共${roundIndex}轮搜索+已知数据源+LLM均未找到此书，判定为版权问题`);
       return;
     }
 
@@ -2238,6 +2294,97 @@ function findBestOverlap(baseText: string, fragmentText: string): number {
 }
 
 // ==================== 翻译 ====================
+
+/**
+ * 🟢 LLM 知识兜底：当所有搜索源都失败时，让大模型直接背诵古籍原文
+ * 主流大模型（豆包/DeepSeek/Kimi/GPT-4）都能背诵《滴天髓》《三命通会》等经典玄学古籍
+ */
+async function generateBookContentByLLM(bookName: string, taskId: string): Promise<string> {
+  const config = new Config();
+  const llm = new LLMClient(config);
+
+  // Step 1: 先问 LLM 是否知道这本书 + 列出章节目录
+  addLog(taskId, `[LLM兜底] 询问大模型《${bookName}》的章节目录...`);
+  const tocResp = await llm.invoke([
+    { role: 'system', content: '你是中国古籍专家，精通历代命理、相术、占卜、风水、易学典籍。' },
+    {
+      role: 'user',
+      content: `请判断你是否熟知《${bookName}》这本古籍。
+如果不知道或不熟悉，请只回复"不知道"三个字。
+如果熟悉，请按以下格式列出该书的完整章节/卷/篇目录，每行一项：
+1. 第一卷·卷名
+2. 第二卷·卷名
+...
+要求：
+- 只列章节，不要任何解释
+- 至少 5 个章节，最多 50 个
+- 如果是单卷书，按"章"或"篇"细分`,
+    },
+  ], { temperature: 0.3 });
+
+  const tocContent = (tocResp.content || '').trim();
+  if (!tocContent || tocContent.length < 30 || /^不知道/.test(tocContent) || /(无法|不熟悉|没有见过|不存在|抱歉)/.test(tocContent.slice(0, 50))) {
+    addLog(taskId, `[LLM兜底] LLM 表示不知道这本书`);
+    return '';
+  }
+
+  // 解析章节列表
+  const chapters = tocContent
+    .split('\n')
+    .map(l => l.replace(/^\d+[\.、\s]*/, '').replace(/^[-*•·]\s*/, '').trim())
+    .filter(l => l.length > 1 && l.length < 80);
+
+  if (chapters.length < 3) {
+    addLog(taskId, `[LLM兜底] LLM 返回章节数过少（${chapters.length}），疑似不熟悉此书`);
+    return '';
+  }
+
+  addLog(taskId, `[LLM兜底] LLM 列出 ${chapters.length} 个章节，开始逐章生成内容...`);
+
+  const buffer: string[] = [];
+  buffer.push(`# ${bookName}\n\n## 章节目录\n${chapters.map((c, i) => `${i + 1}. ${c}`).join('\n')}\n\n---\n`);
+
+  const maxChapters = Math.min(chapters.length, 40);
+  for (let i = 0; i < maxChapters; i++) {
+    const ch = chapters[i];
+    try {
+      const chapResp = await llm.invoke([
+        { role: 'system', content: '你是中国古籍原文录入员，精通历代典籍。请尽可能完整地输出原文（文言文）。' },
+        {
+          role: 'user',
+          content: `请输出《${bookName}》一书中"${ch}"这一卷/篇/章的完整原文。
+要求：
+1. 直接输出原文，不要加任何前言、总结、说明
+2. 保持文言文原貌，不要现代汉语翻译
+3. 长度尽可能完整，能输出多少输出多少
+4. 如果原文极短，可以输出整段；如果原文较长，输出主要内容
+5. 不要编造你不确定的内容，宁可少写也不要错写
+6. 不要在末尾说"以上是xxx"之类的话`,
+        },
+      ], { temperature: 0.3, max_tokens: 4000 });
+
+      const chapText = (chapResp.content || '').trim();
+      if (chapText.length > 50) {
+        buffer.push(`\n## 第${i + 1}章 ${ch}\n\n${chapText}\n`);
+        const totalLen = buffer.join('').length;
+        addLog(taskId, `[LLM兜底] 已完成第 ${i + 1}/${maxChapters} 章 "${ch}"（章节 ${chapText.length} 字，累计 ${totalLen} 字）`);
+        updateTask(taskId, {
+          status: 'searching',
+          message: `🟢 LLM 兜底进行中：${i + 1}/${maxChapters} 章（已生成 ${totalLen} 字）`,
+          progress: Math.min(85, 5 + Math.floor((i + 1) / maxChapters * 80)),
+        });
+      } else {
+        addLog(taskId, `[LLM兜底] 第 ${i + 1} 章 "${ch}" 返回过短，跳过`);
+      }
+    } catch (e) {
+      addLog(taskId, `[LLM兜底] 第 ${i + 1} 章 "${ch}" 生成失败: ${(e as Error).message}`);
+    }
+  }
+
+  const fullContent = buffer.join('');
+  addLog(taskId, `[LLM兜底] 全部章节生成完毕，总字数 ${fullContent.length}`);
+  return fullContent;
+}
 
 async function translateContent(taskId: string, content: string): Promise<string> {
   const config = new Config();
