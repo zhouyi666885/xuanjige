@@ -9,7 +9,16 @@
  * 失败/超时一律降级为空数组，绝不影响主流程。
  */
 
-import { KnowledgeClient, Config } from 'coze-coding-dev-sdk';
+import {
+  KnowledgeClient,
+  Config,
+  DataSourceType,
+  type KnowledgeDocument,
+  type ChunkConfig,
+} from 'coze-coding-dev-sdk';
+
+/** APP 上传典籍写入到 Coze KB 时统一使用这个 dataset，方便检索时区分"典籍 vs 方法论" */
+export const COZE_KB_BOOKS_DATASET = 'xuanjige_books';
 
 export interface CozeKnowledgeChunk {
   score: number;
@@ -72,4 +81,45 @@ export function formatCozeChunks(chunks: CozeKnowledgeChunk[]): string {
     })
     .join('\n\n');
   return blocks;
+}
+
+/**
+ * 把一本完整典籍写入到用户的 Coze Knowledge Base
+ * Coze KB 会自动完成：切片 → 768 维向量化 → 建语义/关键词混合索引 → 云端持久化
+ *
+ * @param bookName 书名（用作 metadata.title）
+ * @param fullText 全文内容（一字不漏，由 KB 自动切片）
+ * @returns true=成功，false=失败（不抛错，让主流程继续）
+ */
+export async function addBookToCozeKB(
+  bookName: string,
+  fullText: string,
+): Promise<boolean> {
+  if (!bookName || !fullText || !fullText.trim()) return false;
+
+  try {
+    const client = getClient();
+    const doc: KnowledgeDocument = {
+      source: DataSourceType.TEXT,
+      raw_data: fullText,
+    };
+    // 每段 ~500 tokens，自动按段落/换行切分（符合典籍章节结构）
+    const chunkConfig: ChunkConfig = {
+      separator: '\n',
+      max_tokens: 500,
+      remove_extra_spaces: false,
+    };
+    const resp = await client.addDocuments(
+      [doc],
+      COZE_KB_BOOKS_DATASET,
+      chunkConfig,
+    );
+    return !!resp && (resp.code === 0 || resp.code === undefined);
+  } catch (err) {
+    console.warn(
+      `[CozeKB] 上传《${bookName}》失败，已降级（不影响本地知识库）：`,
+      (err as Error).message,
+    );
+    return false;
+  }
 }

@@ -11,6 +11,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { addBookToKnowledgeBase, isBookExists } from '@/lib/fulltext-search';
+import { addBookToCozeKB } from '@/lib/coze-knowledge';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -317,6 +318,13 @@ export async function POST(req: NextRequest): Promise<Response> {
 
           // 5) 入库（原文按 UTF-8 落盘，知识库存储与上传文件逐字一致）
           addBookToKnowledgeBase(bookName, content);
+
+          // 5b) 同步推送到 Coze Knowledge Base（自动切片+向量化+建索引）
+          try {
+            await addBookToCozeKB(bookName, content);
+          } catch (cozeErr) {
+            console.warn(`[Coze KB] 《${bookName}》推送失败（不影响本地入库）:`, (cozeErr as Error).message);
+          }
 
           // 6) 逐章学习上报（节流到不超过 60 帧）
           const stepInterval = Math.max(1, Math.ceil(totalChapters / 60));

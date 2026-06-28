@@ -129,7 +129,10 @@
 - `knowledge-search.ts`: 语义搜索（向量化检索）
 - `knowledge-prescreen.ts`: 智能预筛模块（关键词+同义词扩展 → 评分 → 四档分级 high/medium/low/sample，确保兜底覆盖每一本书）
 - `map-reduce-search.ts`: Map-Reduce 协调器（分批并行精读 → 流式 progress 事件 → Reduce 合成最终答案，突破 context window 物理限制）
-- `coze-knowledge.ts`: Coze Knowledge Base SDK 封装（语义向量检索，召回用户自定义的 AI 宗师方法论/分析框架/核心知识点）
+- `coze-knowledge.ts`: Coze Knowledge Base SDK 封装（语义向量检索 + 自动推送入库）
+  - `searchCozeKnowledge(query, topK?)`：语义搜索，返回 `{ score, title, content }[]`
+  - `addBookToCozeKB(bookName, content)`：上传书籍全文到 Coze KB（自动切片+向量化+建索引）
+  - `formatCozeResults(results)`：格式化为 Markdown 引用块
 - `knowledge.ts`: 提示词体系+26步AI分析框架
 
 ## Map-Reduce 深度问答流程（chat-deep）
