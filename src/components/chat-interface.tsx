@@ -23,7 +23,8 @@ export function ChatInterface({ open, onClose }: ChatInterfaceProps) {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<'casual' | 'professional'>('casual');
-  const [deepMode, setDeepMode] = useState<boolean>(true);
+  // 三态：'fast'=🟢 快速 LLM | 'deep'=🔥 深读 Map-Reduce LLM | 'raw'=📚 原文（零成本，不调 LLM）
+  const [searchMode, setSearchMode] = useState<'fast' | 'deep' | 'raw'>('raw');
   const [progressLabel, setProgressLabel] = useState<string>('');
   const [birthInfo, setBirthInfoState] = useState<BirthInfo | null>(null);
   const [showBirthForm, setShowBirthForm] = useState(false);
@@ -76,10 +77,16 @@ export function ChatInterface({ open, onClose }: ChatInterfaceProps) {
 
     const assistantMessage: Message = { role: 'assistant', content: '' };
     setMessages([...newMessages, assistantMessage]);
-    setProgressLabel(deepMode ? '🔍 准备翻阅知识库每一本书...' : '');
+    setProgressLabel(
+      searchMode === 'raw'
+        ? '📚 原文检索中（零成本，不调 LLM）...'
+        : searchMode === 'deep'
+          ? '🔍 准备翻阅知识库每一本书...'
+          : '',
+    );
 
     try {
-      const endpoint = deepMode ? '/api/chat-deep' : '/api/chat';
+      const endpoint = searchMode === 'fast' ? '/api/chat' : '/api/chat-deep';
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -87,6 +94,8 @@ export function ChatInterface({ open, onClose }: ChatInterfaceProps) {
           message: input.trim(),
           mode,
           history: messages.slice(-10),
+          // noLLM=true 时后端走纯检索；'deep' 时仍调 LLM；'fast' 时走老的 /api/chat 接口
+          noLLM: searchMode === 'raw' ? true : undefined,
           birthInfo: birthInfo ? {
             gender: birthInfo.gender === 'male' ? '男' : birthInfo.gender === 'female' ? '女' : '',
             birthYear: parseInt(birthInfo.year) || 0,
@@ -161,7 +170,7 @@ export function ChatInterface({ open, onClose }: ChatInterfaceProps) {
       setLoading(false);
       setProgressLabel('');
     }
-  }, [input, loading, messages, mode, deepMode, birthInfo]);
+  }, [input, loading, messages, mode, searchMode, birthInfo]);
 
   if (!sheetOpen) return null;
 
@@ -183,15 +192,26 @@ export function ChatInterface({ open, onClose }: ChatInterfaceProps) {
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1">
-            <Switch
-              id="deep-switch"
-              checked={deepMode}
-              onCheckedChange={(checked: boolean) => setDeepMode(checked)}
-            />
-            <Label htmlFor="deep-switch" className="text-xs text-muted-foreground">
-              {deepMode ? '🔥深读' : '快速'}
-            </Label>
+          <div className="flex items-center rounded-md border border-gold/30 bg-background/30 overflow-hidden">
+            {([
+              { v: 'raw', label: '📚 原文', tip: '零成本，纯检索' },
+              { v: 'deep', label: '🔥 深读', tip: '全库精读+LLM' },
+              { v: 'fast', label: '🟢 快速', tip: '关键词+LLM' },
+            ] as const).map((opt) => (
+              <button
+                key={opt.v}
+                type="button"
+                title={opt.tip}
+                onClick={() => setSearchMode(opt.v)}
+                className={`px-2 py-1 text-[11px] transition-colors ${
+                  searchMode === opt.v
+                    ? 'bg-gold/20 text-gold font-semibold'
+                    : 'text-muted-foreground hover:text-gold/70'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
           </div>
           <div className="flex items-center gap-1">
             <Switch

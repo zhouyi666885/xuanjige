@@ -82,7 +82,7 @@
 
 ## API 接口
 1. POST /api/chat - AI 玄学问答（SSE 流式，快速模式）
-2. POST /api/chat-deep - AI 深度问答（SSE 流式，Map-Reduce 全量遍历每一本书）
+2. POST /api/chat-deep - AI 深度问答（SSE 流式，三态：📚原文模式 noLLM=true 零成本纯检索 / 🔥深读 Map-Reduce LLM 全库精读 / 🟢快速 走 /api/chat）
 3. POST /api/face-reading - 面相分析（SSE 流式，支持图片）
 4. POST /api/palm-reading - 手相分析（SSE 流式，支持图片）
 5. POST /api/divination - 通用测算（SSE 流式，type 参数区分测算类型）
