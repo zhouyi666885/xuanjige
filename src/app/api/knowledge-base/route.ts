@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getBookStats, removeBookFromKnowledgeBase, getBookLearnStatus, getLearnedBookCount, invalidateCache, loadBookCacheAsync } from '@/lib/fulltext-search';
 import { getAllTasks, startLearningAllLocalBooks, startLearningSingleBook, getLocalLearningProgress, deleteTask } from '@/lib/book-task-manager';
-import { upsertTask, getTaskByBookName, listTasks, type BookTaskRow } from '@/lib/book-repo';
+import { upsertTask, getTaskByBookName, listTasks, type BookTaskRow, listTombstones, removeTombstone, clearAllTombstones } from '@/lib/book-repo';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
 import fsRaw from 'fs';
 import pathRaw from 'path';
@@ -610,6 +610,58 @@ export async function POST(request: NextRequest) {
     if (action === 'learning-progress') {
       const progress = getLocalLearningProgress();
       return NextResponse.json({ success: true, data: progress });
+    }
+
+    // 查询当前墓碑名单——"哪些书曾被删除而无法再次录入"
+    if (action === 'list-tombstones') {
+      try {
+        const { deletedIds, deletedNames } = await listTombstones();
+        return NextResponse.json({
+          success: true,
+          data: {
+            deletedNames: Array.from(deletedNames),
+            deletedIds: Array.from(deletedIds),
+            totalNames: deletedNames.size,
+            totalIds: deletedIds.size,
+          },
+        });
+      } catch (e) {
+        const m = e instanceof Error ? e.message : String(e);
+        return NextResponse.json({ success: false, error: '查询墓碑失败: ' + m }, { status: 500 });
+      }
+    }
+
+    // 复活一本书：从墓碑名单中删除（之后这本书可以重新录入和学习）
+    if (action === 'revive-book') {
+      const bookName = body?.bookName;
+      if (!bookName) {
+        return NextResponse.json({ success: false, error: '缺少 bookName 参数' }, { status: 400 });
+      }
+      try {
+        await removeTombstone('name', String(bookName));
+        return NextResponse.json({
+          success: true,
+          message: `《${bookName}》已从墓碑名单移除，可以重新上传或重新启动学习`,
+        });
+      } catch (e) {
+        const m = e instanceof Error ? e.message : String(e);
+        return NextResponse.json({ success: false, error: '复活书籍失败: ' + m }, { status: 500 });
+      }
+    }
+
+    // 清空所有墓碑——慎用！会让所有被删除过的书都能重新录入
+    if (action === 'clear-all-tombstones') {
+      try {
+        const count = await clearAllTombstones();
+        return NextResponse.json({
+          success: true,
+          message: `已清空 ${count} 条墓碑记录，所有被删除过的书都可以重新录入`,
+          count,
+        });
+      } catch (e) {
+        const m = e instanceof Error ? e.message : String(e);
+        return NextResponse.json({ success: false, error: '清空墓碑失败: ' + m }, { status: 500 });
+      }
     }
 
     return NextResponse.json({ error: '未知操作' }, { status: 400 });

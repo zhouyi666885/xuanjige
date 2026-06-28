@@ -279,3 +279,36 @@ export async function listTombstones(): Promise<{ deletedIds: Set<string>; delet
   }
   return { deletedIds, deletedNames };
 }
+
+/**
+ * 删除一条墓碑记录（"复活"一本书）
+ * 当用户曾经删除一本书后又想重新使用时调用
+ */
+export async function removeTombstone(kind: "id" | "name", value: string): Promise<void> {
+  if (!value) return;
+  const client = getSupabaseClient();
+  const { error } = await client
+    .from("book_task_tombstones")
+    .delete()
+    .eq("kind", kind)
+    .eq("value", value);
+  if (error) {
+    throw new Error(`移除墓碑失败: ${error.message}`);
+  }
+}
+
+/**
+ * 一次性清空所有墓碑——慎用
+ */
+export async function clearAllTombstones(): Promise<number> {
+  const client = getSupabaseClient();
+  const { data, error } = await client
+    .from("book_task_tombstones")
+    .delete()
+    .neq("kind", "")
+    .select("kind");
+  if (error) {
+    throw new Error(`清空墓碑失败: ${error.message}`);
+  }
+  return Array.isArray(data) ? data.length : 0;
+}
