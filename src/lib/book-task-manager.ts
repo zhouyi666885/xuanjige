@@ -15,6 +15,7 @@ import { Config, LLMClient, SearchClient, FetchClient, FetchContentItem, Knowled
 import { isBookExists, addBookToKnowledgeBase, findBooksByName, getLocalBookInfo } from './fulltext-search';
 import { saveBook } from './book-storage';
 import { upsertTask as repoUpsertTask, listTasks as repoListTasks, deleteTask as repoDeleteTask, listTombstones as repoListTombstones, addTombstone as repoAddTombstone, getTaskByBookName as repoGetTaskByName, type BookTaskRow } from './book-repo';
+import { runFullDeepLearning, checkLearningArtifacts } from './deep-learning-pipeline';
 
 // ==================== 类型定义 ====================
 
@@ -2191,6 +2192,18 @@ async function processLearning(taskId: string, bookContent: string): Promise<voi
   if (processingLearningSet.has(taskId)) return;
   processingLearningSet.add(taskId);
 
+  // 🔴 防虚假完成守卫一：bookContent 为空或过短，不能"学"
+  if (!bookContent || bookContent.trim().length < 200) {
+    updateTask(taskId, {
+      learningStatus: 'failed',
+      learningProgress: 0,
+      learningMessage: `《${task.bookName}》没有真实全文内容（${bookContent?.length ?? 0} 字），无法深度学习。请先录入完整原文（必须 ≥200 字）。`,
+    });
+    addLog(taskId, `学习守卫拒绝：bookContent 长度 ${bookContent?.length ?? 0} < 200`);
+    processingLearningSet.delete(taskId);
+    return;
+  }
+
   updateTask(taskId, {
     learningStatus: 'learning',
     learningProgress: 0,
@@ -2264,6 +2277,8 @@ async function processLearning(taskId: string, bookContent: string): Promise<voi
     // 对每一块内容，AI进行4层理解：术语→逻辑→关联→应用
     const llmClient = new LLMClient(config);
     const learnedChunks: string[] = [];
+    // 🔴 平行数组：保留每块"原文 + 学习笔记"的结构化数据，供 6 阶段流水线使用
+    const learnedNotesArray: { index: number; original: string; learnedNotes: string }[] = [];
     let processedChunks = 0;
 
     for (let i = 0; i < totalChunks; i++) {
@@ -2331,6 +2346,12 @@ ${chunk}
       } else {
         learnedChunks.push(chunk);
       }
+      // 🔴 同步保存结构化学习数据，供后续 6 阶段流水线使用
+      learnedNotesArray.push({
+        index: i + 1,
+        original: chunk,
+        learnedNotes: learnedContent.trim() || '(本块 LLM 学习失败，无深度笔记)',
+      });
 
       processedChunks = i + 1;
       const progress = Math.floor((processedChunks / totalChunks) * 100);
@@ -2434,16 +2455,65 @@ ${chunk}
       }
     }
 
+    // ======== 第四步：6 阶段深度学习流水线（铁律）========
+    // 录入 ≠ 学会。在向量库写入完成的基础上，必须生成 6 个结构化产出文件才算真正学完。
+    addLog(taskId, `开始 6 阶段深度学习流水线（通读→理解→要点→逻辑→应用→融会）`);
+    updateTask(taskId, {
+      learningMessage: `开始 6 阶段深度学习：通读→理解→要点→逻辑→应用→融会...`,
+    });
+
+    const pipelineResult = await runFullDeepLearning({
+      taskId,
+      bookName: task.bookName,
+      learnedChunks: learnedNotesArray,
+      onStageProgress: (stageIndex, stageName, info) => {
+        const stageLayers = Array.from({ length: stageIndex }, (_, i) => i + 1);
+        updateTask(taskId, {
+          learningProgress: Math.min(99, 90 + Math.floor((stageIndex * 10) / 6)),
+          learningLayersDone: stageLayers,
+          learningMessage: `深度学习 ${stageIndex}/6 ${stageName}：${info}`,
+        });
+        addLog(taskId, `阶段 ${stageIndex}/6 ${stageName}: ${info}`);
+      },
+    });
+
+    // ======== 学习完成判据（铁律）========
+    // 6 阶段产出文件必须全部存在且非空（≥50B），否则学习失败
+    if (!pipelineResult.ok) {
+      updateTask(taskId, {
+        learningStatus: 'failed',
+        learningMessage: `深度学习失败：缺失阶段 [${pipelineResult.missing.join(',')}]，产出文件大小 ${pipelineResult.sizes.join(',')}B`,
+      });
+      addLog(taskId, `深度学习失败：6 阶段产出不完整，缺失阶段 ${pipelineResult.missing.join(',')}`);
+      processingLearningSet.delete(taskId);
+      return;
+    }
+
+    const c = pipelineResult.counts;
+    addLog(taskId, `6 阶段产出完成：术语 ${c.terms} / 规则 ${c.rules} / 算法 ${c.algorithms} / 案例 ${c.cases}`);
+
     // ======== 学习完成 ========
     updateTask(taskId, {
       learningStatus: 'done',
       learningProgress: 100,
       learningCurrentChunk: totalChunks,
       learningTotalChunks: totalChunks,
-      learningLayersDone: [1, 2, 3, 4],
-      learningMessage: `AI已深度学完《${task.bookName}》全部内容 (${totalChunks}块, 含术语理解+逻辑掌握+知识关联+应用方法)`,
+      learningLayersDone: [1, 2, 3, 4, 5, 6],
+      learningMessage: `AI已深度学完《${task.bookName}》：${totalChunks}块原文 + 6阶段产出（术语${c.terms}/规则${c.rules}/算法${c.algorithms}/案例${c.cases}）`,
     });
-    addLog(taskId, `深度学习完成: ${totalChunks}块 → ${tableName} (含4层学习笔记)`);
+    addLog(taskId, `深度学习完成: ${totalChunks}块 → ${tableName}（6阶段产出齐全）`);
+    // 🔴 持久化完成状态，进程重启后不会回退
+    const taskDone = tasks.get(taskId);
+    if (taskDone) {
+      syncLocalLearnStatus(taskDone.bookName, {
+        learningStatus: 'done',
+        learningProgress: 100,
+        learningCurrentChunk: totalChunks,
+        learningTotalChunks: totalChunks,
+        learningLayersDone: [1, 2, 3, 4, 5, 6],
+        learningMessage: taskDone.learningMessage,
+      });
+    }
 
   } catch (e) {
     const errMsg = e instanceof Error ? e.message : String(e);
