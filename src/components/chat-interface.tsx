@@ -23,6 +23,8 @@ export function ChatInterface({ open, onClose }: ChatInterfaceProps) {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<'casual' | 'professional'>('casual');
+  const [deepMode, setDeepMode] = useState<boolean>(true);
+  const [progressLabel, setProgressLabel] = useState<string>('');
   const [birthInfo, setBirthInfoState] = useState<BirthInfo | null>(null);
   const [showBirthForm, setShowBirthForm] = useState(false);
 
@@ -74,9 +76,11 @@ export function ChatInterface({ open, onClose }: ChatInterfaceProps) {
 
     const assistantMessage: Message = { role: 'assistant', content: '' };
     setMessages([...newMessages, assistantMessage]);
+    setProgressLabel(deepMode ? '🔍 准备翻阅知识库每一本书...' : '');
 
     try {
-      const response = await fetch('/api/chat', {
+      const endpoint = deepMode ? '/api/chat-deep' : '/api/chat';
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -118,8 +122,22 @@ export function ChatInterface({ open, onClose }: ChatInterfaceProps) {
             if (data === '[DONE]') continue;
             try {
               const parsed = JSON.parse(data);
-              if (parsed.content) {
-                accumulated += parsed.content;
+              // Map-Reduce 进度事件
+              if (parsed.type === 'progress' && typeof parsed.message === 'string') {
+                setProgressLabel(parsed.message);
+                continue;
+              }
+              if (parsed.type === 'meta') {
+                // 可选展示元信息
+                continue;
+              }
+              if (parsed.type === 'done') {
+                setProgressLabel('');
+                continue;
+              }
+              const chunk = parsed.type === 'chunk' ? parsed.content : parsed.content;
+              if (typeof chunk === 'string' && chunk.length > 0) {
+                accumulated += chunk;
                 setMessages(prev => {
                   const updated = [...prev];
                   updated[updated.length - 1] = { role: 'assistant', content: accumulated };
@@ -141,8 +159,9 @@ export function ChatInterface({ open, onClose }: ChatInterfaceProps) {
       });
     } finally {
       setLoading(false);
+      setProgressLabel('');
     }
-  }, [input, loading, messages, mode, birthInfo]);
+  }, [input, loading, messages, mode, deepMode, birthInfo]);
 
   if (!sheetOpen) return null;
 
@@ -164,6 +183,16 @@ export function ChatInterface({ open, onClose }: ChatInterfaceProps) {
           </div>
         </div>
         <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1">
+            <Switch
+              id="deep-switch"
+              checked={deepMode}
+              onCheckedChange={(checked: boolean) => setDeepMode(checked)}
+            />
+            <Label htmlFor="deep-switch" className="text-xs text-muted-foreground">
+              {deepMode ? '🔥深读' : '快速'}
+            </Label>
+          </div>
           <div className="flex items-center gap-1">
             <Switch
               id="mode-switch"
@@ -280,6 +309,13 @@ export function ChatInterface({ open, onClose }: ChatInterfaceProps) {
             </div>
           </div>
         ))}
+        {loading && progressLabel && (
+          <div className="flex justify-start">
+            <div className="max-w-[85%] rounded-2xl px-4 py-2 text-xs leading-relaxed bg-gold/5 border border-gold/20 text-gold/80 italic">
+              {progressLabel}
+            </div>
+          </div>
+        )}
         <div ref={messagesEndRef} />
       </div>
 

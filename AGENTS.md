@@ -31,11 +31,13 @@
 │   │   ├── add-book/page.tsx     # 添加书籍（输入书名自动搜索入库）
 │   │   ├── knowledge-base/page.tsx # 知识库（查看/搜索/删除已录入书籍）
 │   │   └── api/
-│   │       ├── chat/route.ts     # AI 问答（流式 SSE）
+│   │       ├── chat/route.ts     # AI 问答（流式 SSE，快速模式）
+│   │       ├── chat-deep/route.ts # AI 深度问答（Map-Reduce 全量遍历知识库，SSE）
 │   │       ├── face-reading/route.ts  # 面相分析（流式 SSE）
 │   │       ├── palm-reading/route.ts  # 手相分析（流式 SSE）
 │   │       ├── divination/route.ts    # 通用测算（流式 SSE）
 │   │       ├── add-book/route.ts      # 添加书籍（搜索+下载+翻译+入库，SSE流式）
+│   │       ├── upload-book/route.ts   # 上传本地书籍文件（multipart，秒级入库，txt/md/pdf/docx/doc）
 │   │       ├── knowledge-base/route.ts # 知识库（列出+搜索+删除书籍）
 │   │       └── feedback/route.ts     # 预测验证反馈
 │   ├── components/
@@ -62,6 +64,8 @@
 │       ├── book-task-manager.ts  # 书籍录入后台任务管理器（持久化+自动恢复+章节识别）
 │       ├── book-storage.ts       # S3对象存储封装（本地缓存+S3双层架构）
 │       ├── fulltext-search.ts    # 全文检索模块（1291本完整书籍+搜索+去重+增删）
+│       ├── knowledge-prescreen.ts # 知识库智能预筛（关键词+同义词扩展→四档分级 high/medium/low/sample）
+│       ├── map-reduce-search.ts  # Map-Reduce 全量遍历协调器（分批 LLM 精读→流式 progress→Reduce 合成）
 │       └── utils.ts
 ```
 
@@ -78,7 +82,8 @@
 - 详见 DESIGN.md
 
 ## API 接口
-1. POST /api/chat - AI 玄学问答（SSE 流式）
+1. POST /api/chat - AI 玄学问答（SSE 流式，快速模式）
+2. POST /api/chat-deep - AI 深度问答（SSE 流式，Map-Reduce 全量遍历每一本书）
 2. POST /api/face-reading - 面相分析（SSE 流式，支持图片）
 3. POST /api/palm-reading - 手相分析（SSE 流式，支持图片）
 4. POST /api/divination - 通用测算（SSE 流式，type 参数区分测算类型）
@@ -88,6 +93,8 @@
 8. GET /api/add-book - 查询知识库书籍数量
 9. GET /api/knowledge-base - 获取知识库书籍列表（支持search分页）
 10. DELETE /api/knowledge-base - 从知识库删除书籍
+11. POST /api/upload-book - 上传本地书籍文件（multipart，最多50个文件，秒级入库）
+12. GET /api/upload-book - 查询上传接口元数据
 
 ## 代码规范
 - 严格 TypeScript，禁止隐式 any
@@ -117,7 +124,16 @@
 - `classic-knowledge.ts`: 分类知识库，手动编辑的核心论断
 - `extended-classic-knowledge.ts`: 扩展知识库，全部书籍核心论断
 - `knowledge-search.ts`: 语义搜索（向量化检索）
+- `knowledge-prescreen.ts`: 智能预筛模块（关键词+同义词扩展 → 评分 → 四档分级 high/medium/low/sample，确保兜底覆盖每一本书）
+- `map-reduce-search.ts`: Map-Reduce 协调器（分批并行精读 → 流式 progress 事件 → Reduce 合成最终答案，突破 context window 物理限制）
 - `knowledge.ts`: 提示词体系+26步AI分析框架
+
+## Map-Reduce 深度问答流程（chat-deep）
+1. **Prescreen**：拉取所有书名 → 关键词+同义词扩展 → 评分分级（high/medium/low），低于阈值的也做兜底抽样
+2. **Map**：按相关度分批 LLM 精读各批书的全文，每批输出引用清单
+3. **Reduce**：合并所有批次的引用 → LLM 综合输出最终答案（流式 chunk）
+4. **SSE 事件序列**：`progress`（预筛/各批进度/Reduce）→ `meta`（citations + 元信息）→ `chunk` × N → `done`
+5. **铁律保障**：searchFullTextAsync(query, 0, 0, 0) 四个 0 不限制 + Map-Reduce 全量遍历，绝不因为 context window 而省略
 
 ## AI 分析框架（knowledge.ts 提示词体系）
 - 26步AI学习路径：从身份定位到持续迭代
