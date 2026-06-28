@@ -11,6 +11,7 @@
 import fs from 'fs';
 import path from 'path';
 import { Config, LLMClient, SearchClient, FetchClient, FetchContentItem, KnowledgeClient } from '@/lib/coze-replacement';
+import { DATA_SOURCES } from '@/lib/coze-replacement/known-book-sources';
 // eslint-disable-next-line import/no-cycle
 import { isBookExists, addBookToKnowledgeBase, findBooksByName, getLocalBookInfo } from './fulltext-search';
 import { saveBook } from './book-storage';
@@ -1182,6 +1183,12 @@ async function processTask(taskId: string): Promise<void> {
       'wiktionary.org',                     // Wiktionary
       'fileformat.info',                    // 文件格式
       'unicode.org',                        // Unicode
+      // 🟢 合并新增 502 个数据源的域名（自动去重）
+      ...Array.from(new Set(
+        DATA_SOURCES.map((s) => {
+          try { return new URL(s.baseUrl).hostname.replace(/^www\./, ''); } catch { return ''; }
+        }).filter((d): d is string => Boolean(d))
+      )),
     ];
 
     // ⚡ 用户规则：搜索只用书名，不拼接任何关键词
