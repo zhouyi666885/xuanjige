@@ -112,6 +112,31 @@ export async function GET(request: NextRequest) {
     // 防御性去重：避免任何上游脏数据导致同名书重复显示
     let books = Array.from(new Set(stats.bookNames));
 
+    // 🔴🔴🔴 关键修复：把 book_tasks 表中所有未删除/未清除的任务也合并到 books 列表
+    // 修复 bug：用户添加书后退出页面，所有"还在搜索/录入/学习中"的书全部消失
+    // 因为 stats.bookNames 只来自"已录入完成"的全文检索缓存，
+    // searching / searched / entering / learning / failed 状态的任务全部不展示！
+    try {
+      const allDbTasksForMerge = await listTasks();
+      const taskOnlyNames = new Set<string>();
+      for (const t of allDbTasksForMerge) {
+        const status = (t.status || '').toLowerCase();
+        // cleared = 用户主动删除，不再展示
+        // 其他所有状态（pending/searching/searched/entering/done/failed）都要显示
+        if (status === 'cleared') continue;
+        const name = (t.book_name || '').trim();
+        if (!name) continue;
+        taskOnlyNames.add(name);
+      }
+      // 合并到 books（去重）
+      const existingSet = new Set(books);
+      for (const n of taskOnlyNames) {
+        if (!existingSet.has(n)) books.push(n);
+      }
+    } catch (e) {
+      console.warn('[GET /api/knowledge-base] 合并 task 书名失败:', e instanceof Error ? e.message : e);
+    }
+
     // 搜索过滤
     if (searchQuery) {
       const queryLower = searchQuery.toLowerCase();
@@ -193,6 +218,21 @@ export async function GET(request: NextRequest) {
       if (!existing || taskPriority(t.learningStatus) > taskPriority(existing.learningStatus)) {
         taskMap.set(t.bookName, t);
       }
+    }
+
+    // 🔴 新增：录入阶段状态 map（task.status：pending/searching/searched/entering/done/failed/cleared）
+    // 用于前端展示"搜索中""录入中"等真实进度（区别于 learning_status 学习阶段）
+    const entryStatusMap = new Map<string, BookTaskRow>();
+    try {
+      const allDbTasksForEntry = await listTasks();
+      for (const t of allDbTasksForEntry) {
+        // 同名多任务时取最新 created_at（listTasks 已 DESC，首个最新）
+        if (!entryStatusMap.has(t.book_name)) {
+          entryStatusMap.set(t.book_name, t as BookTaskRow);
+        }
+      }
+    } catch {
+      // 静默：前面已警告
     }
     // 🔴 latestTaskMap：按 createdAt 取最新 task，专用于"缺章/录入状态"
     // 解决 bug：用户补回缺章后，旧 task 的 missingChapterNames 永远 sticky
@@ -302,12 +342,26 @@ export async function GET(request: NextRequest) {
       const hasMissing = missingNames.length > 0;
       const learningCurChapter = (dbTask?.learning_current_chapter ?? task?.learningCurrentChapter ?? 0) || 0;
       const learningCurChapterName = dbTask?.learning_current_chapter_name ?? task?.learningCurrentChapterName ?? '';
+
+      // 🔴 录入阶段状态：让用户看到"搜索中""录入中""失败"等真实进度
+      const entryRow = entryStatusMap.get(name);
+      const entryStatus = entryRow?.status || (learnStatus?.learned ? 'done' : 'unknown');
+      const entryProgress = entryRow?.progress ?? (learnStatus?.learned ? 100 : 0);
+      const entryMessage = entryRow?.message || '';
+      // 真实"已录入完成"：必须 book 在全文检索 stats.bookNames 中（即 books 表存在）
+      const reallyInLibrary = stats.bookNames.includes(name);
+
       return {
         name,
         category,
         learned: finalLearningStatus === 'done' || (learnStatus?.learned ?? false),
         learnedAt: learnStatus?.learnedAt ?? (task?.completedAt ?? null),
         charCount: learnStatus?.charCount ?? 0,
+        // 🔴 录入阶段（task.status）：让前端跨页面看到"搜索中/录入中/失败"
+        entryStatus,
+        entryProgress,
+        entryMessage,
+        reallyInLibrary,
         learningStatus: finalLearningStatus,
         learningProgress: finalLearningProgress,
         learningCurrentChunk: finalLearningCurrentChunk,

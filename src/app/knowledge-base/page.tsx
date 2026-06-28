@@ -9,6 +9,11 @@ interface BookInfo {
   learned: boolean;
   learnedAt: number | null;
   charCount: number;
+  // 录入阶段（task.status）：pending/searching/searched/entering/done/failed/unknown
+  entryStatus?: string;
+  entryProgress?: number;
+  entryMessage?: string;
+  reallyInLibrary?: boolean;
   learningStatus: 'pending' | 'learning' | 'done';
   learningProgress: number;
   learningCurrentChunk: number;
@@ -461,6 +466,34 @@ export default function KnowledgeBasePage() {
                       <h3 className="text-sm text-[#e8e0d0] truncate font-medium">
                         《{book.name}》
                       </h3>
+                      {/* 🔴 录入阶段标签：只在书还没真正入库时显示，让用户知道"还在搜索/录入" */}
+                      {!book.reallyInLibrary && book.entryStatus === 'searching' && (
+                        <span className="text-[10px] bg-blue-500/10 text-blue-400 px-1.5 py-0.5 rounded-full flex-shrink-0 border border-blue-500/20 inline-flex items-center gap-1">
+                          <span className="inline-block w-1.5 h-1.5 bg-blue-400 rounded-full animate-pulse" />
+                          搜索中
+                        </span>
+                      )}
+                      {!book.reallyInLibrary && book.entryStatus === 'searched' && (
+                        <span className="text-[10px] bg-purple-500/10 text-purple-400 px-1.5 py-0.5 rounded-full flex-shrink-0 border border-purple-500/20">
+                          已搜到，待录入
+                        </span>
+                      )}
+                      {!book.reallyInLibrary && book.entryStatus === 'entering' && (
+                        <span className="text-[10px] bg-indigo-500/10 text-indigo-400 px-1.5 py-0.5 rounded-full flex-shrink-0 border border-indigo-500/20 inline-flex items-center gap-1">
+                          <span className="inline-block w-1.5 h-1.5 bg-indigo-400 rounded-full animate-pulse" />
+                          录入中
+                        </span>
+                      )}
+                      {!book.reallyInLibrary && book.entryStatus === 'pending' && (
+                        <span className="text-[10px] bg-gray-500/10 text-gray-400 px-1.5 py-0.5 rounded-full flex-shrink-0 border border-gray-500/20">
+                          排队中
+                        </span>
+                      )}
+                      {!book.reallyInLibrary && book.entryStatus === 'failed' && (
+                        <span className="text-[10px] bg-red-500/10 text-red-400 px-1.5 py-0.5 rounded-full flex-shrink-0 border border-red-500/20">
+                          录入失败
+                        </span>
+                      )}
                       {book.learningStatus === 'done' && (
                         <span className="text-[10px] bg-[#4ade80]/10 text-[#4ade80] px-1.5 py-0.5 rounded-full flex-shrink-0 border border-[#4ade80]/20">
                           已深度学习
@@ -472,7 +505,7 @@ export default function KnowledgeBasePage() {
                           深度学习中
                         </span>
                       )}
-                      {book.learningStatus === 'pending' && (
+                      {book.learningStatus === 'pending' && book.reallyInLibrary && (
                         <span className="text-[10px] bg-[#5a5a6e]/10 text-[#5a5a6e] px-1.5 py-0.5 rounded-full flex-shrink-0 border border-[#5a5a6e]/20">
                           待学习
                         </span>
