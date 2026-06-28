@@ -10,6 +10,7 @@
  */
 import axios from 'axios';
 import type { Config } from './config';
+import { aggregateBookSearch, toWebSearchItems } from './book-search-api';
 import { localPublicDomainSearch } from './local-search';
 
 export interface WebSearchItem {
@@ -76,6 +77,30 @@ export class SearchClient {
         );
       } catch (err) {
         console.error(`[SearchClient][local-fallback] 失败:`, (err as Error).message);
+      }
+    }
+
+    // 3. 🟢 终极兜底：Open Library + Google Books 聚合（免费公开 API，无反爬）
+    //    搜索引擎已彻底移除，这是当前唯一稳定能拿到书籍元数据的真实来源
+    if (items.length < count) {
+      try {
+        const books = await aggregateBookSearch(query, count - items.length);
+        const apiItems = toWebSearchItems(books);
+        const seen = new Set(items.map((x) => x.url));
+        for (const it of apiItems) {
+          if (it.url && !seen.has(it.url)) {
+            items.push(it);
+            seen.add(it.url);
+          }
+        }
+        console.log(
+          `[SearchClient][book-api-fallback] 叠加 ${apiItems.length} 条（Open Library + Google Books），最终 ${items.length} 条`,
+        );
+      } catch (err) {
+        console.error(
+          `[SearchClient][book-api-fallback] 失败:`,
+          (err as Error).message,
+        );
       }
     }
 
