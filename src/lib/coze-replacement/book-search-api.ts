@@ -64,7 +64,9 @@ export interface BookMetadata {
  * 如果配置了 BOOK_SEARCH_API_URL，会**优先**通过这个代理调用海外 API（Open Library + Google Books）
  * 优势：境外服务器有海外网络出口，大陆 VPS 可直连境外服务器拿到结果
  */
-const PROXY_URL = (process.env.BOOK_SEARCH_API_URL || '').replace(/\/+$/, '');
+// 优先读环境变量；读不到时使用代码内置的境外代理地址（用户已部署在境外服务器）
+const DEFAULT_PROXY_URL = 'http://47.239.193.55:5000';
+const PROXY_URL = (process.env.BOOK_SEARCH_API_URL || DEFAULT_PROXY_URL).replace(/\/+$/, '');
 
 export async function searchViaProxy(
   query: string,

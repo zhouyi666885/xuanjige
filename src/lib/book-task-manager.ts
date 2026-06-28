@@ -2330,8 +2330,11 @@ async function generateBookContentByLLM(bookName: string, taskId: string): Promi
   ], { temperature: 0.3 });
 
   const tocContent = (tocResp.content || '').trim();
-  if (!tocContent || tocContent.length < 30 || /^不知道/.test(tocContent) || /(无法|不熟悉|没有见过|不存在|抱歉)/.test(tocContent.slice(0, 50))) {
-    addLog(taskId, `[LLM兜底] LLM 表示不知道这本书`);
+  // 只在明确表示"不知道"且没有任何章节列表时放弃；其他情况都继续尝试
+  const looksLikeReject = /^(不知道|抱歉|对不起|我不熟悉|无法[^一-龥]|没有[^一-龥])/.test(tocContent.slice(0, 30))
+    && !/[一二三四五六七八九十\d]+[卷章篇]/.test(tocContent);
+  if (!tocContent || tocContent.length < 30 || looksLikeReject) {
+    addLog(taskId, `[LLM兜底] LLM 拒答或不熟悉：${tocContent.slice(0, 100)}`);
     return '';
   }
 
