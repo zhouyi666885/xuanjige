@@ -75,14 +75,39 @@ function extractBookNameFromContent(content: string): string | null {
   return null;
 }
 
-/** 解析 PDF */
+/** 解析 PDF（兼容 pdf-parse v2.x 的 `new PDFParse({ data }).getText()` API） */
 async function parsePdf(buffer: Buffer): Promise<string> {
-  const pdfParseMod = (await import('pdf-parse')) as unknown as {
+  const mod = (await import('pdf-parse')) as unknown as {
+    PDFParse?: new (opts: { data: Uint8Array | Buffer }) => {
+      getText: () => Promise<{ text: string }>;
+      destroy: () => Promise<void>;
+    };
     default?: (data: Buffer) => Promise<{ text: string }>;
   };
-  const pdfParse = pdfParseMod.default ?? (pdfParseMod as unknown as (data: Buffer) => Promise<{ text: string }>);
-  const data = await pdfParse(buffer);
-  return data.text || '';
+
+  // 优先走 v2 新 API
+  if (mod.PDFParse) {
+    const parser = new mod.PDFParse({ data: new Uint8Array(buffer) });
+    try {
+      const result = await parser.getText();
+      return result.text || '';
+    } finally {
+      try {
+        await parser.destroy();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  // 兜底兼容 v1 旧 API
+  const legacy = mod.default ?? (mod as unknown as (data: Buffer) => Promise<{ text: string }>);
+  if (typeof legacy === 'function') {
+    const data = await legacy(buffer);
+    return data.text || '';
+  }
+
+  throw new Error('pdf-parse 模块加载失败：未找到 PDFParse 类或默认导出函数');
 }
 
 /** 解析 docx */
