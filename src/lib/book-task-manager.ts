@@ -1503,8 +1503,21 @@ async function processTask(taskId: string): Promise<void> {
     let resultsInCurrentCycle = 0;
     let consecutiveEmptyCycles = 0;
 
+    // 🚀🚀🚀 快速通道（默认开启）：
+    // 大陆 VPS 对外网搜索引擎被反爬封锁，21 轮搜索循环注定 0 来源（每轮还要等 1.5s × N query × 12s timeout）
+    // 浪费 5-10 分钟时间换 0 收益，毫无意义。
+    // 通过 SKIP_FUTILE_SEARCH=false 可强制走完整 21 轮（仅用于调试）
+    const SKIP_FUTILE_SEARCH = (process.env.SKIP_FUTILE_SEARCH ?? 'true') !== 'false';
+    if (SKIP_FUTILE_SEARCH) {
+      addLog(taskId, `[快速通道] 大陆 VPS 搜索引擎已被反爬封锁，跳过 ${TOTAL_ROUNDS} 轮无效搜索循环，直接进兜底层（已知数据源 + LLM 知识兜底）`);
+      updateTask(taskId, {
+        message: `🚀 跳过 ${TOTAL_ROUNDS} 轮无效搜索，直接启用 LLM 知识兜底（已知数据源 + 大模型背诵）...`,
+        progress: 2,
+      });
+    }
+
     // 🔴🔴🔴 退出条件：跑完一个完整 cycle 且本轮无新结果（真正穷尽全网）
-    while (consecutiveEmptyCycles < 1) {
+    while (!SKIP_FUTILE_SEARCH && consecutiveEmptyCycles < 1) {
       // 🔴 检查暂停/取消
       const checkResult = checkTaskControl(taskId);
       if (checkResult === 'cancelled') return;
