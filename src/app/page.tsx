@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { CameraCapture } from '@/components/camera-capture';
 import { ChatInterface } from '@/components/chat-interface';
 import { ReadingResult } from '@/components/reading-result';
-import { CopyrightNotice } from '@/components/copyright-notice';
 
 interface ReadingState {
   type: 'face' | 'palm';
@@ -47,8 +46,6 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      {/* Copyright Notice - shows once per session */}
-      <CopyrightNotice />
       {/* Hero Section with Camera Buttons */}
       <section className="relative px-4 pt-12 pb-8">
         <div className="absolute inset-0 bg-gradient-to-b from-gold/5 via-transparent to-transparent pointer-events-none" />
@@ -190,13 +187,13 @@ export default function Home() {
           </h2>
           <div className="space-y-2">
             <Link
-              href="/add-book"
+              href="/upload-book"
               className="w-full flex items-center gap-4 p-3 bg-gradient-to-r from-gold/10 to-gold/5 border border-gold/20 rounded-xl hover:border-gold/40 hover:bg-gold/10 transition-all duration-300 group"
             >
-              <span className="text-2xl group-hover:scale-110 transition-transform">➕</span>
+              <span className="text-2xl group-hover:scale-110 transition-transform">📤</span>
               <div className="flex-1 text-left">
-                <span className="text-gold text-sm font-bold">添加书籍</span>
-                <span className="text-muted-foreground text-xs ml-2">输入书名，自动搜索入库</span>
+                <span className="text-gold text-sm font-bold">上传书籍</span>
+                <span className="text-muted-foreground text-xs ml-2">拖拽 txt/pdf/docx，秒级入库</span>
               </div>
               <span className="text-gold/30 text-sm">›</span>
             </Link>
@@ -236,9 +233,9 @@ export default function Home() {
             <span className="text-xl">📷</span>
             <span className="text-[10px]">拍照</span>
           </button>
-          <Link href="/add-book" className="flex flex-col items-center gap-0.5 text-muted-foreground hover:text-gold py-1 px-4 transition-colors">
-            <span className="text-xl">➕</span>
-            <span className="text-[10px]">添书</span>
+          <Link href="/upload-book" className="flex flex-col items-center gap-0.5 text-muted-foreground hover:text-gold py-1 px-4 transition-colors">
+            <span className="text-xl">📤</span>
+            <span className="text-[10px]">上传</span>
           </Link>
         </div>
       </nav>

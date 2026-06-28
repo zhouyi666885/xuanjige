@@ -28,7 +28,7 @@
 │   │   ├── fengshui/page.tsx     # 风水地理
 │   │   ├── xingming/page.tsx     # 姓名测算
 │   │   ├── classics/page.tsx     # 经典书房
-│   │   ├── add-book/page.tsx     # 添加书籍（输入书名自动搜索入库）
+│   │   ├── upload-book/page.tsx  # 上传本地书籍文件（拖拽 txt/pdf/docx，秒级入库）
 │   │   ├── knowledge-base/page.tsx # 知识库（查看/搜索/删除已录入书籍）
 │   │   └── api/
 │   │       ├── chat/route.ts     # AI 问答（流式 SSE，快速模式）
@@ -36,7 +36,6 @@
 │   │       ├── face-reading/route.ts  # 面相分析（流式 SSE）
 │   │       ├── palm-reading/route.ts  # 手相分析（流式 SSE）
 │   │       ├── divination/route.ts    # 通用测算（流式 SSE）
-│   │       ├── add-book/route.ts      # 添加书籍（搜索+下载+翻译+入库，SSE流式）
 │   │       ├── upload-book/route.ts   # 上传本地书籍文件（multipart，秒级入库，txt/md/pdf/docx/doc）
 │   │       ├── knowledge-base/route.ts # 知识库（列出+搜索+删除书籍）
 │   │       └── feedback/route.ts     # 预测验证反馈
@@ -84,17 +83,15 @@
 ## API 接口
 1. POST /api/chat - AI 玄学问答（SSE 流式，快速模式）
 2. POST /api/chat-deep - AI 深度问答（SSE 流式，Map-Reduce 全量遍历每一本书）
-2. POST /api/face-reading - 面相分析（SSE 流式，支持图片）
-3. POST /api/palm-reading - 手相分析（SSE 流式，支持图片）
-4. POST /api/divination - 通用测算（SSE 流式，type 参数区分测算类型）
-5. POST /api/feedback - 预测验证反馈（JSON，收集用户验证结果用于AI进化）
-6. GET /api/feedback - 查询反馈统计（JSON，返回准确率统计）
-7. POST /api/add-book - 添加书籍到知识库（SSE流式，输入书名→搜索→下载→翻译→入库）
-8. GET /api/add-book - 查询知识库书籍数量
-9. GET /api/knowledge-base - 获取知识库书籍列表（支持search分页）
-10. DELETE /api/knowledge-base - 从知识库删除书籍
-11. POST /api/upload-book - 上传本地书籍文件（multipart，最多50个文件，秒级入库）
-12. GET /api/upload-book - 查询上传接口元数据
+3. POST /api/face-reading - 面相分析（SSE 流式，支持图片）
+4. POST /api/palm-reading - 手相分析（SSE 流式，支持图片）
+5. POST /api/divination - 通用测算（SSE 流式，type 参数区分测算类型）
+6. POST /api/feedback - 预测验证反馈（JSON，收集用户验证结果用于AI进化）
+7. GET /api/feedback - 查询反馈统计（JSON，返回准确率统计）
+8. GET /api/knowledge-base - 获取知识库书籍列表（支持search分页）
+9. DELETE /api/knowledge-base - 从知识库删除书籍
+10. POST /api/upload-book - 上传本地书籍文件（multipart，最多50个文件，秒级入库）
+11. GET /api/upload-book - 查询上传接口元数据
 
 ## 代码规范
 - 严格 TypeScript，禁止隐式 any

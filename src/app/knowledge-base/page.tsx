@@ -668,10 +668,10 @@ export default function KnowledgeBasePage() {
         {/* 底部入口 */}
         <div className="pt-2 pb-6">
           <button
-            onClick={() => router.push('/add-book')}
+            onClick={() => router.push('/upload-book')}
             className="w-full bg-gradient-to-r from-[#d4a853]/10 to-[#d4a853]/5 border border-[#d4a853]/20 rounded-xl p-3 text-[#d4a853] font-bold text-sm hover:border-[#d4a853]/40 hover:from-[#d4a853]/20 transition-all"
           >
-            ➕ 添加更多书籍
+            📤 上传更多书籍
           </button>
         </div>
       </div>
