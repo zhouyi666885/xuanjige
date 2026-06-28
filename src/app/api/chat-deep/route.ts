@@ -23,6 +23,7 @@ import { NextRequest } from 'next/server';
 import { Config, LLMClient } from '@/lib/coze-replacement';
 import { mapReduceKnowledgeSearch } from '@/lib/map-reduce-search';
 import { searchFullTextAsync } from '@/lib/fulltext-search';
+import { cozeKnowledgeSearch, type CozeKnowledgeChunk } from '@/lib/coze-knowledge';
 import {
   buildSystemPromptProfessional,
   buildSystemPromptCasual,
@@ -83,10 +84,13 @@ export async function POST(req: NextRequest) {
           send({
             type: 'progress',
             stage: 'prescreen',
-            message: '📚 原文模式：直接从知识库检索（零成本，不调 LLM）...',
+            message: '📚 原文模式：从你的「AI 宗师方法论库」+ 本地典籍中检索（零成本，不调 LLM）...',
           });
 
-          // 全库无限制检索（四个 0 = 不限书数、不限段数、不限字数、不截断）
+          // ---- ① 调用 Coze Knowledge Base 召回方法论 / 分析框架 ----
+          const cozeChunks: CozeKnowledgeChunk[] = await cozeKnowledgeSearch(message, 8, 0.3);
+
+          // ---- ② 全库无限制检索本地典籍（四个 0 = 不限书数、不限段数、不限字数、不截断）----
           const passages = await searchFullTextAsync(message, 0, 0, 0);
 
           // 按书名聚合，便于按出处分组列出
@@ -119,7 +123,7 @@ export async function POST(req: NextRequest) {
             mode: 'raw',
           });
 
-          if (passages.length === 0) {
+          if (passages.length === 0 && cozeChunks.length === 0) {
             const tip =
               `📭 **知识库中未检索到与"${message}"相关的内容**\n\n` +
               `可能原因：\n` +
@@ -138,13 +142,50 @@ export async function POST(req: NextRequest) {
 
           // ---- 按出处分组流式推送 ----
           const header =
-            `# 📚 知识库原文检索结果\n\n` +
+            `# 📚 知识库检索结果\n\n` +
             `**问题**：${message}\n` +
-            `**命中**：${bookMap.size} 本典籍 · ${passages.length} 个段落\n` +
-            `**模式**：原文检索（零成本，不调 LLM，全部内容均来自你上传的知识库）\n\n---\n\n`;
+            `**命中**：${cozeChunks.length} 条 AI 宗师方法论 · ${bookMap.size} 本典籍 · ${passages.length} 个原文段落\n` +
+            `**模式**：原文检索（零成本，不调 LLM，全部内容均来自你录入的知识库）\n\n---\n\n`;
 
           for (const piece of header.split(/(?<=\n)/)) {
             if (piece) send({ type: 'chunk', content: piece });
+          }
+
+          // ---- A. 先输出「AI 宗师方法论」（来自 Coze Knowledge Base）----
+          if (cozeChunks.length > 0) {
+            const methodHeader =
+              `## 🌟 AI 宗师分析框架（来自你的方法论知识库）\n\n` +
+              `> 以下内容是你自定义的"AI 宗师思维框架 / 分析方法论 / 核心知识点"，` +
+              `用于指导命理深度分析的标准与思路。\n\n`;
+            for (const piece of methodHeader.split(/(?<=\n)/)) {
+              if (piece) send({ type: 'chunk', content: piece });
+            }
+
+            let mIdx = 0;
+            for (const c of cozeChunks) {
+              mIdx += 1;
+              const titleMatch = c.content.match(/^[\s\S]*?【[^】]+】([^\n]+)/);
+              const title = titleMatch ? titleMatch[1].trim() : `方法论 ${mIdx}`;
+              const block =
+                `### 📜 ${mIdx}. ${title}\n\n` +
+                `> ${c.content.replace(/\n/g, '\n> ')}\n\n` +
+                `*相关度：${(c.score * 100).toFixed(0)}%*\n\n`;
+              for (const line of block.split(/(?<=\n)/)) {
+                if (line) send({ type: 'chunk', content: line });
+              }
+            }
+
+            send({ type: 'chunk', content: '\n---\n\n' });
+          }
+
+          // ---- B. 再输出本地典籍原文 ----
+          if (bookMap.size > 0) {
+            const booksHeader =
+              `## 📚 典籍原文引证（来自你上传的本地知识库）\n\n` +
+              `> 以下是与问题相关的典籍原文段落，**逐字引用，未经任何 AI 改写**。\n\n`;
+            for (const piece of booksHeader.split(/(?<=\n)/)) {
+              if (piece) send({ type: 'chunk', content: piece });
+            }
           }
 
           let bookIdx = 0;
@@ -176,8 +217,14 @@ export async function POST(req: NextRequest) {
           }
 
           const footer =
-            `\n---\n\n📌 **以上全部内容均来自你录入知识库的原始典籍，未经任何 LLM 改写或推测**。\n` +
-            `如需 AI 综合分析，请切换到「🔥 深读」或「🟢 快速」模式（需配置 LLM API Key）。`;
+            `\n---\n\n` +
+            `📌 **以上全部内容均来自你的「AI 宗师方法论库」+ 本地典籍**，` +
+            `未经任何外部 LLM 改写或推测。\n\n` +
+            (cozeChunks.length > 0 && bookMap.size > 0
+              ? `💡 **建议**：上方"AI 宗师分析框架"提供的是你定义的思考维度和方法论，` +
+                `下方"典籍原文"提供的是经典论断，结合两者即可得到完整答案。\n`
+              : '') +
+            `\n如需 AI 自动综合分析，请切换到「🔥 深读」（需配置 LLM API Key）。`;
           for (const piece of footer.split(/(?<=\n)/)) {
             if (piece) send({ type: 'chunk', content: piece });
           }

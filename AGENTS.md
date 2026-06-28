@@ -82,7 +82,7 @@
 
 ## API 接口
 1. POST /api/chat - AI 玄学问答（SSE 流式，快速模式）
-2. POST /api/chat-deep - AI 深度问答（SSE 流式，三态：📚原文模式 noLLM=true 零成本纯检索 / 🔥深读 Map-Reduce LLM 全库精读 / 🟢快速 走 /api/chat）
+2. POST /api/chat-deep - AI 深度问答（SSE 流式，三态：📚原文模式 noLLM=true 零成本纯检索 / 🔥深读 Map-Reduce LLM 全库精读 / 🟢快速 走 /api/chat）。原文+深读均已接入 Coze Knowledge Base（AI 宗师方法论），无 LLM Key 时自动降级为原文模式
 3. POST /api/face-reading - 面相分析（SSE 流式，支持图片）
 4. POST /api/palm-reading - 手相分析（SSE 流式，支持图片）
 5. POST /api/divination - 通用测算（SSE 流式，type 参数区分测算类型）
@@ -129,6 +129,7 @@
 - `knowledge-search.ts`: 语义搜索（向量化检索）
 - `knowledge-prescreen.ts`: 智能预筛模块（关键词+同义词扩展 → 评分 → 四档分级 high/medium/low/sample，确保兜底覆盖每一本书）
 - `map-reduce-search.ts`: Map-Reduce 协调器（分批并行精读 → 流式 progress 事件 → Reduce 合成最终答案，突破 context window 物理限制）
+- `coze-knowledge.ts`: Coze Knowledge Base SDK 封装（语义向量检索，召回用户自定义的 AI 宗师方法论/分析框架/核心知识点）
 - `knowledge.ts`: 提示词体系+26步AI分析框架
 
 ## Map-Reduce 深度问答流程（chat-deep）
