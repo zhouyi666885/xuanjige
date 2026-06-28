@@ -144,8 +144,9 @@ export async function GET() {
         })),
     });
   } catch (error) {
+    console.error('[add-book GET] failed:', error);
     return NextResponse.json(
-      { error: '获取任务列表失败' },
+      { error: '获取任务列表失败', detail: error instanceof Error ? error.message : String(error) },
       { status: 500 }
     );
   }
@@ -287,15 +288,18 @@ export async function PATCH(request: NextRequest) {
     const body = await request.json() as { taskId?: string; action?: 'pause' | 'resume' | 'cancel' | 'clear-copyright' };
     const { taskId, action } = body;
 
-    // 清除版权/失败条目（用户重新进入APP时调用）
+    // 清除版权条目（用户重新进入APP时调用）
+    // 🔴 重要修复：只清 copyright 状态，failed 状态保留给用户看失败原因，
+    // 用户主动点删除才会真正清掉。这样"搜不到的书"不会神秘消失，
+    // 用户能看到"为什么搜不到"
     if (action === 'clear-copyright') {
       const tasks = getAllTasks();
       const removedCount = tasks.filter(
-        (t) => t.status === 'copyright' || t.status === 'failed'
+        (t) => t.status === 'copyright'
       ).length;
 
       for (const task of tasks) {
-        if (task.status === 'copyright' || task.status === 'failed') {
+        if (task.status === 'copyright') {
           task.status = 'cleared';
         }
       }

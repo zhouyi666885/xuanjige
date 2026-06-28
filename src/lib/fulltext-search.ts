@@ -202,11 +202,20 @@ export function getLearningProgress(): LearningProgressItem[] {
   const result: LearningProgressItem[] = [];
 
   // 只保留实际存在书籍文件的状态，清除已删除书籍的记录
-  const existingBooks = new Set(
-    fs.readdirSync(getBookContentDir())
-      .filter(f => f.endsWith('.txt'))
-      .map(f => f.replace(/\.txt$/, ''))
-  );
+  // 🔴 兜底：book-content 目录不存在时直接当作空目录处理（沙箱新部署/容器初次启动）
+  let existingBooks: Set<string>;
+  try {
+    existingBooks = new Set(
+      fs.readdirSync(getBookContentDir())
+        .filter(f => f.endsWith('.txt'))
+        .map(f => f.replace(/\.txt$/, ''))
+    );
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException)?.code !== 'ENOENT') {
+      console.warn('[getLearningProgress] readdir 失败:', (e as Error).message);
+    }
+    existingBooks = new Set();
+  }
   const deletedNames: string[] = [];
   for (const [name, status] of statusMap) {
     if (existingBooks.has(name)) {
