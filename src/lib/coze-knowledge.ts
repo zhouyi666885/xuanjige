@@ -6,16 +6,11 @@
  *  - 本地典籍：按什么分析、《滴天髓》《渊海子平》等原文
  *
  * 默认走「不限制 dataset」即搜索用户在 Coze 平台创建的全部 Knowledge Base。
- * 失败/超时一律降级为空数组，绝不影响主流程。
+ * 失败/超时/SDK 不存在 一律降级为空结果，绝不影响主流程。
+ *
+ * ⚠️ 注意：`coze-coding-dev-sdk` 是 Coze 开发沙箱专属 SDK，VPS 部署环境通常没有此包，
+ * 所以这里用 **运行时动态加载 + try/catch 兜底**，让 build 不会因为缺包失败。
  */
-
-import {
-  KnowledgeClient,
-  Config,
-  DataSourceType,
-  type KnowledgeDocument,
-  type ChunkConfig,
-} from 'coze-coding-dev-sdk';
 
 /** APP 上传典籍写入到 Coze KB 时统一使用这个 dataset，方便检索时区分"典籍 vs 方法论" */
 export const COZE_KB_BOOKS_DATASET = 'xuanjige_books';
@@ -27,13 +22,87 @@ export interface CozeKnowledgeChunk {
   chunkId?: string;
 }
 
-let _client: KnowledgeClient | null = null;
-function getClient(): KnowledgeClient {
-  if (_client) return _client;
-  const config = new Config();
-  _client = new KnowledgeClient(config);
-  return _client;
+/* ----------- 运行时动态加载 SDK（绕过 webpack/turbopack 静态分析） ----------- */
+
+interface KbChunkRaw {
+  score?: number;
+  content?: string;
+  doc_id?: string;
+  chunk_id?: string;
 }
+
+interface KbSearchResp {
+  code?: number;
+  chunks?: KbChunkRaw[];
+}
+
+interface KbAddResp {
+  code?: number;
+}
+
+interface KbClient {
+  search: (
+    query: string,
+    tableNames: string[] | undefined,
+    topK: number,
+    minScore: number,
+  ) => Promise<KbSearchResp>;
+  addDocuments: (
+    docs: Array<Record<string, unknown>>,
+    tableName: string,
+    chunkConfig: Record<string, unknown>,
+  ) => Promise<KbAddResp>;
+}
+
+interface LooseSdk {
+  KnowledgeClient: new (config: unknown) => KbClient;
+  Config: new () => unknown;
+  DataSourceType: { TEXT: string | number };
+}
+
+let _sdkCache: LooseSdk | null | 'unavailable' = null;
+
+function loadSdk(): LooseSdk | null {
+  if (_sdkCache === 'unavailable') return null;
+  if (_sdkCache) return _sdkCache;
+
+  try {
+    // 用 eval('require') 阻止 webpack/turbopack 把这个 require 解析进 build 依赖图
+    // 这样即使 VPS 上没装 coze-coding-dev-sdk，build 也不会失败
+    // 仅在 Coze 沙箱环境下运行时会真正加载到 SDK
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const req: NodeRequire = (eval('require') as any) as NodeRequire;
+    const sdk = req('coze-coding-dev-sdk') as LooseSdk;
+    if (!sdk || !sdk.KnowledgeClient) {
+      _sdkCache = 'unavailable';
+      return null;
+    }
+    _sdkCache = sdk;
+    return sdk;
+  } catch {
+    _sdkCache = 'unavailable';
+    return null;
+  }
+}
+
+/* ----------- 客户端实例缓存 ----------- */
+
+let _client: KbClient | null = null;
+
+function getClient(): KbClient | null {
+  if (_client) return _client;
+  const sdk = loadSdk();
+  if (!sdk) return null;
+  try {
+    const config = new sdk.Config();
+    _client = new sdk.KnowledgeClient(config);
+    return _client;
+  } catch {
+    return null;
+  }
+}
+
+/* ----------- 对外 API ----------- */
 
 /**
  * 在 Coze Knowledge Base 中做语义检索
@@ -48,19 +117,23 @@ export async function cozeKnowledgeSearch(
 ): Promise<CozeKnowledgeChunk[]> {
   if (!query || !query.trim()) return [];
 
+  const client = getClient();
+  if (!client) return []; // SDK 不可用（VPS 环境），静默降级
+
   try {
-    const client = getClient();
     // tableNames 不传 → 搜索用户所有 Coze Knowledge Base
     const resp = await client.search(query.trim(), undefined, topK, minScore);
     if (!resp || resp.code !== 0 || !Array.isArray(resp.chunks)) {
       return [];
     }
-    return resp.chunks.map(c => ({
-      score: typeof c.score === 'number' ? c.score : 0,
-      content: typeof c.content === 'string' ? c.content : '',
-      docId: c.doc_id,
-      chunkId: c.chunk_id,
-    })).filter(c => c.content.trim().length > 0);
+    return resp.chunks
+      .map(c => ({
+        score: typeof c.score === 'number' ? c.score : 0,
+        content: typeof c.content === 'string' ? c.content : '',
+        docId: c.doc_id,
+        chunkId: c.chunk_id,
+      }))
+      .filter(c => c.content.trim().length > 0);
   } catch (err) {
     // 网络失败 / 未配置 / 权限 → 静默降级，让主流程继续
     console.warn('[CozeKB] 搜索失败，已降级为空结果:', (err as Error).message);
@@ -97,14 +170,17 @@ export async function addBookToCozeKB(
 ): Promise<boolean> {
   if (!bookName || !fullText || !fullText.trim()) return false;
 
+  const sdk = loadSdk();
+  const client = getClient();
+  if (!sdk || !client) return false; // VPS 环境降级
+
   try {
-    const client = getClient();
-    const doc: KnowledgeDocument = {
-      source: DataSourceType.TEXT,
+    const doc = {
+      source: sdk.DataSourceType.TEXT,
       raw_data: fullText,
     };
     // 每段 ~500 tokens，自动按段落/换行切分（符合典籍章节结构）
-    const chunkConfig: ChunkConfig = {
+    const chunkConfig = {
       separator: '\n',
       max_tokens: 500,
       remove_extra_spaces: false,
