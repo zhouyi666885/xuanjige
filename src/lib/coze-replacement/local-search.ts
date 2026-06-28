@@ -36,8 +36,27 @@ const BROWSER_HEADERS = {
 
 const TIMEOUT_MS = 12_000;
 
-/** 入口：按书名/查询并行搜索多源，合并去重返回 */
+/** 入口：按书名/查询并行搜索多源，合并去重返回
+ *
+ * 🟢 2025-Q4 用户规则：去掉搜索引擎抓取，所有搜索都直接返回空。
+ *    搜索引擎被 VPS 出口 IP 反爬封禁，长期返 0 条，徒增延迟。
+ *    现在改为直接走 LLM 知识兜底（book-task-manager 内置）。
+ *    保留下面 searchBaidu/Sogou/360/CnBing/CText 函数定义不删，
+ *    便于将来切换 provider 或本地测试时随时启用。
+ */
 export async function localPublicDomainSearch(
+  _query: string,
+  _count = 20,
+): Promise<WebSearchItem[]> {
+  // 直接返回空，让上层 SearchClient 走 LLM 知识兜底
+  console.log('[LocalSearch] 搜索引擎已停用，由 LLM 知识兜底接管');
+  return [];
+}
+
+/** 旧入口保留（暂未删除，预留切回搜索引擎抓取的能力）。
+ *  ⚠️ 这个函数当前在生产中不会被调用。
+ */
+export async function localPublicDomainSearchLegacy(
   query: string,
   count = 20,
 ): Promise<WebSearchItem[]> {
