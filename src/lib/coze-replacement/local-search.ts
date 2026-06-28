@@ -115,16 +115,23 @@ async function searchDuckDuckGoHtml(query: string, count: number): Promise<WebSe
 
 /**
  * Bing HTML 搜索（零 API Key）
- * - 端点：https://www.bing.com/search?q=...&mkt=zh-CN
+ * - 端点：https://cn.bing.com/search?q=...&mkt=zh-CN（直连 cn.bing.com 避免 302 重定向丢失参数）
+ * - 大陆 VPS 访问 www.bing.com 会自动 302 跳到 cn.bing.com，直接打 cn 端点最稳
  * - 原生支持 site:domain
  * - 对中文索引强
  */
 async function searchBingHtml(query: string, count: number): Promise<WebSearchItem[]> {
-  const url = `https://www.bing.com/search?q=${encodeURIComponent(query)}&mkt=zh-CN`;
+  // 直接打 cn.bing.com（VPS 在大陆出口时 www.bing.com 会强制 302 到这里，HTML 结构兼容）
+  const url = `https://cn.bing.com/search?q=${encodeURIComponent(query)}&mkt=zh-CN&FORM=ANSPA1`;
   const resp = await axios.get<string>(url, {
-    headers: DEFAULT_HEADERS,
+    headers: {
+      ...DEFAULT_HEADERS,
+      // 加上 Accept-Language 确保返回中文结果
+      'Accept-Language': 'zh-CN,zh;q=0.9',
+    },
     timeout: TIMEOUT_MS,
-    maxRedirects: 3,
+    maxRedirects: 5,
+    validateStatus: (s) => s < 500,
   });
   const $ = cheerio.load(resp.data);
   const items: WebSearchItem[] = [];

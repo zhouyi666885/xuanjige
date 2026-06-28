@@ -126,16 +126,34 @@ function SmoothProgressBar({ progress, status, message }: {
 
 export default function AddBookPage() {
   const router = useRouter();
+  // 从 localStorage 读取上次缓存，进入页面 0ms 就有内容渲染，避免空白等待
+  const readCachedSnapshot = () => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const raw = window.localStorage.getItem('xuanjige_addbook_snapshot_v1');
+      if (!raw) return null;
+      const snap = JSON.parse(raw);
+      // 缓存 1 小时内有效
+      if (Date.now() - (snap?.savedAt || 0) > 60 * 60 * 1000) return null;
+      return snap;
+    } catch {
+      return null;
+    }
+  };
+  const cachedSnapshot = typeof window !== 'undefined' ? readCachedSnapshot() : null;
+
   const [bookName, setBookName] = useState('');
-  const [tasks, setTasks] = useState<TaskInfo[]>([]);
-  const [copyrightNotices, setCopyrightNotices] = useState<{bookName: string; status: string; message: string; createdAt: number}[]>([]);
+  const [tasks, setTasks] = useState<TaskInfo[]>(cachedSnapshot?.tasks ?? []);
+  const [copyrightNotices, setCopyrightNotices] = useState<{bookName: string; status: string; message: string; createdAt: number}[]>(cachedSnapshot?.copyrightNotices ?? []);
   const [dismissedNotices, setDismissedNotices] = useState<Set<string>>(new Set());
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [stats, setStats] = useState({ total: 0, active: 0, done: 0, failed: 0 });
-  const [bookCount, setBookCount] = useState(0);
+  const [stats, setStats] = useState(cachedSnapshot?.stats ?? { total: 0, active: 0, done: 0, failed: 0 });
+  const [bookCount, setBookCount] = useState<number>(cachedSnapshot?.bookCount ?? 0);
   const [addError, setAddError] = useState<string>('');
-  const [learningBooks, setLearningBooks] = useState<LearningBook[]>([]);
-  const [missingChapterBooks, setMissingChapterBooks] = useState<{bookName: string; currentChapter: number; totalChapters: number; chapterStructure: string}[]>([]);
+  const [learningBooks, setLearningBooks] = useState<LearningBook[]>(cachedSnapshot?.learningBooks ?? []);
+  const [missingChapterBooks, setMissingChapterBooks] = useState<{bookName: string; currentChapter: number; totalChapters: number; chapterStructure: string}[]>(cachedSnapshot?.missingChapterBooks ?? []);
+  // 首次拉取标记：用于在"没有缓存 + 还没拉到"时显示骨架屏
+  const [firstLoaded, setFirstLoaded] = useState<boolean>(!!cachedSnapshot);
 
   // 新会话清除版权提示（退出APP后再进入时版权提示消失）
   useEffect(() => {
@@ -156,14 +174,34 @@ export default function AddBookPage() {
     try {
       const res = await fetch('/api/add-book');
       const data = await res.json();
-      setTasks(data.tasks || []);
-      setCopyrightNotices(data.copyrightNotices || []);
-      setStats(data.stats || { total: 0, active: 0, done: 0, failed: 0 });
-      setBookCount(data.bookCount || 0);
-      setLearningBooks(data.learningBooks || []);
-      setMissingChapterBooks(data.missingChapterBooks || []);
+      const newTasks = data.tasks || [];
+      const newNotices = data.copyrightNotices || [];
+      const newStats = data.stats || { total: 0, active: 0, done: 0, failed: 0 };
+      const newBookCount = data.bookCount || 0;
+      const newLearning = data.learningBooks || [];
+      const newMissing = data.missingChapterBooks || [];
+      setTasks(newTasks);
+      setCopyrightNotices(newNotices);
+      setStats(newStats);
+      setBookCount(newBookCount);
+      setLearningBooks(newLearning);
+      setMissingChapterBooks(newMissing);
+      setFirstLoaded(true);
+      // 写回 localStorage，下次进入页面立即可见
+      try {
+        window.localStorage.setItem('xuanjige_addbook_snapshot_v1', JSON.stringify({
+          savedAt: Date.now(),
+          tasks: newTasks,
+          copyrightNotices: newNotices,
+          stats: newStats,
+          bookCount: newBookCount,
+          learningBooks: newLearning,
+          missingChapterBooks: newMissing,
+        }));
+      } catch {}
     } catch {
-      // 静默失败
+      // 网络失败：保留缓存的旧数据继续展示，标记 firstLoaded 让骨架屏消失
+      setFirstLoaded(true);
     }
   }, []);
 
@@ -818,8 +856,25 @@ export default function AddBookPage() {
           </div>
         )}
 
-        {/* 空状态 */}
-        {tasks.length === 0 && (
+        {/* 空状态 / 骨架屏（首次未加载时显示骨架） */}
+        {tasks.length === 0 && !firstLoaded && (
+          <div className="space-y-3 py-4">
+            {[1, 2, 3].map((i) => (
+              <div
+                key={i}
+                className="rounded-lg border border-[#2a2a3e] bg-[#16213e]/40 p-4 animate-pulse"
+              >
+                <div className="h-4 w-2/3 bg-[#2a2a3e] rounded mb-3" />
+                <div className="h-3 w-full bg-[#2a2a3e] rounded mb-2" />
+                <div className="h-3 w-3/4 bg-[#2a2a3e] rounded" />
+              </div>
+            ))}
+            <p className="text-center text-xs text-[#5a5a6e] mt-3">正在加载书籍列表…</p>
+          </div>
+        )}
+
+        {/* 空状态（已加载完且确实没有任务） */}
+        {tasks.length === 0 && firstLoaded && (
           <div className="text-center py-12">
             <p className="text-4xl mb-4">📖</p>
             <p className="text-[#8a8070] text-sm">
