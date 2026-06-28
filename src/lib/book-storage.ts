@@ -22,13 +22,23 @@ const storage = new S3Storage({
 
 // 本地缓存目录（Netlify/Lambda 只读，必须用 /tmp）
 const IS_SERVERLESS = !!(process.env.NETLIFY || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.LAMBDA_TASK_ROOT);
+// 🔴 兜底优先级：COZE_WORKSPACE_PATH（沙箱）→ process.cwd()（VPS/Docker/本地，Next.js 进程目录）→ 最后才硬编码沙箱路径
 const LOCAL_BASE = IS_SERVERLESS
   ? '/tmp'
-  : (process.env.COZE_WORKSPACE_PATH || '/workspace/projects');
+  : (process.env.COZE_WORKSPACE_PATH || process.cwd() || '/workspace/projects');
 const LOCAL_CACHE_DIR = IS_SERVERLESS
   ? '/tmp/book-content'
   : path.join(LOCAL_BASE, 'public', 'book-content');
 const INDEX_FILE = path.join(LOCAL_BASE, 'book-s3-index.json');
+
+// 启动时确保目录存在（防止首次写入因目录不存在而被 catch 静默吞掉）
+try {
+  if (!fs.existsSync(LOCAL_CACHE_DIR)) {
+    fs.mkdirSync(LOCAL_CACHE_DIR, { recursive: true });
+  }
+} catch {
+  // 极端情况（只读文件系统）忽略
+}
 
 // S3前缀
 const S3_PREFIX = 'books/';
