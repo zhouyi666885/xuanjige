@@ -51,6 +51,52 @@ export function ChatInterface({ open, onClose }: ChatInterfaceProps) {
       // 忽略解析错误
     }
   }, []);
+
+  // 🛡 持久化 messages：避免 iOS 键盘弹出/手势误触导致聊天上下文丢失
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem('xuanjige_messages');
+      if (saved) {
+        const parsed = JSON.parse(saved) as Message[];
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setMessages(parsed);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+  // messages 变化时同步（限制最多保留最近 50 条避免溢出）
+  useEffect(() => {
+    try {
+      if (messages.length > 0) {
+        const toSave = messages.slice(-50);
+        sessionStorage.setItem('xuanjige_messages', JSON.stringify(toSave));
+      }
+    } catch {
+      // ignore（超过 5MB 等错误）
+    }
+  }, [messages]);
+  // 🛡 持久化 input：用户打字到一半被打断也能恢复
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem('xuanjige_input');
+      if (saved) setInput(saved);
+    } catch {
+      // ignore
+    }
+  }, []);
+  useEffect(() => {
+    try {
+      if (input) {
+        sessionStorage.setItem('xuanjige_input', input);
+      } else {
+        sessionStorage.removeItem('xuanjige_input');
+      }
+    } catch {
+      // ignore
+    }
+  }, [input]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
 

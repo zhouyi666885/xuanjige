@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import { CameraCapture } from '@/components/camera-capture';
 import { ChatInterface } from '@/components/chat-interface';
@@ -18,6 +18,30 @@ export default function Home() {
   const [chatOpen, setChatOpen] = useState(false);
   const [reading, setReading] = useState<ReadingState | null>(null);
   const [readingMode, setReadingMode] = useState<'casual' | 'professional'>('casual');
+
+  // 🛡 持久化 chatOpen：避免 iOS 键盘弹出/PWA 手势误关闭导致跳回首页
+  // 挂载时从 sessionStorage 恢复
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem('xuanjige_chatOpen') === '1') {
+        setChatOpen(true);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+  // chatOpen 变化时同步到 sessionStorage
+  useEffect(() => {
+    try {
+      if (chatOpen) {
+        sessionStorage.setItem('xuanjige_chatOpen', '1');
+      } else {
+        sessionStorage.removeItem('xuanjige_chatOpen');
+      }
+    } catch {
+      // ignore
+    }
+  }, [chatOpen]);
 
   const handleFaceCapture = useCallback((imageData: string) => {
     setReading({ type: 'face', image: imageData, mode: readingMode });
