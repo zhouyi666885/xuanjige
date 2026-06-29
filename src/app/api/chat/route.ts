@@ -243,7 +243,12 @@ export async function POST(request: NextRequest) {
       // 否则 AI 看不到具体书就会编"没有这种东西"。
       let mentionedBooksInfo = '';
       try {
-        const mentioned = findBooksByName(message);
+        // 🔴 合并最近 5 轮用户消息 + 当前消息，让 AI 能识别"那个 1 万多字"这种代词回指
+        const recentUserText = [
+          ...(Array.isArray(history) ? history.filter((h: { role?: string; content?: string }) => h.role === 'user').slice(-5).map((h: { content?: string }) => h.content || '') : []),
+          message,
+        ].join(' ');
+        const mentioned = findBooksByName(recentUserText);
         if (mentioned.length > 0) {
           const lines = mentioned.slice(0, 20).map(b => {
             const status = getBookLearnStatus(b.name);
