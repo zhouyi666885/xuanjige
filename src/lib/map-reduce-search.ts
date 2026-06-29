@@ -266,7 +266,7 @@ ${batch.combinedContent}
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
-      { temperature: 0.1, max_tokens: 4000 },
+      { temperature: 0.1, max_tokens: 32768 },
     ),
     new Promise<never>((_, reject) =>
       setTimeout(() => reject(new Error('extractBatch timeout')), PER_BATCH_TIMEOUT_MS),
