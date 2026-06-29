@@ -19,8 +19,22 @@ interface ChatInterfaceProps {
 }
 
 export function ChatInterface({ open, onClose }: ChatInterfaceProps) {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState('');
+  // 🛡 lazy init：从 localStorage 直接读取，消除 useEffect 一帧延迟（防止"内容消失变空白"）
+  const [messages, setMessages] = useState<Message[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const saved = localStorage.getItem('xuanjige_messages');
+      if (saved) {
+        const parsed = JSON.parse(saved) as Message[];
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {}
+    return [];
+  });
+  const [input, setInput] = useState<string>(() => {
+    if (typeof window === 'undefined') return '';
+    try { return localStorage.getItem('xuanjige_input') || ''; } catch { return ''; }
+  });
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<'casual' | 'professional'>('casual');
   // 三态：'fast'=🟢 快速 LLM | 'deep'=🔥 深读 Map-Reduce LLM | 'raw'=📚 原文（零成本，不调 LLM）
@@ -119,7 +133,8 @@ export function ChatInterface({ open, onClose }: ChatInterfaceProps) {
     }
   }, [input]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const [sheetOpen, setSheetOpen] = useState(false);
+  // [MOD] sheetOpen 初始值跟随 open prop，避免 mount 第一帧 sheetOpen=false → return null → 露出首页
+  const [sheetOpen, setSheetOpen] = useState(open);
 
   useEffect(() => {
     setSheetOpen(open);

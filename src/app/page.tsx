@@ -1,9 +1,15 @@
 'use client';
 
 import { useState, useCallback, useEffect, useRef } from 'react';
+import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { CameraCapture } from '@/components/camera-capture';
-import { ChatInterface } from '@/components/chat-interface';
+
+// [MOD] ChatInterface 改为纯客户端动态导入，避免 SSR 重挂载时露出首页那一帧
+const ChatInterface = dynamic(
+  () => import('@/components/chat-interface').then((m) => ({ default: m.ChatInterface })),
+  { ssr: false },
+);
 import { ReadingResult } from '@/components/reading-result';
 
 interface ReadingState {
@@ -15,36 +21,37 @@ interface ReadingState {
 export default function Home() {
   const [faceCameraOpen, setFaceCameraOpen] = useState(false);
   const [palmCameraOpen, setPalmCameraOpen] = useState(false);
-  const [chatOpen, setChatOpen] = useState(false);
+  // [MOD] chatOpen 用 lazy init 直接从 localStorage 读取，从首次渲染就拿到正确状态
+  //       彻底消除 React 重挂载时 "chatOpen=false → 露出首页那一帧" 的 bug
+  const [chatOpen, setChatOpen] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      const raw = localStorage.getItem('xuanjige_chatOpen');
+      if (raw) {
+        const parsed = JSON.parse(raw) as { v: '1'; t: number } | null;
+        if (parsed && parsed.v === '1' && Date.now() - parsed.t < 24 * 60 * 60 * 1000) {
+          return true;
+        }
+      }
+      // 兼容历史 sessionStorage 数据
+      if (sessionStorage.getItem('xuanjige_chatOpen') === '1') return true;
+    } catch {
+      // ignore
+    }
+    return false;
+  });
   const [reading, setReading] = useState<ReadingState | null>(null);
   const [readingMode, setReadingMode] = useState<'casual' | 'professional'>('casual');
   // 🛡 标记是否已完成首次从 localStorage 的"恢复"（避免初始 false 把已存的 '1' 覆盖掉）
   const hydratedRef = useRef(false);
 
-  // 🛡 持久化 chatOpen：避免 iOS 键盘弹出/PWA 手势/低内存回收 webview 导致跳回首页
-  // 🔧 改用 localStorage（sessionStorage 在 iOS Safari 低内存场景下会被清空）
-  // 挂载时从 localStorage 恢复（必须在"同步写入" useEffect 之前完成）
+  // 兼容历史 sessionStorage 数据 + 标记 hydration 完成
   useEffect(() => {
     try {
-      // 兼容历史 sessionStorage 数据
       const legacy = sessionStorage.getItem('xuanjige_chatOpen');
       if (legacy === '1') {
-        localStorage.setItem('xuanjige_chatOpen', '1');
+        localStorage.setItem('xuanjige_chatOpen', JSON.stringify({ v: '1', t: Date.now() }));
         sessionStorage.removeItem('xuanjige_chatOpen');
-      }
-      // 检查 24 小时内是否曾打开过聊天（超过 24h 视为新 session）
-      const raw = localStorage.getItem('xuanjige_chatOpen');
-      if (raw) {
-        const parsed = JSON.parse(raw) as { v: '1'; t: number } | null;
-        const now = Date.now();
-        // 仅当 24 小时内的标记才恢复
-        if (parsed && parsed.v === '1' && now - parsed.t < 24 * 60 * 60 * 1000) {
-          setChatOpen(true);
-        } else {
-          localStorage.removeItem('xuanjige_chatOpen');
-        }
-      } else if (legacy === '1') {
-        setChatOpen(true);
       }
     } catch {
       // ignore
