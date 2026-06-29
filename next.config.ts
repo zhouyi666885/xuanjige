@@ -2,7 +2,7 @@ import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
   /* config options here */
-  allowedDevOrigins: ['*.dev.coze.site'],
+  allowedDevOrigins: ['*.dev.coze.site', '8.139.254.205', '*'],
   // 禁用浏览器 source map（减少静态产物体积）
   productionBrowserSourceMaps: false,
   images: {
