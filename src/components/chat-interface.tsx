@@ -28,6 +28,9 @@ export function ChatInterface({ open, onClose }: ChatInterfaceProps) {
   const [progressLabel, setProgressLabel] = useState<string>('');
   const [birthInfo, setBirthInfoState] = useState<BirthInfo | null>(null);
   const [showBirthForm, setShowBirthForm] = useState(false);
+  // 🛡 hydration 完成标志：避免欢迎界面在 localStorage 恢复 messages 之前误显示
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => { setHydrated(true); }, []);
 
   // 使用 sessionStorage 存储出生信息（退出APP自动清除，不保留使用记录）
   const setBirthInfo = useCallback((info: BirthInfo | null) => {
@@ -389,7 +392,7 @@ export function ChatInterface({ open, onClose }: ChatInterfaceProps) {
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4" onScroll={handleMessagesScroll}>
-        {messages.length === 0 && (
+        {hydrated && messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-center">
             <div className="text-5xl mb-3">☯</div>
             <h3 className="text-gold font-serif text-lg mb-2">八字紫微问答</h3>
