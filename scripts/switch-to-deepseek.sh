@@ -25,17 +25,18 @@ BACKUP_FILE=".env.bak.$(date +%s)"
 cp .env "$BACKUP_FILE" 2>/dev/null || touch .env
 echo "✅ 已备份原 .env 到 $BACKUP_FILE"
 
-# 移除旧的 LLM 配置行
-grep -v -E '^(LLM_API_KEY|LLM_BASE_URL|LLM_MODEL_ID)=' .env > .env.tmp 2>/dev/null || true
+# 移除旧的 LLM 配置行（清掉所有可能的命名变体）
+grep -v -E '^(LLM_API_KEY|LLM_BASE_URL|LLM_MODEL|LLM_MODEL_ID|DEPLOY_RUN_PORT)=' .env > .env.tmp 2>/dev/null || true
 mv .env.tmp .env
 
-# 写入新配置
+# 写入新配置（字段名必须和代码 src/lib/coze-replacement/config.ts 里读取的一致）
 {
   echo ""
   echo "# === DeepSeek 配置（自动生成）==="
   echo "LLM_BASE_URL=https://api.deepseek.com/v1"
   echo "LLM_API_KEY=$MY_KEY"
-  echo "LLM_MODEL_ID=deepseek-chat"
+  echo "LLM_MODEL=deepseek-chat"
+  echo "DEPLOY_RUN_PORT=3000"
 } >> .env
 
 echo "✅ .env 已更新"
