@@ -22,7 +22,7 @@
 import { NextRequest } from 'next/server';
 import { Config, LLMClient } from '@/lib/coze-replacement';
 import { mapReduceKnowledgeSearch } from '@/lib/map-reduce-search';
-import { searchFullTextAsync } from '@/lib/fulltext-search';
+import { searchFullTextAsync, getBookFullTextAsync, getLocalBookInfo } from '@/lib/fulltext-search';
 import { cozeKnowledgeSearch, type CozeKnowledgeChunk } from '@/lib/coze-knowledge';
 import {
   buildSystemPromptProfessional,
@@ -144,6 +144,116 @@ export async function POST(req: NextRequest) {
         // ║ 直接用知识库做关键词全库检索，把命中的「《书名·章节》原文」流式吐出 ║
         // ╚══════════════════════════════════════════════════════════╝
         if (noLLM) {
+          // ╔══════════════════════════════════════════════════════════╗
+          // ║ 🆕 意图识别：用户问"《XX》全文/原文/第N章"时直接吐全本/单章         ║
+          // ║ 不走关键词检索，确保"从第一页第一个字到最后一页最后一个字"           ║
+          // ╚══════════════════════════════════════════════════════════╝
+          const intent = detectFullBookIntent(message);
+          if (intent.matchedBook) {
+            send({
+              type: 'progress',
+              stage: 'prescreen',
+              message: intent.chapter
+                ? `📖 识别到「单章请求」：《${intent.matchedBook}》→ ${intent.chapter}`
+                : `📖 识别到「全本请求」：《${intent.matchedBook}》→ 即将逐字输出整本原文`,
+            });
+
+            const fullText = await getBookFullTextAsync(intent.matchedBook);
+            if (!fullText) {
+              const tip =
+                `📭 **知识库中暂无《${intent.matchedBook}》全文**\n\n` +
+                `可能原因：\n` +
+                `1. 此书还在学习中（尚未入库完成）\n` +
+                `2. 此书未上传 → 请去【📤 上传典籍】添加\n` +
+                `3. 此书曾被删除（如墓碑机制锁定）\n\n` +
+                `（严格遵守知识库铁律：库里没有的就是不知道。）`;
+              for (const piece of tip.split(/(?<=[。\n])/)) {
+                if (piece) send({ type: 'chunk', content: piece });
+              }
+              send({ type: 'done' });
+              controller.close();
+              return;
+            }
+
+            // 单章请求：截取对应章节
+            let outputText = fullText;
+            let outputLabel = '全本';
+            if (intent.chapter) {
+              const sliced = sliceChapterFromBook(fullText, intent.chapter);
+              if (sliced) {
+                outputText = sliced.content;
+                outputLabel = `章节「${sliced.matchedTitle}」`;
+              } else {
+                send({
+                  type: 'chunk',
+                  content:
+                    `⚠️ 未在《${intent.matchedBook}》中精确找到「${intent.chapter}」章节，` +
+                    `下面输出**整本**原文供你查阅（请用浏览器 Ctrl+F 搜索章节名）。\n\n`,
+                });
+              }
+            }
+
+            // 元信息
+            send({
+              type: 'meta',
+              citations: [{ bookName: intent.matchedBook, chapter: outputLabel, relevance: 1 }],
+              totalBooksReviewed: 1,
+              totalBatches: 0,
+              prescreenSummary: `已命中《${intent.matchedBook}》${outputLabel}（${outputText.length} 字）`,
+              elapsedMs: 0,
+              mode: 'raw',
+            });
+
+            // 头部
+            const header =
+              `# 📖 《${intent.matchedBook}》${outputLabel}\n\n` +
+              `**字数**：${outputText.length} 字\n` +
+              `**来源**：本地知识库逐字输出（未经任何 AI 改写）\n\n---\n\n`;
+            for (const piece of header.split(/(?<=\n)/)) {
+              if (piece) send({ type: 'chunk', content: piece });
+            }
+
+            // 全文按段流式输出（避免单帧过大阻塞）
+            // 按"双换行"或"4000 字"分块
+            const CHUNK_SIZE = 4000;
+            let cursor = 0;
+            while (cursor < outputText.length) {
+              const end = Math.min(cursor + CHUNK_SIZE, outputText.length);
+              // 尝试在段落处断行
+              let splitAt = outputText.lastIndexOf('\n\n', end);
+              if (splitAt < cursor + 200 || splitAt > end) splitAt = end;
+              const piece = outputText.slice(cursor, splitAt);
+              if (piece) send({ type: 'chunk', content: piece });
+              cursor = splitAt;
+              // 让出事件循环，避免单次卡死
+              if (cursor < outputText.length) {
+                await new Promise((r) => setTimeout(r, 0));
+                send({
+                  type: 'progress',
+                  stage: 'reducing',
+                  message: `📜 输出中... ${Math.round((cursor / outputText.length) * 100)}%`,
+                  progress: Math.round((cursor / outputText.length) * 100),
+                });
+              }
+            }
+
+            const footer =
+              `\n\n---\n\n` +
+              `📌 **以上为《${intent.matchedBook}》${outputLabel}全部内容**，` +
+              `从第一个字到最后一个字逐字输出，未经任何 AI 改写或截断。\n`;
+            for (const piece of footer.split(/(?<=\n)/)) {
+              if (piece) send({ type: 'chunk', content: piece });
+            }
+
+            send({ type: 'done' });
+            controller.close();
+            return;
+          }
+
+          // ╔══════════════════════════════════════════════════════════╗
+          // ║ 📚 原文模式：完全零成本，不调任何 LLM                       ║
+          // ║ 直接用知识库做关键词全库检索，把命中的「《书名·章节》原文」流式吐出 ║
+          // ╚══════════════════════════════════════════════════════════╝
           send({
             type: 'progress',
             stage: 'prescreen',
@@ -410,6 +520,113 @@ export async function POST(req: NextRequest) {
       'X-Accel-Buffering': 'no',
     },
   });
+}
+
+// ============================================================================
+// 🆕 意图识别：全本 / 单章 请求
+// ============================================================================
+
+/**
+ * 检测用户消息中的"看全本"或"看某一章"意图。
+ * 优先返回匹配到的书名+可选章节标记。
+ */
+function detectFullBookIntent(message: string): {
+  matchedBook: string | null;
+  chapter: string | null;
+} {
+  const text = message.trim();
+  if (!text) return { matchedBook: null, chapter: null };
+
+  // 1) 拉取所有书名（含本地+云端）
+  const { bookNames } = getLocalBookInfo();
+  if (!bookNames || bookNames.length === 0) {
+    return { matchedBook: null, chapter: null };
+  }
+
+  // 2) 匹配书名：精确包含优先（长名优先，避免「滴天髓」抢「滴天髓阐微」）
+  const sortedBooks = [...bookNames].sort((a, b) => b.length - a.length);
+  // 去掉书名号干扰
+  const cleanText = text.replace(/[《》「」『』]/g, '');
+  let matchedBook: string | null = null;
+  for (const name of sortedBooks) {
+    const cleanName = name.replace(/[《》「」『』]/g, '');
+    if (cleanText.includes(cleanName)) {
+      matchedBook = name;
+      break;
+    }
+  }
+  if (!matchedBook) return { matchedBook: null, chapter: null };
+
+  // 3) 判断意图：包含「全本/全文/原文/完整/整本/全篇/所有内容/从第一」等关键词
+  // 还有"发我"、"给我看"等口语化表达
+  const fullBookPatterns = [
+    /全文|全部原文|全本|整本|全篇|完整内容|所有内容/,
+    /从第一(页|字|个字|章)/,
+    /到最后一(页|字|个字|章)/,
+    /从头到尾|一字不漏|逐字/,
+    /原文.*(发|看|读|展示|给我|出来)/,
+    /(发|看|读|展示).*原文/,
+  ];
+  const isFullBookIntent = fullBookPatterns.some((re) => re.test(text));
+
+  // 4) 判断单章意图：「第N章/第N卷/第N回/第N篇/第N卦/第N部」
+  // 中文数字 + 阿拉伯数字
+  const chapterMatch = text.match(
+    /第\s*([一二三四五六七八九十百千零\d]+)\s*(章|卷|回|篇|卦|部|节|讲|册|集|课)/,
+  );
+  if (chapterMatch) {
+    return { matchedBook, chapter: `第${chapterMatch[1]}${chapterMatch[2]}` };
+  }
+
+  // 5) 如果只匹配到书名 + 全本意图 → 返回全本
+  if (isFullBookIntent) {
+    return { matchedBook, chapter: null };
+  }
+
+  // 6) 用户只说书名没说要全本，也没说哪一章 → 不主动返全本，回归关键词检索
+  return { matchedBook: null, chapter: null };
+}
+
+/**
+ * 从书籍全文中截取指定章节。
+ * @param fullText 完整书全文
+ * @param chapterLabel 章节标签，如「第一章」「第三卷」「第六十四卦」
+ * @returns 命中章节的内容+真实匹配标题；未命中返回 null
+ */
+function sliceChapterFromBook(
+  fullText: string,
+  chapterLabel: string,
+): { content: string; matchedTitle: string } | null {
+  // 在全文里找包含该章节标签的行
+  const labelRe = new RegExp(
+    chapterLabel.replace(/[第章卷回篇卦部节讲册集课]/g, (m) => '\\' + m),
+    'g',
+  );
+  const lines = fullText.split('\n');
+  let startIdx = -1;
+  let matchedTitle = '';
+  for (let i = 0; i < lines.length; i++) {
+    if (labelRe.test(lines[i])) {
+      startIdx = i;
+      matchedTitle = lines[i].trim();
+      break;
+    }
+    labelRe.lastIndex = 0;
+  }
+  if (startIdx === -1) return null;
+
+  // 找下一章作为结束位置：匹配"第X章/卷/回/篇/卦/部/节/讲/册/集/课"行（且不是当前章节）
+  const nextChapRe = /第\s*[一二三四五六七八九十百千零\d]+\s*(章|卷|回|篇|卦|部|节|讲|册|集|课)/;
+  let endIdx = lines.length;
+  for (let i = startIdx + 1; i < lines.length; i++) {
+    if (nextChapRe.test(lines[i])) {
+      endIdx = i;
+      break;
+    }
+  }
+
+  const content = lines.slice(startIdx, endIdx).join('\n').trim();
+  return { content, matchedTitle };
 }
 
 export async function GET() {
