@@ -21,11 +21,14 @@ interface ReadingState {
 export default function Home() {
   const [faceCameraOpen, setFaceCameraOpen] = useState(false);
   const [palmCameraOpen, setPalmCameraOpen] = useState(false);
-  // [MOD] chatOpen 用 lazy init 直接从 localStorage 读取，从首次渲染就拿到正确状态
+  // [MOD] chatOpen 用 lazy init 直接从 localStorage / URL hash 三重读取
   //       彻底消除 React 重挂载时 "chatOpen=false → 露出首页那一帧" 的 bug
+  //       【微信兼容】优先读 URL hash（即使 localStorage 被微信清空，hash 也保留）
   const [chatOpen, setChatOpen] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
     try {
+      // 微信兼容：URL hash 是最稳的持久化通道
+      if (window.location.hash === '#chat') return true;
       const raw = localStorage.getItem('xuanjige_chatOpen');
       if (raw) {
         const parsed = JSON.parse(raw) as { v: '1'; t: number } | null;
@@ -58,19 +61,64 @@ export default function Home() {
     }
     hydratedRef.current = true;
   }, []);
-  // chatOpen 变化时同步到 localStorage（恢复完成前禁止写入，避免初始 false 覆盖已存的 '1'）
+  // chatOpen 变化时同步到 localStorage + URL hash（恢复完成前禁止写入，避免初始 false 覆盖已存的 '1'）
   useEffect(() => {
     if (!hydratedRef.current) return; // 🚨 关键：首次恢复未完成前禁止写入
     try {
       if (chatOpen) {
         localStorage.setItem('xuanjige_chatOpen', JSON.stringify({ v: '1', t: Date.now() }));
+        // 【微信兼容】同步写入 URL hash，微信即使清空 localStorage 也能从 URL 恢复
+        if (window.location.hash !== '#chat') {
+          history.replaceState(null, '', '#chat');
+        }
       } else {
         localStorage.removeItem('xuanjige_chatOpen');
+        if (window.location.hash === '#chat') {
+          history.replaceState(null, '', window.location.pathname + window.location.search);
+        }
       }
     } catch {
       // ignore
     }
   }, [chatOpen]);
+
+  // 【微信兼容】页面从后台切回前台 / bfcache 恢复 / 路由 hash 变化时，重新校验 chatOpen 状态
+  useEffect(() => {
+    const restore = () => {
+      try {
+        if (window.location.hash === '#chat') {
+          setChatOpen(true);
+          return;
+        }
+        const raw = localStorage.getItem('xuanjige_chatOpen');
+        if (raw) {
+          const parsed = JSON.parse(raw) as { v: '1'; t: number } | null;
+          if (parsed && parsed.v === '1' && Date.now() - parsed.t < 24 * 60 * 60 * 1000) {
+            setChatOpen(true);
+          }
+        }
+      } catch {
+        // ignore
+      }
+    };
+    const onVisibility = () => {
+      if (!document.hidden) restore();
+    };
+    const onHashChange = () => {
+      // 微信内置浏览器右上角"关闭"或返回手势会改变 hash
+      setChatOpen(window.location.hash === '#chat');
+    };
+    window.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('pageshow', restore);
+    window.addEventListener('hashchange', onHashChange);
+    window.addEventListener('focus', restore);
+    return () => {
+      window.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pageshow', restore);
+      window.removeEventListener('hashchange', onHashChange);
+      window.removeEventListener('focus', restore);
+    };
+  }, []);
 
   const handleFaceCapture = useCallback((imageData: string) => {
     setReading({ type: 'face', image: imageData, mode: readingMode });
