@@ -255,6 +255,10 @@ export async function deleteTasksByBookName(bookName: string): Promise<void> {
 
 export async function addTombstone(kind: "id" | "name", value: string): Promise<void> {
   if (!value) return;
+  // 🔴🔴🔴 墓碑写入也默认禁用 — 删除一本书不会立墓碑，可以随时重新上传
+  if (process.env.ENABLE_TOMBSTONE !== 'true' && process.env.ENABLE_TOMBSTONE !== '1') {
+    return;
+  }
   const client = getSupabaseClient();
   const { error } = await client
     .from("book_task_tombstones")
@@ -265,9 +269,9 @@ export async function addTombstone(kind: "id" | "name", value: string): Promise<
 }
 
 export async function listTombstones(): Promise<{ deletedIds: Set<string>; deletedNames: Set<string> }> {
-  // 🔴 全局开关：DISABLE_TOMBSTONE=true 时永远返回空墓碑名单
-  // 用户不希望删过的书被永久封禁——设置此环境变量后，所有删除过的书都可以重新录入
-  if (process.env.DISABLE_TOMBSTONE === 'true' || process.env.DISABLE_TOMBSTONE === '1') {
+  // 🔴🔴🔴 墓碑机制默认彻底禁用 — 用户不希望删过的书被永久封禁
+  // 任何时候删除一本书都不会影响重新上传同名书；如需重新启用，设置环境变量 ENABLE_TOMBSTONE=true
+  if (process.env.ENABLE_TOMBSTONE !== 'true' && process.env.ENABLE_TOMBSTONE !== '1') {
     return { deletedIds: new Set<string>(), deletedNames: new Set<string>() };
   }
   const client = getSupabaseClient();
