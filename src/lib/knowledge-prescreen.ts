@@ -250,10 +250,10 @@ export async function prescreenAllBooks(
   const medium = hasHit.slice(highEnd, mediumEnd);
   const low = hasHit.slice(mediumEnd);
 
-  // 兜底抽样（从 0 命中的书里随机抽 N 本）
-  const shuffled = [...noHit].sort(() => Math.random() - 0.5);
-  const sample = shuffled.slice(0, Math.min(sampleCount, noHit.length));
-  const irrelevant = shuffled.slice(Math.min(sampleCount, noHit.length));
+  // 🔴🔴🔴 用户铁律：「一本书都不能漏」——所有 0 命中的书也全部进入 sample 兜底，绝不分类为 irrelevant
+  // 不再随机抽样，直接全量打包
+  const sample = noHit;
+  const irrelevant: BookScore[] = [];
 
   return {
     high,

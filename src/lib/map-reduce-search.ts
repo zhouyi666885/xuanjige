@@ -107,10 +107,12 @@ export async function mapReduceKnowledgeSearch(
   }
 
   // ------- 2. Map 阶段：分批 -------
+  // 🔴🔴🔴 用户铁律：所有书全量扫描，一本都不能漏，每本都全文吃透（不截断）
   const batches: MapBatch[] = [];
   await pushBatchesForGroup(prescreen.high, 'high', batches);
-  await pushBatchesForGroup(prescreen.medium, 'medium', batches);
-  await pushBatchesForGroup(prescreen.sample, 'sampling', batches);
+  await pushBatchesForGroup(prescreen.medium, 'high', batches);  // medium 升级为 high 待遇 = 全文
+  await pushBatchesForGroup(prescreen.low, 'high', batches);     // low 也进 Map = 全文
+  await pushBatchesForGroup(prescreen.sample, 'high', batches);  // sample 同样全文（虽然现在 sample 已废弃）
 
   if (batches.length === 0) {
     return {
@@ -208,13 +210,8 @@ async function pushBatchesForGroup(
       const fullText = await getBookFullTextAsync(item.bookName);
       if (!fullText) continue;
 
-      // 高相关：全文；中相关：取前 60K 字符；兜底：取前 20K 字符
-      const trimmed =
-        relevance === 'high'
-          ? fullText
-          : relevance === 'medium'
-            ? fullText.slice(0, 60_000)
-            : fullText.slice(0, 20_000);
+      // 🔴 用户铁律：每本书都要从第一个字到最后一个字全文吃透，禁止截断
+      const trimmed = fullText;
 
       const piece = `\n【${item.bookName}】\n${trimmed}\n`;
 
