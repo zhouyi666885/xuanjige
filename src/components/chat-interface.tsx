@@ -58,13 +58,44 @@ export function ChatInterface({ open, onClose }: ChatInterfaceProps) {
     setSheetOpen(open);
   }, [open]);
 
+  // 🚨修复"闪跳"bug：
+  // 1. behavior 改为 'auto'（瞬间滚动），避免 smooth 动画连续触发互相打断
+  // 2. 节流：流式 chunk 高频触发时，限制 150ms 内只滚动一次
+  // 3. 智能锁：用户主动向上滚动看历史时，不强制拉回底部
+  const isUserScrollingUpRef = useRef(false);
+  const lastScrollTimeRef = useRef(0);
+  const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const scrollToBottom = useCallback(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    // 用户在向上看历史，不打断
+    if (isUserScrollingUpRef.current) return;
+    const now = Date.now();
+    const elapsed = now - lastScrollTimeRef.current;
+    const doScroll = () => {
+      lastScrollTimeRef.current = Date.now();
+      messagesEndRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' });
+    };
+    if (elapsed >= 150) {
+      doScroll();
+    } else {
+      if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
+      scrollTimerRef.current = setTimeout(doScroll, 150 - elapsed);
+    }
   }, []);
 
   useEffect(() => {
     scrollToBottom();
+    return () => {
+      if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
+    };
   }, [messages, scrollToBottom]);
+
+  // 监听用户滚动行为：如果用户向上滚动且距底部 > 80px，暂停自动滚动；回到底部附近恢复
+  const handleMessagesScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    isUserScrollingUpRef.current = distanceFromBottom > 80;
+  }, []);
 
   const sendMessage = useCallback(async () => {
     if (!input.trim() || loading) return;
@@ -271,7 +302,7 @@ export function ChatInterface({ open, onClose }: ChatInterfaceProps) {
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div className="flex-1 overflow-y-auto p-4 space-y-4" onScroll={handleMessagesScroll}>
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-center">
             <div className="text-5xl mb-3">☯</div>
