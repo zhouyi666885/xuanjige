@@ -137,7 +137,7 @@ async function llmStreamToText(
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
     ],
-    { model: 'doubao-seed-2-0-pro-260215' },
+    { model: process.env.LLM_MODEL || 'doubao-seed-2-0-pro-260215' },
   );
   for await (const chunk of stream) {
     if (chunk.content) out += chunk.content.toString();

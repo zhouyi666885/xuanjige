@@ -744,7 +744,7 @@ ${bookContent.content}`;
     ];
 
     const stream = client.stream(messages, {
-      model: 'doubao-seed-2-0-pro-260215',
+      model: process.env.LLM_MODEL || 'doubao-seed-2-0-pro-260215',
       temperature: mode === 'professional' ? 0.4 : 0.7,
     });
 
