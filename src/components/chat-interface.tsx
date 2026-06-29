@@ -116,6 +116,23 @@ export function ChatInterface({ open, onClose }: ChatInterfaceProps) {
           : '',
     );
 
+    // rAF 节流：把同一帧内到达的所有 chunk 合并成一次 setState（最高 60fps）
+    let pendingFlush = false;
+    const flushAccumulated = (content: string) => {
+      if (pendingFlush) return;
+      pendingFlush = true;
+      requestAnimationFrame(() => {
+        pendingFlush = false;
+        setMessages(prev => {
+          const updated = [...prev];
+          updated[updated.length - 1] = { role: 'assistant', content };
+          return updated;
+        });
+      });
+    };
+
+    let accumulated = '';
+
     try {
       const endpoint = searchMode === 'fast' ? '/api/chat' : '/api/chat-deep';
       const response = await fetch(endpoint, {
@@ -147,7 +164,7 @@ export function ChatInterface({ open, onClose }: ChatInterfaceProps) {
       if (!reader) throw new Error('无法读取响应');
 
       const decoder = new TextDecoder();
-      let accumulated = '';
+      accumulated = '';
 
       while (true) {
         const { done, value } = await reader.read();
@@ -178,11 +195,7 @@ export function ChatInterface({ open, onClose }: ChatInterfaceProps) {
               const chunk = parsed.type === 'chunk' ? parsed.content : parsed.content;
               if (typeof chunk === 'string' && chunk.length > 0) {
                 accumulated += chunk;
-                setMessages(prev => {
-                  const updated = [...prev];
-                  updated[updated.length - 1] = { role: 'assistant', content: accumulated };
-                  return updated;
-                });
+                flushAccumulated(accumulated);
               }
             } catch {
               // Skip invalid JSON
@@ -198,6 +211,15 @@ export function ChatInterface({ open, onClose }: ChatInterfaceProps) {
         return updated;
       });
     } finally {
+      // 兜底：流结束后强制把最后一段 accumulated 写入 state，避免 rAF 漏帧
+      setMessages(prev => {
+        const updated = [...prev];
+        const last = updated[updated.length - 1];
+        if (last && last.role === 'assistant' && last.content !== accumulated && accumulated.length > 0) {
+          updated[updated.length - 1] = { role: 'assistant', content: accumulated };
+        }
+        return updated;
+      });
       setLoading(false);
       setProgressLabel('');
     }
