@@ -52,10 +52,18 @@ export function ChatInterface({ open, onClose }: ChatInterfaceProps) {
     }
   }, []);
 
-  // 🛡 持久化 messages：避免 iOS 键盘弹出/手势误触导致聊天上下文丢失
+  // 🛡 持久化 messages：避免 iOS 键盘弹出/手势误触/低内存回收 webview 导致聊天上下文丢失
+  // 🔧 改用 localStorage（sessionStorage 在 iOS Safari 低内存场景下会被清空）
+  const messagesHydratedRef = useRef(false);
   useEffect(() => {
     try {
-      const saved = sessionStorage.getItem('xuanjige_messages');
+      // 兼容历史 sessionStorage 数据
+      const legacy = sessionStorage.getItem('xuanjige_messages');
+      if (legacy && !localStorage.getItem('xuanjige_messages')) {
+        localStorage.setItem('xuanjige_messages', legacy);
+        sessionStorage.removeItem('xuanjige_messages');
+      }
+      const saved = localStorage.getItem('xuanjige_messages');
       if (saved) {
         const parsed = JSON.parse(saved) as Message[];
         if (Array.isArray(parsed) && parsed.length > 0) {
@@ -65,33 +73,43 @@ export function ChatInterface({ open, onClose }: ChatInterfaceProps) {
     } catch {
       // ignore
     }
+    messagesHydratedRef.current = true;
   }, []);
   // messages 变化时同步（限制最多保留最近 50 条避免溢出）
   useEffect(() => {
+    if (!messagesHydratedRef.current) return; // 🚨 首次恢复未完成前禁止写入
     try {
       if (messages.length > 0) {
         const toSave = messages.slice(-50);
-        sessionStorage.setItem('xuanjige_messages', JSON.stringify(toSave));
+        localStorage.setItem('xuanjige_messages', JSON.stringify(toSave));
       }
     } catch {
       // ignore（超过 5MB 等错误）
     }
   }, [messages]);
   // 🛡 持久化 input：用户打字到一半被打断也能恢复
+  const inputHydratedRef = useRef(false);
   useEffect(() => {
     try {
-      const saved = sessionStorage.getItem('xuanjige_input');
+      const legacy = sessionStorage.getItem('xuanjige_input');
+      if (legacy && !localStorage.getItem('xuanjige_input')) {
+        localStorage.setItem('xuanjige_input', legacy);
+        sessionStorage.removeItem('xuanjige_input');
+      }
+      const saved = localStorage.getItem('xuanjige_input');
       if (saved) setInput(saved);
     } catch {
       // ignore
     }
+    inputHydratedRef.current = true;
   }, []);
   useEffect(() => {
+    if (!inputHydratedRef.current) return; // 🚨 首次恢复未完成前禁止写入
     try {
       if (input) {
-        sessionStorage.setItem('xuanjige_input', input);
+        localStorage.setItem('xuanjige_input', input);
       } else {
-        sessionStorage.removeItem('xuanjige_input');
+        localStorage.removeItem('xuanjige_input');
       }
     } catch {
       // ignore

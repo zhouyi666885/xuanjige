@@ -18,14 +18,32 @@ export default function Home() {
   const [chatOpen, setChatOpen] = useState(false);
   const [reading, setReading] = useState<ReadingState | null>(null);
   const [readingMode, setReadingMode] = useState<'casual' | 'professional'>('casual');
-  // 🛡 标记是否已完成首次从 sessionStorage 的"恢复"（避免初始 false 把已存的 '1' 覆盖掉）
+  // 🛡 标记是否已完成首次从 localStorage 的"恢复"（避免初始 false 把已存的 '1' 覆盖掉）
   const hydratedRef = useRef(false);
 
-  // 🛡 持久化 chatOpen：避免 iOS 键盘弹出/PWA 手势误关闭导致跳回首页
-  // 挂载时从 sessionStorage 恢复（必须在"同步写入" useEffect 之前完成）
+  // 🛡 持久化 chatOpen：避免 iOS 键盘弹出/PWA 手势/低内存回收 webview 导致跳回首页
+  // 🔧 改用 localStorage（sessionStorage 在 iOS Safari 低内存场景下会被清空）
+  // 挂载时从 localStorage 恢复（必须在"同步写入" useEffect 之前完成）
   useEffect(() => {
     try {
-      if (sessionStorage.getItem('xuanjige_chatOpen') === '1') {
+      // 兼容历史 sessionStorage 数据
+      const legacy = sessionStorage.getItem('xuanjige_chatOpen');
+      if (legacy === '1') {
+        localStorage.setItem('xuanjige_chatOpen', '1');
+        sessionStorage.removeItem('xuanjige_chatOpen');
+      }
+      // 检查 24 小时内是否曾打开过聊天（超过 24h 视为新 session）
+      const raw = localStorage.getItem('xuanjige_chatOpen');
+      if (raw) {
+        const parsed = JSON.parse(raw) as { v: '1'; t: number } | null;
+        const now = Date.now();
+        // 仅当 24 小时内的标记才恢复
+        if (parsed && parsed.v === '1' && now - parsed.t < 24 * 60 * 60 * 1000) {
+          setChatOpen(true);
+        } else {
+          localStorage.removeItem('xuanjige_chatOpen');
+        }
+      } else if (legacy === '1') {
         setChatOpen(true);
       }
     } catch {
@@ -33,14 +51,14 @@ export default function Home() {
     }
     hydratedRef.current = true;
   }, []);
-  // chatOpen 变化时同步到 sessionStorage（恢复完成前禁止写入，避免初始 false 覆盖已存的 '1'）
+  // chatOpen 变化时同步到 localStorage（恢复完成前禁止写入，避免初始 false 覆盖已存的 '1'）
   useEffect(() => {
     if (!hydratedRef.current) return; // 🚨 关键：首次恢复未完成前禁止写入
     try {
       if (chatOpen) {
-        sessionStorage.setItem('xuanjige_chatOpen', '1');
+        localStorage.setItem('xuanjige_chatOpen', JSON.stringify({ v: '1', t: Date.now() }));
       } else {
-        sessionStorage.removeItem('xuanjige_chatOpen');
+        localStorage.removeItem('xuanjige_chatOpen');
       }
     } catch {
       // ignore
