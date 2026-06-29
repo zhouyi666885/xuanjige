@@ -265,6 +265,11 @@ export async function addTombstone(kind: "id" | "name", value: string): Promise<
 }
 
 export async function listTombstones(): Promise<{ deletedIds: Set<string>; deletedNames: Set<string> }> {
+  // 🔴 全局开关：DISABLE_TOMBSTONE=true 时永远返回空墓碑名单
+  // 用户不希望删过的书被永久封禁——设置此环境变量后，所有删除过的书都可以重新录入
+  if (process.env.DISABLE_TOMBSTONE === 'true' || process.env.DISABLE_TOMBSTONE === '1') {
+    return { deletedIds: new Set<string>(), deletedNames: new Set<string>() };
+  }
   const client = getSupabaseClient();
   const { data, error } = await client
     .from("book_task_tombstones")
