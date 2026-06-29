@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { CameraCapture } from '@/components/camera-capture';
 import { ChatInterface } from '@/components/chat-interface';
@@ -18,9 +18,11 @@ export default function Home() {
   const [chatOpen, setChatOpen] = useState(false);
   const [reading, setReading] = useState<ReadingState | null>(null);
   const [readingMode, setReadingMode] = useState<'casual' | 'professional'>('casual');
+  // 🛡 标记是否已完成首次从 sessionStorage 的"恢复"（避免初始 false 把已存的 '1' 覆盖掉）
+  const hydratedRef = useRef(false);
 
   // 🛡 持久化 chatOpen：避免 iOS 键盘弹出/PWA 手势误关闭导致跳回首页
-  // 挂载时从 sessionStorage 恢复
+  // 挂载时从 sessionStorage 恢复（必须在"同步写入" useEffect 之前完成）
   useEffect(() => {
     try {
       if (sessionStorage.getItem('xuanjige_chatOpen') === '1') {
@@ -29,9 +31,11 @@ export default function Home() {
     } catch {
       // ignore
     }
+    hydratedRef.current = true;
   }, []);
-  // chatOpen 变化时同步到 sessionStorage
+  // chatOpen 变化时同步到 sessionStorage（恢复完成前禁止写入，避免初始 false 覆盖已存的 '1'）
   useEffect(() => {
+    if (!hydratedRef.current) return; // 🚨 关键：首次恢复未完成前禁止写入
     try {
       if (chatOpen) {
         sessionStorage.setItem('xuanjige_chatOpen', '1');
