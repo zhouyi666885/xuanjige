@@ -40,7 +40,7 @@ export class Config {
     this.llmBaseUrl = normalizeBaseUrl(
       env('LLM_BASE_URL', 'https://dashscope.aliyuncs.com/compatible-mode/v1')
     );
-    this.llmModel = env('LLM_MODEL', 'qwen-plus');
+    this.llmModel = env('LLM_MODEL', 'deepseek-chat');
 
     // 搜索 Key 兼容三套命名：SEARCH_API_KEY / SERPER_API_KEY / BING_API_KEY
     // 谁有用谁（按 Serper → Bing → Tavily → local 优先级），都没填则降级到 local 公版书源（零成本零依赖）

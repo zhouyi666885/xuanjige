@@ -333,7 +333,7 @@ ${bookContent.content}
     let stream;
     try {
       stream = client.stream(messages, {
-        model: process.env.LLM_MODEL || 'doubao-seed-2-0-pro-260215',
+        model: process.env.LLM_MODEL || 'deepseek-chat',
         temperature: mode === 'professional' ? 0.4 : 0.7,
       });
     } catch (e) {

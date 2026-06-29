@@ -2457,7 +2457,7 @@ async function translateContent(taskId: string, content: string): Promise<string
           },
           { role: 'user', content: `翻译：\n\n${numberedText}` },
         ],
-        { model: process.env.LLM_MODEL || 'doubao-seed-2-0-pro-260215', temperature: 0.3 }
+        { model: process.env.LLM_MODEL || 'deepseek-chat', temperature: 0.3 }
       );
       
       let translated = response.content || '';
@@ -2777,7 +2777,7 @@ ${chunk}
             { role: 'system', content: '你是一位严谨的玄学学者，逐字逐句学习古籍。你的学习必须忠实原文、深入理解、建立关联、学以致用。绝不允许编造原文没有的内容。' },
             { role: 'user', content: learnPrompt },
           ],
-          { model: process.env.LLM_MODEL || 'doubao-seed-2-0-pro-260215' }
+          { model: process.env.LLM_MODEL || 'deepseek-chat' }
         );
 
         for await (const chunk of stream) {
