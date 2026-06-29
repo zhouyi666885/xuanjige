@@ -237,6 +237,34 @@ export async function POST(request: NextRequest) {
       // 知识库相关问题：只注入统计数据，跳过全文检索（避免超上下文窗口）
       const stats = await getDetailedBookStats();
       const realLearnStats = await getLearnedBookCount();
+
+      // 🔴 用户问"xxx 这本书在知识库吗"/"xxx 真的有 N 字吗"时，
+      // 必须列出用户消息里提到的书名所对应的所有书 + 字数 + 学习状态，
+      // 否则 AI 看不到具体书就会编"没有这种东西"。
+      let mentionedBooksInfo = '';
+      try {
+        const mentioned = findBooksByName(message);
+        if (mentioned.length > 0) {
+          const lines = mentioned.slice(0, 20).map(b => {
+            const status = getBookLearnStatus(b.name);
+            const charCount = (b.size || 0).toLocaleString();
+            let statusStr = '';
+            if (status) {
+              const total = status.totalChapters || 0;
+              const learned = status.learnedChapters || 0;
+              const pct = total > 0 ? Math.round((learned / total) * 100) : 0;
+              statusStr = `学习进度 ${learned}/${total} (${pct}%)`;
+            } else {
+              statusStr = '已录入，未开始学习';
+            }
+            return `  • 《${b.name}》—— ${charCount} 字 —— ${statusStr}`;
+          });
+          mentionedBooksInfo = `\n\n【🔴 用户消息中提到的具体书（必须如实回答这些书在知识库中存在！禁止说"没有"！）】\n${lines.join('\n')}\n\n⚠️ 如果用户问"xxx 真的有 N 字吗"、"知识库里有 xxx 吗"，必须照上表如实回答字数和状态，不许说"没有这种东西"！`;
+        }
+      } catch {
+        // 忽略匹配失败
+      }
+
       knowledgeBaseInfo = `\n\n【知识库实时统计信息——必须如实回答，禁止超出此处数字】
 📚 知识库已录入书籍总数：${stats.bookCount} 本（本地物理 .txt 文件数，不允许说"我读过 1280/20000/万卷"等任何超出此数的本数）
 📝 总字符数：${stats.totalChars.toLocaleString()} 字
@@ -259,7 +287,7 @@ ${stats.sampleBooks.map(b => `  《${b.name}》${b.chars.toLocaleString()}字 [$
 4. 书籍目录按原书叫法显示（卦就写卦、章就写章、卷就写卷）
 5. 知识库内容是AI回答的唯一来源，不允许编造知识库中没有的内容
 
-请根据以上实时统计数据如实回答用户关于知识库的问题。`;
+请根据以上实时统计数据如实回答用户关于知识库的问题。${mentionedBooksInfo}`;
     }
     
     // 检测书籍结构问题（多少章/卦/卷/学到哪了）
@@ -272,9 +300,9 @@ ${stats.sampleBooks.map(b => `  《${b.name}》${b.chars.toLocaleString()}字 [$
             const structure = status.chapterStructure || '章';
             const total = status.totalChapters || 0;
             const learned = status.learnedChapters || 0;
-            return `《${b}》：共${total}${structure}，已学习${learned}${structure}（学习进度${total > 0 ? Math.round(learned/total*100) : 0}%）`;
+            return `《${b.name}》：共${total}${structure}，已学习${learned}${structure}（学习进度${total > 0 ? Math.round(learned/total*100) : 0}%）`;
           }
-          return `《${b}》：未找到学习记录`;
+          return `《${b.name}》：未找到学习记录`;
         });
         bookStructureInfo = `\n\n【书籍结构信息】\n${bookInfos.join('\n')}\n\n请根据以上数据准确回答用户关于书籍结构的问题。`;
       }
